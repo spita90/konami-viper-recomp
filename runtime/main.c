@@ -334,7 +334,7 @@ int main(int argc, char **argv) {
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
-    int net_id = 0, net_port = 24700, net_buffer = 2;
+    int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 2;
     const char *net_peer = NULL, *net_join_to = NULL;
     int net_host_flag = 0;
     for (int i = 1; i < argc; i++) {
@@ -372,6 +372,7 @@ int main(int argc, char **argv) {
         if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
     }
     if (net_id < 0 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
+    net_set_port(net_port);
     /* a session handed over by the process before a restart comes first: --net-join is done */
     int net_rc = net_resume(net_buffer);
     if (net_rc) net_rc = net_rc < 0;

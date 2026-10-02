@@ -659,7 +659,11 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_COUNT };
+       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER,
+       T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
+       T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
+       T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
+       T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -671,6 +675,22 @@ static const char *const k_text[T_COUNT][2] = {
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
     { "TEXTURE FILTER", "FILTRO TEXTURE" },
+    { "MULTIPLAYER", "MULTIGIOCATORE" }, { "HOST A GAME", "OSPITA UNA PARTITA" },
+    { "JOIN A GAME", "UNISCITI A UNA PARTITA" }, { "CLOSE THE SESSION", "CHIUDI LA SESSIONE" },
+    { "LEAVE THE SESSION", "ESCI DALLA SESSIONE" }, { "SESSION CODE", "CODICE DELLA SESSIONE" },
+    { "SEND IT TO THE OTHER PLAYERS", "MANDALO AGLI ALTRI GIOCATORI" },
+    { "OPENING THE PORT ON THE ROUTER", "APERTURA DELLA PORTA SUL ROUTER" },
+    { "THE ROUTER DID NOT OPEN THE PORT", "IL ROUTER NON HA APERTO LA PORTA" },
+    { "OPEN UDP PORT 24700 BY HAND", "APRI A MANO LA PORTA UDP 24700" },
+    { "ANOTHER ROUTER OR THE PROVIDER IS IN BETWEEN", "IN MEZZO CI SONO UN ALTRO ROUTER O IL PROVIDER" },
+    { "ENTER THE SESSION CODE", "INSERISCI IL CODICE DELLA SESSIONE" },
+    { "ENTER TO JOIN", "INVIO PER UNIRTI" }, { "CTRL V OR CMD V TO PASTE", "CTRL V O CMD V PER INCOLLARE" },
+    { "JOINING", "CONNESSIONE IN CORSO" }, { "THE SESSION IS FULL", "LA SESSIONE E COMPLETA" },
+    { "NO ANSWER FROM THE HOST", "NESSUNA RISPOSTA DALL HOST" },
+    { "THE HOST CLOSED THE SESSION", "LA SESSIONE E STATA CHIUSA" },
+    { "INVALID CODE", "CODICE NON VALIDO" }, { "PLAYER", "GIOCATORE" }, { "YOU", "TU" },
+    { "FREE", "LIBERO" }, { "LINKED", "COLLEGATO" }, { "LOST", "PERSO" }, { "JOINING", "IN ARRIVO" },
+    { "IN THE SESSION AS PLAYER", "IN SESSIONE COME GIOCATORE" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
@@ -686,10 +706,10 @@ static int menu_language(void) {
 /* Shown over the attract mode. The frontend (host main thread) sends the actions and draws
  * the overlay; the guest thread updates the attract state. Plain ints are enough: each field
  * has a single writer. */
-enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS };
+enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS, SCREEN_NET, SCREEN_NET_JOIN };
 enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, N_PAGES };
-static const int k_main_items[] = { T_START, T_OPTIONS, T_CREDITS, T_QUIT };
-#define N_MAIN_ITEMS 4
+static const int k_main_items[] = { T_START, T_MULTIPLAYER, T_OPTIONS, T_CREDITS, T_QUIT };
+#define N_MAIN_ITEMS 5
 #define MENU_GRACE_FRAMES 300      /* the Konami logo gap in the attract loop lasts about 4 s */
 #define START_HOLD_FRAMES 12
 
@@ -760,6 +780,10 @@ int enh_menu_active(void) {
 }
 
 int enh_start_held(void) { return g_start_hold > 0; }
+
+/* link play: this game can take a START from the lobby (the menu would be up: the attract mode,
+ * with the menu's grace over its gaps, not starting, applying or paused) */
+int enh_lobby_ready(void) { return g_booted && enh_menu_active(); }
 int enh_quit_requested(void) { return g_quit; }
 
 /* the rows of an options page: game options of that page, or the port options (DISPLAY) */
@@ -793,6 +817,83 @@ static void page_change(int row, int dir) {
 static void leave_options(void) {
     g_screen = SCREEN_MAIN;
     if (g_opt_dirty) g_apply = 1;            /* the guest thread writes them and restarts */
+}
+
+/* ------------------------------------------------------------------ MULTIPLAYER (net.c) */
+/* MULTIPLAYER: host a session (its code to send to the others, the players), join one with its
+ * code (typed or pasted; the game then restarts with the ID the host gives). While a session is
+ * open this lobby replaces the main menu: START GAME (the race the others join, as on linked
+ * cabinets: the host only, with one other player at least; the others' games then press START
+ * by themselves) and CLOSE / LEAVE THE SESSION; leaving the lobby (Esc, back) closes or leaves it
+ * (a member then restarts with ID 1, back to the main menu).
+ * The menu only files requests; the guest thread carries them out (net_tick). */
+static volatile int g_net_cursor, g_code_bad;
+static char g_code[12];                     /* the code being typed, without spaces */
+static volatile int g_code_len;
+
+/* the items of the MULTIPLAYER screen for the state st */
+static int net_items(const NetStatus *st, int *items) {
+    int n = 0;
+    if (st->role == NET_HOST) { items[n++] = T_START; items[n++] = T_CLOSE_SESSION; return n; }   /* the lobby */
+    if (st->role == NET_MEMBER) { items[n++] = T_LEAVE_SESSION; return n; }
+    if (st->role == NET_OFF) { items[n++] = T_HOST; items[n++] = T_JOIN; }
+    items[n++] = T_BACK;
+    return n;
+}
+
+static void net_menu_action(int action) {
+    if (g_screen == SCREEN_NET_JOIN) {
+        if (action == ENH_BACK) g_screen = SCREEN_NET;
+        return;                                  /* the keys come through enh_code_key */
+    }
+    NetStatus st;
+    net_status(&st);
+    int items[4], n = net_items(&st, items);
+    if (g_net_cursor >= n) g_net_cursor = 0;
+    switch (action) {
+    case ENH_UP: g_net_cursor = (g_net_cursor + n - 1) % n; break;
+    case ENH_DOWN: g_net_cursor = (g_net_cursor + 1) % n; break;
+    case ENH_BACK:
+        if (st.role == NET_HOST || st.role == NET_MEMBER) { net_request_stop(); g_net_cursor = 0; }   /* out of the lobby */
+        else g_screen = SCREEN_MAIN;
+        break;
+    case ENH_OK:
+        switch (items[g_net_cursor]) {
+        case T_START:                           /* the host, with one player linked at least */
+            if (net_linked_count() < 1) break;
+            net_request_start();
+            g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES;
+            break;
+        case T_HOST: net_request_host(); g_net_cursor = 0; break;
+        case T_JOIN: g_code_len = 0; g_code[0] = 0; g_code_bad = 0; g_screen = SCREEN_NET_JOIN; break;
+        case T_CLOSE_SESSION: case T_LEAVE_SESSION: net_request_stop(); g_net_cursor = 0; break;
+        default: g_screen = SCREEN_MAIN; break;
+        }
+        break;
+    default: break;
+    }
+}
+
+int enh_code_entry_active(void) { return enh_menu_active() && g_screen == SCREEN_NET_JOIN; }
+int enh_text_input_active(void) { return enh_name_entry_active() || enh_code_entry_active(); }
+
+/* a key of the code entry: a character (typed or pasted), '\b' delete, '\r' join */
+void enh_code_key(int ch) {
+    if (!enh_code_entry_active()) return;
+    if (ch == '\b') { if (g_code_len) g_code[--g_code_len] = 0; g_code_bad = 0; return; }
+    if (ch == '\r') {
+        char hp[40];
+        if (net_code_decode(g_code, hp, sizeof hp)) { g_code_bad = 1; return; }
+        net_request_join(g_code);
+        g_screen = SCREEN_NET;
+        g_net_cursor = 0;
+        return;
+    }
+    if (ch >= 'a' && ch <= 'z') ch -= 32;
+    if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z')) || g_code_len >= 10) return;   /* spaces, dashes: skipped */
+    g_code[g_code_len] = (char)ch;
+    g_code[++g_code_len] = 0;
+    g_code_bad = 0;
 }
 
 void enh_menu_action(int action) {
@@ -829,13 +930,15 @@ void enh_menu_action(int action) {
         if (action == ENH_OK || action == ENH_BACK) g_screen = SCREEN_MAIN;
         return;
     }
+    if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { net_menu_action(action); return; }
     switch (action) {
     case ENH_UP: g_cursor = (g_cursor + N_MAIN_ITEMS - 1) % N_MAIN_ITEMS; break;
     case ENH_DOWN: g_cursor = (g_cursor + 1) % N_MAIN_ITEMS; break;
     case ENH_OK:
         if (g_cursor == 0) { g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES; }
-        else if (g_cursor == 1) { g_screen = SCREEN_OPTIONS; g_opt_cursor = 0; options_read(); }
-        else if (g_cursor == 2) g_screen = SCREEN_CREDITS;
+        else if (g_cursor == 1) { g_screen = SCREEN_NET; g_net_cursor = 0; }
+        else if (g_cursor == 2) { g_screen = SCREEN_OPTIONS; g_opt_cursor = 0; options_read(); }
+        else if (g_cursor == 3) g_screen = SCREEN_CREDITS;
         else g_quit = 1;
         break;
     default: break;
@@ -848,6 +951,10 @@ void nvram_save(void);
 
 static void menu_tick(void) {
     if (g_attract_frame && !g_booted) { g_booted = 1; options_read(); }
+    if (g_screen == SCREEN_MAIN && net_active() && !net_session_over() && g_net_id) {
+        g_screen = SCREEN_NET;                   /* a session is open: the lobby is the menu */
+        g_net_cursor = 0;
+    }
     /* START GAME presses START for a few frames (IN3 bit 4, active low); the SDL frontend
      * rewrites IN3 every loop and also honours enh_start_held(), headless runs rely on this */
     if (g_start_hold > 0) {
@@ -899,7 +1006,13 @@ static void menu_tick(void) {
  * restarts with ID 1, but only back in the attract mode, never in the middle of a race. The host
  * keeps ID 1 and just stops linking. */
 static void net_tick(void) {
+    net_requests(2);
     if (!net_active() || g_apply || g_returning) return;
+    if (net_start_signal() && enh_lobby_ready()) {    /* the host started: join its race */
+        net_start_taken();
+        g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES;
+        rt_log("enhanced: starting the race of the session\n");
+    }
     if (net_game_halted()) {                     /* NETWORK ERROR: the game waits for an attendant */
         if (net_session_over()) { unsetenv("RT_NET_SESSION"); setenv("RT_NET_DONE", "1", 1); }
         rt_log("enhanced: the game stopped on a link error, restarting\n");
@@ -949,8 +1062,79 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
     }
 }
 
+/* MULTIPLAYER and its code entry, over the dimmed attract */
+static void draw_net(uint32_t *fb, int w, int h) {
+    const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0, red = 0xff7070, green = 0x60ff60;
+    const int zs = FONT_SMALL, zm = FONT_MEDIUM, zl = FONT_LARGE;
+    NetStatus st;
+    net_status(&st);
+    dim_rect(fb, w, h, 0, 0, w, h, 200);
+    draw_centered(fb, w, h, zl, 24, T(T_MULTIPLAYER), yellow);
+    if (g_screen == SCREEN_NET_JOIN) {
+        char shown[16];
+        int n = 0, len = g_code_len, total = len > 7 ? 10 : 7;
+        for (int i = 0; i < total; i++) {               /* typed so far, dots for the rest */
+            if (i == total - (total == 7 ? 4 : 5)) shown[n++] = ' ';
+            shown[n++] = i < len ? g_code[i] : '.';
+        }
+        shown[n] = 0;
+        draw_centered(fb, w, h, zm, 104, T(T_ENTER_CODE), white);
+        draw_centered(fb, w, h, zl, 150, shown, yellow);
+        if (g_code_bad) draw_centered(fb, w, h, zm, 206, T(T_BAD_CODE), red);
+        draw_centered(fb, w, h, zs, 290, T(T_TO_JOIN), grey);
+        draw_centered(fb, w, h, zs, 290 + font_height(zs) + 6, T(T_TO_PASTE), grey);
+        return;
+    }
+    int y = 72;
+    if (st.role == NET_HOST) {
+        if (st.portmap == 2) {
+            draw_centered(fb, w, h, zs, y, T(T_SESSION_CODE), grey);
+            draw_centered(fb, w, h, zl, y + font_height(zs) + 4, st.code, yellow);
+            draw_centered(fb, w, h, zs, y + font_height(zs) + font_height(zl) + 8, T(st.problem[0] ? T_BEHIND_NAT : T_SHARE), st.problem[0] ? red : grey);
+        } else if (st.portmap == 3) {
+            draw_centered(fb, w, h, zm, y + 8, T(T_PORT_FAIL), red);
+            draw_centered(fb, w, h, zs, y + 8 + font_height(zm) + 6, T(T_PORT_HAND), grey);
+        } else draw_centered(fb, w, h, zm, y + 16, T(T_OPENING), white);
+    } else if (st.role == NET_JOINING) {
+        draw_centered(fb, w, h, zm, y + 8, T(T_JOINING), white);
+        draw_centered(fb, w, h, zm, y + 8 + font_height(zm) + 6, st.code, yellow);
+    } else if (st.role == NET_MEMBER) {
+        char buf[64];
+        snprintf(buf, sizeof buf, "%s %d", T(T_IN_SESSION), st.id);
+        draw_centered(fb, w, h, zm, y + 8, buf, white);
+        draw_centered(fb, w, h, zm, y + 8 + font_height(zm) + 6, st.code, yellow);
+    } else if (st.result && st.result != NET_RES_LEFT) {
+        int msg = st.result == NET_RES_FULL ? T_FULL : st.result == NET_RES_CLOSED ? T_CLOSED :
+                  st.result == NET_RES_PORT ? T_PORT_FAIL : st.result == NET_RES_BADCODE ? T_BAD_CODE : T_NO_ANSWER;
+        draw_centered(fb, w, h, zm, y + 16, T(msg), red);
+    }
+    if (st.role == NET_HOST || st.role == NET_MEMBER) {      /* the four cabinets */
+        int left = w / 2 - 150, right = w / 2 + 150, yy = 150;
+        for (int id = 1; id <= 4; id++, yy += font_height(zs) + 3) {
+            static const int state_text[] = { T_FREE, T_YOU, T_ARRIVING, T_LINKED, T_LOST };
+            int s = st.node[id];
+            char buf[32];
+            snprintf(buf, sizeof buf, "%s %d", T(T_PLAYER), id);
+            uint32_t col = s == NET_NODE_SELF ? yellow : s == NET_NODE_LINKED ? green : s == NET_NODE_LOST ? red : grey;
+            draw_text(fb, w, h, zs, left, yy, buf, col);
+            const char *v = T(state_text[s]);
+            draw_text(fb, w, h, zs, right - text_width(zs, v), yy, v, col);
+        }
+    }
+    /* the items at the bottom, below the list (150 + 4 small rows) */
+    int items[4], n = net_items(&st, items), step = font_height(zm) + 2;
+    int y0 = h - 12 - n * step, ymin = 150 + 4 * (font_height(zs) + 3) + 8;
+    if (y0 < ymin) y0 = ymin;
+    if (g_net_cursor >= n) g_net_cursor = 0;
+    for (int i = 0; i < n; i++) {
+        int off = items[i] == T_START && net_linked_count() < 1;   /* waiting for a player */
+        draw_centered(fb, w, h, zm, y0 + i * step, T(items[i]), off ? 0x707070 : i == g_net_cursor ? yellow : white);
+    }
+}
+
 static void draw_menu(uint32_t *fb, int w, int h) {
     const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0;
+    if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { draw_net(fb, w, h); return; }
     int lang = menu_language();
     if (g_screen == SCREEN_MAIN) {
         /* a compact panel on the left, so the attract stays visible */
@@ -1013,7 +1197,8 @@ static void draw_menu(uint32_t *fb, int w, int h) {
 }
 
 /* RT_ENH_MENU="seconds:action,..." (up/down/left/right/ok/back/esc) drives the menu in headless
- * tests; "name=TEXT" types TEXT in the name entry ('<' for DEL, '>' for END) */
+ * tests; "name=TEXT" types TEXT in the name entry ('<' for DEL, '>' for END), "code=TEXT" in the
+ * MULTIPLAYER code entry ('>' joins) */
 static void scripted_menu(void) {
     static const char *next = (const char *)-1;
     if (next == (const char *)-1) next = getenv("RT_ENH_MENU");
@@ -1025,6 +1210,11 @@ static void scripted_menu(void) {
         if (!strncmp(a, "esc", 3)) { enh_escape(); const char *c = strchr(a, ','); next = c ? c + 1 : NULL; continue; }
         if (!strncmp(a, "name=", 5)) {
             for (a += 5; *a && *a != ','; a++) enh_name_type(*a == '<' ? '\b' : *a == '>' ? '\r' : *a);
+            next = *a ? a + 1 : NULL;
+            continue;
+        }
+        if (!strncmp(a, "code=", 5)) {                 /* the MULTIPLAYER code entry; '>' joins */
+            for (a += 5; *a && *a != ','; a++) enh_code_key(*a == '>' ? '\r' : *a);
             next = *a ? a + 1 : NULL;
             continue;
         }

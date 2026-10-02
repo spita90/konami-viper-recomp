@@ -56,6 +56,7 @@ void hw_nvram_options_fix(uint8_t *nv);   /* recomputes the TEST MODE option blo
 extern int g_enhanced;
 void enh_on_frame(const uint32_t *frame, int w, int h);
 int enh_in_attract(void);
+int enh_lobby_ready(void);                             /* link play: a START from the lobby is taken now */
 enum { ENH_UP, ENH_DOWN, ENH_LEFT, ENH_RIGHT, ENH_OK, ENH_BACK };
 void enh_init(const char *work, const char *settings); /* fonts, port settings */
 int enh_texture_filter(void); /* 0 original, 1 nearest */
@@ -65,6 +66,9 @@ int enh_want_window(int *r);                           /* both modes: x, y, w, h
 void enh_set_window(const int *r);
 int enh_menu_active(void);                             /* attract menu on screen */
 void enh_menu_action(int action);
+int enh_code_entry_active(void);                       /* MULTIPLAYER: typing a session code */
+int enh_text_input_active(void);                       /* name entry or code entry: SDL text input on */
+void enh_code_key(int ch);                             /* a character, '\b' delete, '\r' join */
 int enh_start_held(void);                              /* START GAME: hold START for the game */
 int enh_quit_requested(void);
 void enh_draw_overlay(uint32_t *fb, int w, int h);     /* menu over a 0xAARRGGBB frame */
@@ -111,10 +115,31 @@ int net_session_over(void);                            /* left, closed or lost *
 void net_leave(void);
 void net_off(void);
 void net_shutdown(void);                               /* at exit: LEAVE / CLOSE */
+#define NET_DEFAULT_PORT 24700                 /* IANA-unassigned block 24681-24726 */
+/* link play, for the menu: a snapshot of the state, and requests carried out on the guest thread */
+enum { NET_OFF, NET_HOST, NET_JOINING, NET_MEMBER };
+enum { NET_RES_NONE, NET_RES_LEFT, NET_RES_FULL, NET_RES_CLOSED, NET_RES_NOANSWER, NET_RES_PORT, NET_RES_BADCODE };
+enum { NET_NODE_NONE, NET_NODE_SELF, NET_NODE_JOINING, NET_NODE_LINKED, NET_NODE_LOST };
+typedef struct {
+    int role, id, over, result, portmap;    /* portmap: 0 idle 1 working 2 open 3 failed */
+    char code[32], problem[160];
+    int node[5];                            /* by NETWORK ID */
+} NetStatus;
+void net_status(NetStatus *st);
+void net_request_host(void);
+void net_request_join(const char *code);
+void net_request_stop(void);
+void net_request_start(void);                          /* the host starts the race for all */
+int net_start_signal(void);                            /* a member: the host started it (pending) */
+void net_start_taken(void);
+int net_linked_count(void);
+void net_requests(int buffer);
+void net_set_port(int port);                           /* the menu's host port (--net-port) */
 int net_code_encode(const char *ip, int port, char *out, size_t n);   /* session code XXXXX-XXXXX */
 int net_code_decode(const char *code, char *hostport, size_t n);
 void portmap_start(int port);                          /* portmap.c: the host's port on the router */
-void portmap_stop(void);
+void portmap_stop(void);                               /* never waits: the job cleans up by itself */
+void portmap_stop_wait(int wait);                      /* at exit: waits up to 1.5 s for the removal */
 int portmap_status(char *pub, int publen, char *problem, int problemlen);   /* 0 idle 1 working 2 open 3 failed */
 void rt_restart(void);                                 /* re-executes the program (same arguments) */
 const uint8_t *voodoo_vram(uint32_t *size);          /* VRAM, to read (no sync with the renderer) */

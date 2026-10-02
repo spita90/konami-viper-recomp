@@ -19,14 +19,19 @@
  *    it (RT_NET_SESSION="id,token,host:port" in the environment of the new process).
  *  - JOIN (token): the restarted node comes back; the host knows it by the token, whatever its
  *    new address, and from then on takes its data. A reserved ID waits 60 s for its node.
+ *  - START (host to all, from the lobby): the members' games press START, so they join the race
+ *    the host starts. The host repeats it every 0.5 s for 10 s to each member that was ready when
+ *    it started and whose data says it is still waiting in its lobby (flags bit 0; one that joins
+ *    later waits for the next race), so a lost datagram or a START the game ignored
+ *    is simply repeated; a member takes at most one every 2 s, and keeps one pending for 10 s.
  *  - LEAVE frees the ID; CLOSE (host to all) ends the session. A member silent for 30 s loses its
  *    ID; a host silent for 30 s ends the session (a dropped connection may come back before).
  *    When the session is over (left, closed, lost) the enhanced mode restarts the game with ID 1
  *    once it is back in the attract mode.
  *
  * The host's port is opened on its router automatically (portmap.c), which also tells the public
- * address; the session code is that address and port (net_code_encode), so joining takes one
- * code and no server.
+ * address; the session code is that address and port (net_code_encode: 7 characters for the
+ * default port), so joining takes one code and no server.
  *
  * The games stop a linked race with NETWORK ERROR as soon as a node is missing, which on a
  * cable was a fault but on the Internet is a dropped Wi-Fi packet burst. So a drop is concealed:
@@ -36,7 +41,8 @@
  * frozen ghost until the game is back in the attract mode, where a node may leave. If the game
  * stops the link anyway (no LANC cycle for 5 s: NETWORK ERROR), the enhanced mode restarts it.
  *
- * Datagrams: data "VPL1", sender ID, 0, 16-bit length, 32-bit sequence, then the slot with zero
+ * Datagrams: data "VPL1", sender ID, flags (bit 0: the game is in the attract mode, ready for a
+ * START from the lobby), 16-bit length, 32-bit sequence, then the slot with zero
  * runs coded as 0x00 count (1-255); control "VPLC", type, ID, 0, 0, 32-bit token. Big-endian.
  *
  * Tests: RT_NET_DELAY="ms,jitter_ms,loss%" holds the outgoing datagrams for ms plus a uniform
@@ -44,7 +50,7 @@
  * RT_NET_OUTAGE="t,s[,t,s...]" drops every datagram, both ways, for s seconds from emulated time
  * t (a network drop); RT_NET_WATCH=addr logs every change of the two 32-bit guest words at addr
  * (e.g. a game's link counters: GTI Club 2 0x859070).
- * The default UDP port, 24700, is in the IANA-unassigned block 24681-24726.
+ * The default UDP port, NET_DEFAULT_PORT 24700, is in the IANA-unassigned block 24681-24726.
  */
 #include "runtime.h"
 #include "game_config.h"
@@ -64,6 +70,7 @@
 #define SILENT_CYCLES 1800          /* ~30 s without packets: a member or the host is gone (a LEAVE is at once) */
 #define RESERVE_CYCLES 3600         /* ~60 s for a welcomed node to restart and come back */
 #define JOIN_EVERY 30               /* JOIN repeated every ~0.5 s until WELCOME */
+#define JOIN_TIMEOUT 600            /* ~10 s without any answer to a first JOIN: no host there */
 #define CONCEAL_EVERY 4             /* no new packet for 4 cycles (2 game frames): advance the sequence */
 #define LOST_CYCLES 150             /* ~2.5 s without packets: the node is lost (a ghost, or dropped) */
 #define RACE_OVER_CYCLES 600        /* ~10 s: a ghost in the race is marked as having finished */
@@ -71,20 +78,25 @@
 #define HALT_FRAMES 300             /* ~5 s of frames with no LANC cycle: the game stopped the link */
 
 enum { ROLE_OFF, ROLE_HOST, ROLE_JOINING, ROLE_MEMBER };
-enum { C_JOIN = 1, C_WELCOME, C_FULL, C_LEAVE, C_CLOSE };
+enum { C_JOIN = 1, C_WELCOME, C_FULL, C_LEAVE, C_CLOSE, C_START };
 enum { M_FREE, M_RESERVED, M_ACTIVE };
 
 typedef struct { struct sockaddr_storage a; socklen_t len; } Addr;
 
 int g_net_id;                       /* NETWORK ID 1-4 of this node, 0 = no link (the game uses 1) */
-static int g_role, g_sock = -1, g_buffer = 2, g_over, g_restart, g_welcomed, g_cycles;
+static int g_role, g_sock = -1, g_buffer = 2, g_over, g_restart, g_welcomed, g_cycles, g_port;
+static int g_start_signal;                   /* START received (member) */
+static double g_start_time = -100;           /* when (wall clock: the host's joining period is) */
+static double g_start_until;                 /* host: sending START until then */
+static int g_start_mask;                     /* host: to the members that were ready at that START */
+static int g_menu_port = NET_DEFAULT_PORT;   /* the port the menu hosts at (--net-port) */
 static uint32_t g_seq, g_token;
 static Addr g_hostaddr;             /* member: the host */
 static int g_host_silent;
 static char g_hostname[300];
 
 static struct {                     /* host: the members, by ID */
-    int state, silent;
+    int state, silent, ready;
     uint32_t token;
     Addr addr;
 } g_mem[NODES + 1];
@@ -245,18 +257,26 @@ static int open_socket(int port) {
 }
 
 /* ------------------------------------------------------------------ session codes */
-/* IPv4 address and port (48 bits) plus a 2-bit check, in Crockford's base32 (no I, L, O, U):
- * 10 characters, shown as XXXXX-XXXXX; reading folds lowercase, O to 0, I and L to 1 */
+/* The host's IPv4 address and port in Crockford's base32 (no I, L, O, U), with a check against
+ * typing errors: 7 characters (32 bits of address, 3 of check) for the default port, 10 for any
+ * other (48 bits, 2 of check); shown as XXX XXXX / XXXXX XXXXX. Reading folds lowercase, O to 0,
+ * I and L to 1, and skips spaces and dashes. */
 static const char k_b32[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+static unsigned code_check(unsigned a, unsigned b, unsigned c, unsigned d, unsigned port) {
+    return (a * 3 + b * 5 + c * 7 + d * 11 + (port >> 8) * 13 + (port & 255) * 17) % 251;
+}
 
 int net_code_encode(const char *ip, int port, char *out, size_t n) {
     unsigned a, b, c, d;
     if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) != 4 || a > 255 || b > 255 || c > 255 || d > 255 || port < 1 || port > 65535 || n < 12) return -1;
-    uint64_t v = (uint64_t)a << 40 | (uint64_t)b << 32 | c << 24 | d << 16 | (unsigned)port;
-    v = v << 2 | ((a + b + c + d + (unsigned)(port >> 8) + (unsigned)(port & 255)) & 3);
-    for (int i = 0, o = 0; i < 10; i++) {
-        if (i == 5) out[o++] = '-';
-        out[o++] = k_b32[(v >> (45 - 5 * i)) & 31];
+    uint64_t v = (uint64_t)a << 24 | b << 16 | c << 8 | d;
+    int k = port == NET_DEFAULT_PORT ? 7 : 10;
+    if (k == 7) v = v << 3 | (code_check(a, b, c, d, (unsigned)port) & 7);
+    else v = (v << 16 | (unsigned)port) << 2 | (code_check(a, b, c, d, (unsigned)port) & 3);
+    for (int i = 0, o = 0; i < k; i++) {
+        if (i == k - (k == 7 ? 4 : 5)) out[o++] = ' ';
+        out[o++] = k_b32[(v >> (5 * (k - 1 - i))) & 31];
         out[o] = 0;
     }
     return 0;
@@ -275,10 +295,12 @@ int net_code_decode(const char *code, char *hostport, size_t n) {
         if (!q || ++k > 10) return -1;
         v = v << 5 | (uint64_t)(q - k_b32);
     }
-    if (k != 10) return -1;
-    unsigned a = (unsigned)(v >> 42) & 255, b = (unsigned)(v >> 34) & 255, c = (unsigned)(v >> 26) & 255,
-             d = (unsigned)(v >> 18) & 255, port = (unsigned)(v >> 2) & 0xffff;
-    if (((a + b + c + d + (port >> 8) + (port & 255)) & 3) != (v & 3) || !port) return -1;
+    unsigned port, chk;
+    if (k == 7) { port = NET_DEFAULT_PORT; chk = (unsigned)v & 7; v >>= 3; }
+    else if (k == 10) { chk = (unsigned)v & 3; v >>= 2; port = (unsigned)v & 0xffff; v >>= 16; }
+    else return -1;
+    unsigned a = (unsigned)(v >> 24) & 255, b = (unsigned)(v >> 16) & 255, c = (unsigned)(v >> 8) & 255, d = (unsigned)v & 255;
+    if ((code_check(a, b, c, d, port) & (k == 7 ? 7u : 3u)) != chk || !port) return -1;
     snprintf(hostport, n, "%u.%u.%u.%u:%u", a, b, c, d, port);
     return 0;
 }
@@ -299,12 +321,22 @@ static int resolve(const char *peer, Addr *out) {
 
 static void set_buffer(int buffer) { if (buffer > 0 && buffer < QUEUE) g_buffer = buffer; }
 
+/* a new session (host or member) starts from a clean state: an earlier one may have ended */
+static void session_reset(void) {
+    g_over = g_restart = g_welcomed = g_host_silent = g_start_signal = 0;
+    g_start_until = 0;
+    memset(g_mem, 0, sizeof g_mem);
+    memset(g_node, 0, sizeof g_node);
+}
+
 /* the host: NETWORK ID 1, at UDP port `port` */
 int net_host(int port, int buffer) {
     set_buffer(buffer);
+    session_reset();
     if (open_socket(port)) return -1;
     g_role = ROLE_HOST;
     g_net_id = 1;
+    g_port = port;
     char s[64];
     snprintf(s, sizeof s, "1,0,%d", port);           /* a restart (new settings) keeps hosting */
     setenv("RT_NET_SESSION", s, 1);
@@ -317,6 +349,7 @@ int net_host(int port, int buffer) {
  * with it), id 2-4 with the token of an earlier WELCOME (or 0: tests) is a node with its ID */
 int net_join(const char *peer, int port, int id, uint32_t token, int buffer) {
     set_buffer(buffer);
+    session_reset();
     if (resolve(peer, &g_hostaddr) || open_socket(port)) return -1;
     snprintf(g_hostname, sizeof g_hostname, "%s", peer);
     g_role = id ? ROLE_MEMBER : ROLE_JOINING;
@@ -343,9 +376,13 @@ int net_active(void) { return g_role != ROLE_OFF; }
 int net_restart_wanted(void) { return g_restart; }     /* joined: restart with the new ID */
 int net_session_over(void) { return g_over; }          /* left, closed or lost: back to ID 1 */
 
-static void end_session(const char *why) {
+/* how the last session ended, for the menu (kept after net_off) */
+static volatile int g_result;
+
+static void end_session_r(const char *why, int result) {
     if (g_over) return;
     g_over = 1;
+    g_result = result;
     rt_log("net: session over (%s)\n", why);
 }
 
@@ -355,12 +392,12 @@ void net_leave(void) {
         for (int id = 2; id <= NODES; id++) { if (g_mem[id].state) control(&g_mem[id].addr, C_CLOSE, id, 0); }
     else if (g_role != ROLE_OFF) control(&g_hostaddr, C_LEAVE, g_net_id, g_token);
     send_due();
-    end_session("left");
+    end_session_r("left", NET_RES_LEFT);
 }
 
 void net_shutdown(void) {
     if (g_sock >= 0 && !g_over) net_leave();
-    portmap_stop();
+    portmap_stop_wait(1);                           /* at exit: let the job remove the mapping */
 }
 
 /* the host after its session: no link any more (it keeps NETWORK ID 1, no restart needed) */
@@ -413,8 +450,13 @@ static void member_control(int type, int id, uint32_t token) {
         g_token = token;
     } else if (type == C_FULL) {
         rt_log("net: the session is full\n");
-        end_session("full");
-    } else if (type == C_CLOSE) end_session("closed by the host");
+        end_session_r("full", NET_RES_FULL);
+    } else if (type == C_CLOSE) end_session_r("closed by the host", NET_RES_CLOSED);
+    else if (type == C_START && g_role == ROLE_MEMBER && now_s() - g_start_time > 2) {
+        g_start_time = now_s();
+        g_start_signal = 1;
+        rt_log("net: the host starts the race\n");
+    }
 }
 
 static void receive(uint8_t *ram) {
@@ -437,6 +479,7 @@ static void receive(uint8_t *ram) {
         if (g_role == ROLE_HOST) {                  /* only from the member holding that ID */
             if (g_mem[id].state != M_ACTIVE || !same_addr(&g_mem[id].addr, &from)) continue;
             g_mem[id].silent = 0;
+            g_mem[id].ready = buf[5] & 1;
             for (int i = 2; i <= NODES; i++)        /* relay */
                 if (i != id && g_mem[i].state == M_ACTIVE) send_to(&g_mem[i].addr, buf, (int)n);
         } else {
@@ -459,7 +502,8 @@ static void timers(void) {
                 rt_log("net: NETWORK ID %d is gone\n", id);
                 g_mem[id].state = M_FREE;
             }
-    } else if (!g_over && ++g_host_silent > SILENT_CYCLES) end_session("no answer from the host");
+    } else if (!g_over && ++g_host_silent > (g_role == ROLE_JOINING ? JOIN_TIMEOUT : SILENT_CYCLES))
+        end_session_r("no answer from the host", NET_RES_NOANSWER);
     /* JOIN until WELCOME; a member also asks again when the host goes quiet (it restarted) */
     if ((g_role == ROLE_JOINING || (g_role == ROLE_MEMBER && (!g_welcomed || g_host_silent > JOIN_EVERY * 2)))
         && !g_over && !g_restart && g_cycles % JOIN_EVERY == 1)
@@ -488,11 +532,20 @@ void net_cycle(uint8_t *ram) {
     if (g_sock < 0) return;
     g_cycles++;
     timers();
+    /* START every 0.5 s for 10 s to every member still waiting in its lobby: a lost datagram, or a
+     * START its game ignored, is just repeated; a member that has started says so (ready 0) */
+    if (g_role == ROLE_HOST && g_start_until > 0 && g_cycles % 30 == 0) {
+        if (now_s() > g_start_until) g_start_until = 0;
+        else
+            for (int id = 2; id <= NODES; id++)
+                if ((g_start_mask >> id & 1) && g_mem[id].state == M_ACTIVE && g_mem[id].ready)
+                    control(&g_mem[id].addr, C_START, id, 0);
+    }
     if (!g_over && (g_role == ROLE_HOST || (g_role == ROLE_MEMBER && g_welcomed))) {
         uint8_t pkt[12 + 2 * SLOT];
         int len = encode(ram + (g_net_id - 1) * SLOT, pkt + 12);
         memcpy(pkt, "VPL1", 4);
-        pkt[4] = (uint8_t)g_net_id; pkt[5] = 0;
+        pkt[4] = (uint8_t)g_net_id; pkt[5] = (uint8_t)(enh_lobby_ready() ? 1 : 0);
         pkt[6] = (uint8_t)(len >> 8); pkt[7] = (uint8_t)len;
         put32(pkt + 8, ++g_seq);
         if (g_role == ROLE_HOST) {
@@ -551,7 +604,7 @@ void net_cycle(uint8_t *ram) {
         uint8_t *slot = ram + (id - 1) * SLOT;
         memcpy(slot, nd->last, SLOT);
         if (nwk) slot[3] = nd->out_seq;
-        if (nd->lost && nwk && GAME_NET_GHOST_FLAGS) {     /* a ghost: leave the race as the game allows */
+        if (GAME_NET_GHOST_FLAGS != 0 && nd->lost && nwk) {     /* a ghost: leave the race as the game allows */
             uint32_t w = get32(slot + GAME_NET_GHOST_FLAGS);
             int mode = (int)(w >> GAME_NET_GHOST_MODE_SHIFT) & 15, sub = (int)(w >> GAME_NET_GHOST_SUB_SHIFT) & 15;
             if (mode == GAME_NET_GHOST_MODE_GAME && sub == GAME_NET_GHOST_SUB_RACE && nd->idle > RACE_OVER_CYCLES)
@@ -559,5 +612,78 @@ void net_cycle(uint8_t *ram) {
             if (mode == GAME_NET_GHOST_MODE_GAME && sub >= GAME_NET_GHOST_SUB_SETUP_LO && sub <= GAME_NET_GHOST_SUB_SETUP_HI)
                 put32(slot + GAME_NET_GHOST_SOLO_OFF, get32(slot + GAME_NET_GHOST_SOLO_OFF) | GAME_NET_GHOST_SOLO_BITS);
         }
+    }
+}
+
+/* ------------------------------------------------------------------ the menu (enhanced.c) */
+/* The menu runs on the frontend thread: it only files requests, which the guest thread carries
+ * out (net_requests, every frame), and reads a snapshot of the state. */
+static int g_req;                           /* 1 host, 2 join, 3 stop / leave, 4 start (atomic) */
+static char g_req_code[32];
+
+void net_request_host(void) { g_result = 0; __atomic_store_n(&g_req, 1, __ATOMIC_RELEASE); }
+void net_request_join(const char *code) { snprintf(g_req_code, sizeof g_req_code, "%s", code); g_result = 0; __atomic_store_n(&g_req, 2, __ATOMIC_RELEASE); }
+void net_request_stop(void) { __atomic_store_n(&g_req, 3, __ATOMIC_RELEASE); }
+void net_request_start(void) { __atomic_store_n(&g_req, 4, __ATOMIC_RELEASE); }
+
+/* a member: 1 while the host's START is pending (for ~10 s, inside the game's joining period);
+ * net_start_taken() once the game has pressed START */
+int net_start_signal(void) {
+    if (g_start_signal && now_s() - g_start_time > 10) g_start_signal = 0;
+    return g_start_signal;
+}
+void net_start_taken(void) { g_start_signal = 0; }
+
+/* the members linked and ready (in the attract mode) now: the host starts with one at least */
+static int node_ready(int id) {
+    return g_node[id].seen && !g_node[id].lost && (g_role != ROLE_HOST || (g_mem[id].state == M_ACTIVE && g_mem[id].ready));
+}
+int net_linked_count(void) {
+    int n = 0;
+    for (int id = 1; id <= NODES; id++)
+        if (id != g_net_id && node_ready(id)) n++;
+    return n;
+}
+
+void net_set_port(int port) { g_menu_port = port; }
+
+void net_requests(int buffer) {
+    int r = __atomic_exchange_n(&g_req, 0, __ATOMIC_ACQ_REL);
+    if (!r) return;
+    if (r == 1 && g_role == ROLE_OFF) { if (net_host(g_menu_port, buffer)) g_result = NET_RES_PORT; }
+    else if (r == 2 && g_role == ROLE_OFF) { if (net_join(g_req_code, 0, 0, 0, buffer)) g_result = NET_RES_BADCODE; }
+    else if (r == 3 && g_role != ROLE_OFF) net_leave();
+    else if (r == 4 && g_role == ROLE_HOST) {         /* the race of the members ready now; later ones wait */
+        g_start_mask = 0;
+        for (int id = 2; id <= NODES; id++)
+            if (node_ready(id)) g_start_mask |= 1 << id;
+        g_start_until = now_s() + 10;
+        rt_log("net: starting the race for the session (members %s%s%s)\n", g_start_mask & 4 ? "2 " : "",
+               g_start_mask & 8 ? "3 " : "", g_start_mask & 16 ? "4" : "");
+    }
+}
+
+void net_status(NetStatus *st) {
+    memset(st, 0, sizeof *st);
+    st->role = g_role == ROLE_HOST ? NET_HOST : g_role == ROLE_MEMBER ? NET_MEMBER : g_role == ROLE_JOINING ? NET_JOINING : NET_OFF;
+    st->id = g_net_id;
+    st->over = g_over;
+    st->result = g_result;
+    if (g_role == ROLE_HOST) {
+        char pub[64];
+        st->portmap = portmap_status(pub, sizeof pub, st->problem, sizeof st->problem);
+        if (st->portmap == 2 && net_code_encode(pub, g_port, st->code, sizeof st->code)) st->code[0] = 0;
+    } else if (g_role != ROLE_OFF) {               /* a member: the host's code, written out */
+        char hp[300], ip[64];
+        if (net_code_decode(g_hostname, hp, sizeof hp)) snprintf(hp, sizeof hp, "%s", g_hostname);
+        const char *colon = strrchr(hp, ':');
+        snprintf(ip, sizeof ip, "%.*s", colon ? (int)(colon - hp) : 0, hp);
+        if (!colon || net_code_encode(ip, atoi(colon + 1), st->code, sizeof st->code))
+            snprintf(st->code, sizeof st->code, "%s", g_hostname);
+    }
+    for (int id = 1; id <= NODES; id++) {
+        if (id == g_net_id) st->node[id] = NET_NODE_SELF;
+        else if (g_role == ROLE_HOST && g_mem[id].state == M_RESERVED) st->node[id] = NET_NODE_JOINING;
+        else if (g_node[id].seen) st->node[id] = g_node[id].lost ? NET_NODE_LOST : node_ready(id) ? NET_NODE_LINKED : NET_NODE_JOINING;
     }
 }

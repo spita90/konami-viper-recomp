@@ -327,8 +327,8 @@ int frontend_run(int scale, int scale_explicit) {
     while (running) {
         /* text input only for the name entry: SDL starts it with the video, and while it is on
          * macOS opens its accent picker on a held letter key (W, A, S, D while driving) */
-        if (enh_name_entry_active() != text_on) {
-            text_on = enh_name_entry_active();
+        if (enh_text_input_active() != text_on) {
+            text_on = enh_text_input_active();
             if (text_on) SDL_StartTextInput(); else SDL_StopTextInput();
         }
         if (enh_want_fullscreen() != fs_applied) {      /* enhanced mode: DISPLAY option */
@@ -346,7 +346,17 @@ int frontend_run(int scale, int scale_explicit) {
                 }
                 break;
             case SDL_KEYDOWN:
-                if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
+                if (enh_code_entry_active()) {           /* MULTIPLAYER code: the letters type */
+                    SDL_Keycode k = ev.key.keysym.sym;
+                    if (k == SDLK_ESCAPE) enh_menu_action(ENH_BACK);
+                    else if (k == SDLK_BACKSPACE) enh_code_key('\b');
+                    else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) enh_code_key('\r');
+                    else if (k == SDLK_v && (ev.key.keysym.mod & (KMOD_CTRL | KMOD_GUI))) {
+                        char *clip = SDL_GetClipboardText();
+                        for (const char *p = clip; p && *p; p++) enh_code_key((unsigned char)*p);
+                        SDL_free(clip);
+                    }
+                } else if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     if (!ev.key.repeat) enh_menu_action(menu_key(ev.key.keysym.sym));
                 } else if (ev.key.keysym.sym == SDLK_ESCAPE) {
                     if (!ev.key.repeat && !enh_escape()) running = 0;   /* enhanced: pause / back */
@@ -367,7 +377,9 @@ int frontend_run(int scale, int scale_explicit) {
                 break;
             case SDL_KEYUP: key(ev.key.keysym.sym, 0); break;
             case SDL_TEXTINPUT:
-                if (enh_name_entry_active() && !enh_paused())
+                if (enh_code_entry_active() && !(SDL_GetModState() & (KMOD_CTRL | KMOD_GUI)))
+                    for (const char *p = ev.text.text; *p; p++) enh_code_key((unsigned char)*p);
+                else if (enh_name_entry_active() && !enh_paused())
                     for (const char *p = ev.text.text; *p; p++) enh_name_type((unsigned char)*p);
                 break;
             case SDL_CONTROLLERDEVICEADDED:
