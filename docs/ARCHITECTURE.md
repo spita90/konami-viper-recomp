@@ -473,10 +473,15 @@ An optional layer on top of the faithful port, in development. Everything is gat
   - GTI Club 2's letters texture has no digits. The digits in the same style (the SELECT A CAR
     countdown) are a second texture of the same file (VRAM `0x5E400`, file offset `0x5A0B4`), with
     rows matching the three letter sizes; the profile loads it as a second page.
-- **Port settings:** `<binary>_settings.ini` next to the executable (`--settings FILE` to
-  override), with `fullscreen` and `show_fps`. These are options of the port, not of the game;
-  the game's settings stay in its NVRAM. The OPTIONS page edits them (left and right, or OK), and
-  the frontend applies the display mode. F11 also updates the setting.
+- **Port settings:** `<binary>_enhanced_settings.ini` next to the executable (`--settings FILE`
+  to override), with `fullscreen` and `show_fps`, and the window position and size
+  (`window_x`, `window_y`, `window_width`, `window_height`). The classic mode has its own
+  `<binary>_settings.ini`, with the window only, as each mode has its own NVRAM.
+  `texture_filter = 1` (NEAREST) clears the magnification filter bit (bit 2) of textureMode in
+  `rasterizer_params::compute`, once per primitive, so the per-texel code is MAME's and ORIGINAL
+  is bit-identical. These are options of the port, not of the game; the game's settings stay
+  in its NVRAM. The OPTIONS page edits them (left and right, or OK), and the frontend applies
+  the display mode. F11 also updates the setting.
 - **Game settings (NVRAM):** the TEST MODE options are a block of the NVRAM with a checksum.
   The big-endian 16-bit words from `nvram_options.start` up to the checksum word, included, sum
   to `0xFFFF`. The block is TD2 `0x88`–`0x125` and GTI Club 2 `0x84`–`0x121` (JAB and EAA); the

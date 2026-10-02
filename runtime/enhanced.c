@@ -34,8 +34,8 @@ static int g_attract, g_enh_log = -1;
 
 int enh_in_attract(void) { return g_attract; }
 
-/* port settings (<binary>_settings.ini, see below) */
-static struct { int fullscreen, show_fps, scale, aspect; } g_set = { 0, 0, 1, 0 };
+/* port settings (<binary>_enhanced_settings.ini, see below) */
+static struct { int fullscreen, show_fps, scale, aspect, texture_filter, win[4]; } g_set = { 0, 0, 1, 0, 0, { 0 } };
 
 /* ================================================================== widescreen */
 /* The games draw a 512x384 picture through Konami's gl library, which keeps its state at fixed
@@ -396,10 +396,13 @@ static int g_font_h;
 static Glyph g_glyph[FONT_NSIZES][128];
 
 /* ================================================================== port settings */
-/* <binary>_settings.ini next to the executable: options of the port itself (not of the game,
- * which keeps its own in the NVRAM). One "key = value" per line. */
+/* <binary>_enhanced_settings.ini next to the executable (classic mode: <binary>_settings.ini,
+ * the window only): options of the port itself (not of the game, which keeps its own in the
+ * NVRAM). One "key = value" per line. */
 void voodoo_set_scale(int n);
+void voodoo_set_texture_filter(int mode);
 static char g_settings_path[1024];
+static const char *const k_win_key[4] = { "window_x", "window_y", "window_width", "window_height" };
 
 static void settings_load(void) {
     FILE *f = fopen(g_settings_path, "r");
@@ -409,9 +412,11 @@ static void settings_load(void) {
     while (fgets(line, sizeof line, f))
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
+            else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
+            else for (int i = 0; i < 4; i++) if (!strcmp(key, k_win_key[i])) g_set.win[i] = v;
         }
     fclose(f);
 }
@@ -419,22 +424,43 @@ static void settings_load(void) {
 static void settings_save(void) {
     FILE *f = fopen(g_settings_path, "w");
     if (!f) { rt_log("enhanced: cannot write %s\n", g_settings_path); return; }
-    fprintf(f, "# " GAME_TITLE ", enhanced mode: port settings\n");
-    fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
-    fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
+    fprintf(f, "# " GAME_TITLE "%s: port settings\n", g_enhanced ? ", enhanced mode" : "");
+    if (g_enhanced) {
+        fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
+        fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
+        fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
+    }
+    if (g_set.win[2])
+        for (int i = 0; i < 4; i++) fprintf(f, "%s = %d\n", k_win_key[i], g_set.win[i]);
     fclose(f);
 }
 
+int enh_texture_filter(void) { return g_enhanced ? g_set.texture_filter : 0; }
 int enh_want_fullscreen(void) { return g_enhanced && g_set.fullscreen; }
 void enh_set_fullscreen(int on) { if (g_enhanced && g_set.fullscreen != !!on) { g_set.fullscreen = !!on; settings_save(); } }
 
+/* the window (both modes): x, y, width, height of the last normal window, 0 if none saved */
+int enh_want_window(int *r) {
+    const int *v = g_set.win;
+    if (v[2] < 320 || v[3] < 240 || v[2] > 16384 || v[3] > 16384 ||
+        abs(v[0]) > 1000000 || abs(v[1]) > 1000000) return 0;
+    memcpy(r, v, sizeof g_set.win);
+    return 1;
+}
+void enh_set_window(const int *r) {
+    if (!memcmp(g_set.win, r, sizeof g_set.win)) return;
+    memcpy(g_set.win, r, sizeof g_set.win);
+    settings_save();
+}
+
 void enh_init(const char *work, const char *settings) {
+    snprintf(g_settings_path, sizeof g_settings_path, "%s", settings);
+    settings_load();                     /* also in classic mode: its own file, the window */
     if (!g_enhanced) return;
     count_game_options();
-    snprintf(g_settings_path, sizeof g_settings_path, "%s", settings);
-    settings_load();
     voodoo_set_scale(g_set.scale);       /* the only place the render scale is set */
     set_aspect(g_set.aspect);
+    voodoo_set_texture_filter(enh_texture_filter());
     const char *file = GAME_ENH_FONT_FILE;
     if (!file) return;
     char path[1024];
@@ -631,7 +657,7 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_COUNT };
+       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -642,7 +668,9 @@ static const char *const k_text[T_COUNT][2] = {
     { "PRESS START TO GO BACK", "PREMI START PER TORNARE" }, { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
+    { "TEXTURE FILTER", "FILTRO TEXTURE" },
 };
+static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
 
 static int menu_language(void) {
@@ -738,6 +766,7 @@ static int page_rows(int page, int *rows) {
         rows[n++] = -1;
         rows[n++] = -3;
         if (GAME_ENH_WIDE_VIEWPORT) rows[n++] = -4;
+        rows[n++] = -10;
         rows[n++] = -2;
         return n;
     }
@@ -747,6 +776,7 @@ static int page_rows(int page, int *rows) {
 }
 
 static void page_change(int row, int dir) {
+    if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
     if (row == -3) { g_set.scale = g_set.scale == 1 ? 2 : 1; voodoo_set_scale(g_set.scale); settings_save(); return; }
@@ -928,6 +958,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             if (rows[i] == -1) { label = T(T_DISPLAY); value = T(g_set.fullscreen ? T_FULLSCREEN : T_WINDOW); }
             else if (rows[i] == -2) { label = T(T_SHOW_FPS); value = T(g_set.show_fps ? T_ON : T_OFF); }
             else if (rows[i] == -3) { label = T(T_RESOLUTION); value = g_set.scale == 2 ? "2X" : "1X"; }
+            else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }
             else {
                 const GameOption *o = &k_game_options[rows[i]];

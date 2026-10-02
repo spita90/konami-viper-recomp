@@ -149,7 +149,7 @@ takes a little longer, because of the force-feedback wheel test.
 | Pause (enhanced)                                       | Esc                                           | Guide                |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |
 | Fullscreen                                             | F11                                           | —                    |
-| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | —                    |
+| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
 
 ---
 
@@ -199,6 +199,10 @@ make recomp  GAME=thrild2     # work/thrild2/ -> generated/thrild2/  (recompiled
 make -j8     GAME=thrild2     # generated/thrild2/ + runtime/ -> ./td2
 ```
 
+- **After an update:** if `make -j8 GAME=<id>` stops with an error (for example a `GAME_...`
+  constant that is not declared), run all three steps again with `make -j8 game GAME=<id>`.
+  The files in `generated/<id>/` come from the profiles and the tools, so a new version can
+  need them regenerated.
 - **Several games:** each game builds into its own `work/<id>/`, `generated/<id>/` and
   `build/<id>/`, so you can build several side by side. `GAME` defaults to `thrild2`.
 - **Profiles:** each version is described by `games/<id>/game.json`: the expected files, the
@@ -218,7 +222,7 @@ calibration, delete that file.
 
 ```
 ./td2 --enhanced         enhanced mode
-./td2 --scale 3          window scale (default 2)
+./td2 --scale 3          window scale (default 2, or the size of the last run)
 ./td2 --volume 8         audio gain (default 16)
 ./td2 --headless --seconds 30        no window/audio, runs as fast as possible (testing)
 ./td2 --frames DIR --frame-every 60  dump video frames as PPM (with --headless)
@@ -243,10 +247,13 @@ The environment variables for debugging are described in
     3D scene on the left and right, with the same vertical field of view; the window widens to
     match. The HUD and the 2D screens keep their 4:3 layout in the centre, and a few 2D effects
     (the noise on Thrill Drive 2's crash screen) cover only that part.
+  - **Texture filter:** ORIGINAL (the game's original bilinear filtering) or NEAREST, which turns off the
+    filtering of enlarged textures, for hard texel edges, and scales the window without
+    smoothing. The filtering of distant textures and the mipmaps stay the game's.
 - **Saving the options:** game and sound options are the game's own TEST MODE settings, stored
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
-  a few seconds. Display options are saved in `<executable>_settings.ini` (`--settings FILE` to
-  use another file).
+  a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
+  (`--settings FILE` to use another file).
 - **Pause:** Esc, or the gamepad's Guide button, pauses a game, with RESUME and MAIN MENU. MAIN
   MENU brings the game back to the attract mode in a few seconds, behind a loading screen. In the
   attract menu, Esc goes back from a submenu, and quits from the main menu.

@@ -14,7 +14,15 @@
 #include "endianness.h"
 
 #include <bit>
+#include <atomic>
 extern "C" void rt_log(const char *fmt, ...);
+
+// enhanced mode, Texture Filter option: 0 = the game's, 1 = nearest magnification. Read once per
+// primitive, in rasterizer_params::compute, so the per-texel code is the original one
+static std::atomic<int> s_texture_filter{0};
+extern "C" void voodoo_set_texture_filter(int mode) {
+	s_texture_filter.store(mode == 1, std::memory_order_relaxed);
+}
 #include <set>
 #include <array>
 #include <cstdlib>
@@ -277,6 +285,13 @@ void rasterizer_params::compute(voodoo_regs &regs, voodoo_regs *tmu0regs, voodoo
 		{
 			m_texmode1 = tmu1regs->texture_mode().normalize();
 			m_generic |= GENERIC_TEX1;
+		}
+		// Texture Filter NEAREST: magnification filter (textureMode bit 2) off; minification and
+		// mipmaps stay the game's
+		if (s_texture_filter.load(std::memory_order_relaxed))
+		{
+			if (m_texmode0 != reg_texture_mode::NONE) m_texmode0 &= ~(1u << 2);
+			if (m_texmode1 != reg_texture_mode::NONE) m_texmode1 &= ~(1u << 2);
 		}
 	}
 	compute_equations();

@@ -20,6 +20,7 @@
 #include "runtime.h"
 #include "game_config.h"
 #include <SDL.h>
+#include "window_state.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -248,14 +249,47 @@ static void pad_button(int b, int down) {
 /* ------------------------------------------------------------------ main loop */
 void nvram_save(void);
 
-int frontend_run(int scale) {
+/* the normal window only: fullscreen, maximized and minimized bounds are not kept */
+static void save_window(SDL_Window *win) {
+    if (SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED)) return;
+    int r[4];
+    SDL_GetWindowPosition(win, &r[0], &r[1]);
+    SDL_GetWindowSize(win, &r[2], &r[3]);
+    enh_set_window(r);
+}
+
+int frontend_run(int scale, int scale_explicit) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         rt_log("SDL_Init failed: %s\n", SDL_GetError());
         return -1;
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    SDL_Window *win = SDL_CreateWindow(g_enhanced ? GAME_TITLE " - enhanced" : GAME_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                       512 * scale, 384 * scale, SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    /* the window of the last run (port settings), fitted to the displays connected now; an
+     * explicit --scale keeps only its position (not after an enhanced-mode restart, which runs
+     * again with the same arguments and continues the session) */
+    SDL_Rect window_rect = { SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 512 * scale, 384 * scale };
+    int saved[4];
+    if (enh_want_window(saved)) {
+        window_rect.x = saved[0];
+        window_rect.y = saved[1];
+        if (!scale_explicit || getenv("RT_RESTARTED")) { window_rect.w = saved[2]; window_rect.h = saved[3]; }
+        int count = SDL_GetNumVideoDisplays(), usable = 0;
+        SDL_Rect *displays = count > 0 ? calloc((size_t)count, sizeof *displays) : NULL;
+        if (displays) {
+            for (int i = 0; i < count; i++)
+                if (SDL_GetDisplayUsableBounds(i, &displays[usable]) == 0 || SDL_GetDisplayBounds(i, &displays[usable]) == 0)
+                    usable++;
+            window_state_fit(&window_rect, displays, usable);
+            free(displays);
+        }
+    }
+    SDL_Window *win = SDL_CreateWindow(g_enhanced ? GAME_TITLE " - enhanced" : GAME_TITLE,
+        window_rect.x, window_rect.y, window_rect.w, window_rect.h,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (!win) { rt_log("SDL_CreateWindow failed: %s\n", SDL_GetError()); SDL_Quit(); return -1; }
+    SDL_SetWindowMinimumSize(win, 320, 240);
+    int window_dirty = 0;               /* moved or resized: saved 0.5 s after the last change */
+    Uint32 window_changed = 0;
     if (getenv("RT_RESTARTED")) {       /* enhanced mode, after a restart: macOS does not reactivate */
         unsetenv("RT_RESTARTED");       /* the re-executed program, so take the focus back */
         SDL_SetHint("SDL_FORCE_RAISEWINDOW", "1");
@@ -265,6 +299,7 @@ int frontend_run(int scale) {
     SDL_RenderSetLogicalSize(ren, 512, 384);
     SDL_Texture *tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 512, 384);
     int tw = 512, th = 384;
+    int window_filter_applied = SDL_ScaleModeLinear;   /* the textures are made linear (the hint) */
 
     SDL_AudioSpec want = {0}, have;
     want.freq = 44100;
@@ -304,6 +339,12 @@ int frontend_run(int scale) {
         while (SDL_PollEvent(&ev)) {
             switch (ev.type) {
             case SDL_QUIT: running = 0; break;
+            case SDL_WINDOWEVENT:
+                if (ev.window.event == SDL_WINDOWEVENT_MOVED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                    window_dirty = 1;
+                    window_changed = SDL_GetTicks();
+                }
+                break;
             case SDL_KEYDOWN:
                 if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     if (!ev.key.repeat) enh_menu_action(menu_key(ev.key.keysym.sym));
@@ -346,7 +387,9 @@ int frontend_run(int scale) {
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
                 if ((enh_menu_active() || enh_paused()) && menu_button(ev.cbutton.button) >= 0) enh_menu_action(menu_button(ev.cbutton.button));
-                else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) enh_escape();
+                else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
+                    if (!enh_escape()) running = 0;  /* Home: pause/back in play, quit from main menu. */
+                }
                 else if (enh_name_entry_active() && !enh_paused() && (ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
                                                                        ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
                     enh_name_step(ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? -1 : 1);
@@ -373,14 +416,16 @@ int frontend_run(int scale) {
             last_frame = cnt;
             voodoo_get_frame(raw, 2048 * 2048, &w, &h);
             if (w != tw || h != th) {
-                /* a new aspect ratio (enhanced mode, widescreen): the window keeps its height */
+                /* a new aspect ratio (enhanced mode, widescreen): the window keeps its height,
+                 * unless it already has that ratio (a window restored from the settings) */
                 if ((long)w * th != (long)h * tw && !(SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
                     int ww, wh;
                     SDL_GetWindowSize(win, &ww, &wh);
-                    SDL_SetWindowSize(win, (int)((long)wh * w / h), wh);
+                    if ((long)w * wh != (long)h * ww) SDL_SetWindowSize(win, (int)((long)wh * w / h), wh);
                 }
                 SDL_DestroyTexture(tex);
                 tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+                window_filter_applied = SDL_ScaleModeLinear;
                 SDL_RenderSetLogicalSize(ren, w, h);
                 tw = w; th = h;
             }
@@ -394,9 +439,19 @@ int frontend_run(int scale) {
         }
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
+        int window_filter = enh_texture_filter() ? SDL_ScaleModeNearest : SDL_ScaleModeLinear;
+        if (window_filter != window_filter_applied) {
+            SDL_SetTextureScaleMode(tex, (SDL_ScaleMode)window_filter);
+            window_filter_applied = window_filter;
+        }
         SDL_RenderCopy(ren, tex, NULL, NULL);
         SDL_RenderPresent(ren);       /* vsync paces this loop */
+        if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {
+            save_window(win);
+            window_dirty = 0;
+        }
     }
+    if (window_dirty) save_window(win);
     nvram_save();
     if (g_audio) SDL_CloseAudioDevice(g_audio);
     SDL_Quit();

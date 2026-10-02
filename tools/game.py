@@ -225,6 +225,7 @@ def write_config_header(g, out):
         f"#define GAME_DEFAULT_DS2430 {c_str(rel(file_path(g, 'ds2430')))}",
         f"#define GAME_DEFAULT_BIOS {c_str(rel(file_path(g, 'bios')))}",
         f"#define GAME_NVRAM_SAVE {c_str(g['binary'] + '_nvram.bin')}",
+        f"#define GAME_SETTINGS {c_str(g['binary'] + '_settings.ini')}",
         "#define GAME_INPUT_DEFAULTS {" + ", ".join(f"0x{v:02x}" for v in inp['defaults']) + "}",
         "#define GAME_ANALOG_REST {" + ", ".join(str(v) for v in inp['analog_rest']) + "}",
         f"#define GAME_HAS_HANDBRAKE {1 if inp.get('handbrake') else 0}",
@@ -246,7 +247,7 @@ def write_config_header(g, out):
     lines += [
         f"#define GAME_HAS_ENHANCED {1 if enh else 0}",
         f"#define GAME_ENH_NVRAM_SAVE {c_str(g['binary'] + '_enhanced_nvram.bin')}",
-        f"#define GAME_ENH_SETTINGS {c_str(g['binary'] + '_settings.ini')}",
+        f"#define GAME_ENH_SETTINGS {c_str(g['binary'] + '_enhanced_settings.ini')}",
         f"#define GAME_ENH_SETUP_SCRIPT {c_str(setup['script']) if setup.get('script') else 'NULL'}",
         f"#define GAME_ENH_SETUP_SECONDS {setup.get('seconds', 0)}",
         # named hooks (the recompiler inserts rt_hook() there): GAME_ENH_HOOK_<NAME> = address for

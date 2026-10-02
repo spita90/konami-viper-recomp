@@ -294,11 +294,11 @@ static void usage(void) {
             "  --seconds N     stop after N seconds of emulated time\n"
             "  --wav FILE      dump game audio\n"
             "  --headless      no window/audio (tests); runs as fast as possible\n"
-            "  --scale N       window scale (default 2)\n"
+            "  --scale N       window scale (default 2, or the size of the last run)\n"
             "  --volume N      audio gain (default 16)\n"
             "  --nvram-save F  persistent NVRAM file (default " GAME_NVRAM_SAVE ")\n"
             "  --enhanced      enhanced mode (free play, no TEST MODE; own NVRAM " GAME_ENH_NVRAM_SAVE ")\n"
-            "  --settings F    enhanced-mode port settings (default " GAME_ENH_SETTINGS ")\n"
+            "  --settings F    port settings (default " GAME_SETTINGS ", enhanced " GAME_ENH_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
             "  --net-id N      link play: this cabinet's NETWORK ID (1-4; default: no link, ID 1)\n"
@@ -313,11 +313,12 @@ static void usage(void) {
 int main(int argc, char **argv) {
     g_argv0 = argv[0];
     find_executable(argv[0]);
-    const char *settings = beside_exe(GAME_ENH_SETTINGS);
+    const char *settings = beside_exe(GAME_SETTINGS);
     const char *work = beside_exe(GAME_DEFAULT_WORK), *cf = NULL, *nvram = beside_exe(GAME_DEFAULT_NVRAM),
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
-    int headless = 0, scale = 2, nvsave_explicit = 0, net_id = 0, net_port = 7340, net_buffer = 2;
+    int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
+    int net_id = 0, net_port = 7340, net_buffer = 2;
     const char *net_peer = NULL;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -331,14 +332,14 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--wav") && v) { wav = v; i++; }
         else if (!strcmp(a, "--headless")) headless = 1;
         else if (!strcmp(a, "--volume") && v) { extern int g_audio_gain; g_audio_gain = atoi(v); i++; }
-        else if (!strcmp(a, "--scale") && v) { scale = atoi(v); i++; }
+        else if (!strcmp(a, "--scale") && v) { scale = atoi(v); scale_explicit = 1; i++; }
         else if (!strcmp(a, "--nvram-save") && v) { nvsave = v; nvsave_explicit = 1; i++; }
         else if (!strcmp(a, "--dump-ram") && v) { g_dump_ram = v; i++; }
         else if (!strcmp(a, "--frames") && v) { g_frames_dir = v; i++; }
         else if (!strcmp(a, "--frame-every") && v) { g_frame_every = atoi(v); i++; }
         else if (!strcmp(a, "-v")) g_verbose = 1;
         else if (!strcmp(a, "--enhanced")) g_enhanced = 1;
-        else if (!strcmp(a, "--settings") && v) { settings = v; i++; }
+        else if (!strcmp(a, "--settings") && v) { settings = v; settings_explicit = 1; i++; }
         else if (!strcmp(a, "--net-id") && v) { net_id = atoi(v); i++; }
         else if (!strcmp(a, "--net-port") && v) { net_port = atoi(v); i++; }
         else if (!strcmp(a, "--net-peer") && v) { net_peer = v; i++; }
@@ -349,6 +350,7 @@ int main(int argc, char **argv) {
     if (g_enhanced) {
         if (!GAME_HAS_ENHANCED) { fprintf(stderr, "the enhanced mode is not available for " GAME_TITLE " yet\n"); return 2; }
         if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
+        if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
     }
     if (net_id) {
         int net_init(int id, int port, const char *peer, int buffer);
@@ -403,7 +405,7 @@ int main(int argc, char **argv) {
     rt_check(c, 0x10);          /* arms the first time slice */
     rt_start(0x10);
     if (headless) dump_frames_loop();   /* guest runs on fibers; rt_fatal() exits the process */
-    if (frontend_run(scale) == 2) {      /* enhanced mode: new game settings, reboot the game */
+    if (frontend_run(scale, scale_explicit) == 2) {      /* enhanced mode: new game settings, reboot the game */
         hw_shutdown();
         fflush(NULL);
         setenv("RT_RESTARTED", "1", 1);  /* the frontend raises the new window */
