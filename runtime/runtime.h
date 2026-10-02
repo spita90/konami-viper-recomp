@@ -117,3 +117,6 @@ static inline uint32_t le_bus_write(uint32_t old, int k, int size, uint32_t v) {
     old &= ~(0xffu << (8 * k));
     return old | ((v & 0xff) << (8 * k));
 }
+
+int frontend_stick_response(void); /* 0 linear, 1 soft, 2 extra soft */
+void frontend_set_stick_response(int response);

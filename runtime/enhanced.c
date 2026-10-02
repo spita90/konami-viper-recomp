@@ -412,6 +412,7 @@ static void settings_load(void) {
     while (fgets(line, sizeof line, f))
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
+            else if (!strcmp(key, "stick_response")) frontend_set_stick_response(v);
             else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
@@ -428,6 +429,7 @@ static void settings_save(void) {
     if (g_enhanced) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
+        fprintf(f, "stick_response = %d\n", frontend_stick_response());
         fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
     }
     if (g_set.win[2])
@@ -657,7 +659,7 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_COUNT };
+       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_STICK_RESPONSE, T_CONTROLS, T_TEXTURE_FILTER, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -668,8 +670,11 @@ static const char *const k_text[T_COUNT][2] = {
     { "PRESS START TO GO BACK", "PREMI START PER TORNARE" }, { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
+    { "STICK RESPONSE", "RISPOSTA STICK" },
+    { "CONTROLS", "COMANDI" },
     { "TEXTURE FILTER", "FILTRO TEXTURE" },
 };
+static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
 
@@ -685,7 +690,7 @@ static int menu_language(void) {
  * the overlay; the guest thread updates the attract state. Plain ints are enough: each field
  * has a single writer. */
 enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS };
-enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, N_PAGES };
+enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, PAGE_CONTROLS, N_PAGES };
 static const int k_main_items[] = { T_START, T_OPTIONS, T_CREDITS, T_QUIT };
 #define N_MAIN_ITEMS 4
 #define MENU_GRACE_FRAMES 300      /* the Konami logo gap in the attract loop lasts about 4 s */
@@ -698,6 +703,7 @@ static volatile int g_starting;            /* START GAME chosen, waiting for the
 static volatile uint64_t g_starting_frame;
 static volatile int g_apply;               /* 1: write the staged options, 2: written, restart */
 static volatile int g_paused, g_pause_cursor;
+static int g_pause_controls, g_controls_cursor;
 static volatile int g_returning;           /* MAIN MENU from the pause: back to the attract */
 static uint64_t g_return_t0;
 static volatile int g_booted;              /* the attract hook has run once since the start */
@@ -726,7 +732,7 @@ int enh_inputs_owned(void) { return g_returning; }   /* the return script drives
 /* Esc from the frontend: 1 if the enhanced mode handled it (pause, or back in a submenu) */
 int enh_escape(void) {
     if (!g_enhanced || !g_font || g_apply || g_returning || !g_booted) return 0;
-    if (g_paused) { g_paused = 0; return 1; }
+    if (g_paused) { if (g_pause_controls) g_pause_controls=0; else g_paused=0; return 1; }
     if (enh_menu_active()) {
         if (g_screen == SCREEN_MAIN) return 0;      /* the main menu: Esc quits, as before */
         enh_menu_action(ENH_BACK);
@@ -738,12 +744,25 @@ int enh_escape(void) {
     return 1;
 }
 
+static void change_stick_response(int dir) {
+    frontend_set_stick_response((frontend_stick_response() + dir + 3) % 3);
+    settings_save();
+}
 static void pause_action(int action) {
+    if (g_pause_controls) {
+        if (action == ENH_BACK || (action == ENH_OK && g_controls_cursor == 1)) g_pause_controls=0;
+        else if (action == ENH_UP || action == ENH_DOWN) g_controls_cursor ^= 1;
+        else if (!g_controls_cursor && (action == ENH_LEFT || action == ENH_RIGHT || action == ENH_OK))
+            change_stick_response(action == ENH_LEFT ? -1 : 1);
+        return;
+    }
     switch (action) {
-    case ENH_UP: case ENH_DOWN: g_pause_cursor ^= 1; break;
+    case ENH_UP: g_pause_cursor = (g_pause_cursor + 2) % 3; break;
+    case ENH_DOWN: g_pause_cursor = (g_pause_cursor + 1) % 3; break;
     case ENH_BACK: g_paused = 0; break;
     case ENH_OK:
         if (g_pause_cursor == 0) g_paused = 0;
+        else if (g_pause_cursor == 1) { g_pause_controls=1; g_controls_cursor=0; }
         else if (GAME_ENH_TEST_GAME_MODE >= 0) { g_returning = 1; g_return_t0 = 0; g_paused = 0; }
         else { g_apply = 2; g_paused = 0; }            /* no known route: reboot the game */
         break;
@@ -762,6 +781,7 @@ int enh_quit_requested(void) { return g_quit; }
 /* the rows of an options page: game options of that page, or the port options (DISPLAY) */
 static int page_rows(int page, int *rows) {
     int n = 0;
+    if (page == PAGE_CONTROLS) { rows[n++] = -9; return n; }
     if (page == PAGE_DISPLAY) {
         rows[n++] = -1;
         rows[n++] = -3;
@@ -776,6 +796,7 @@ static int page_rows(int page, int *rows) {
 }
 
 static void page_change(int row, int dir) {
+    if (row == -9) { change_stick_response(dir); return; }
     if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
@@ -893,6 +914,16 @@ static void menu_tick(void) {
 
 static void draw_menu(uint32_t *fb, int w, int h);
 
+static void draw_stick_controls(uint32_t *fb, int w, int h, int cursor) {
+    dim_rect(fb,w,h,0,0,w,h,190);
+    draw_centered(fb,w,h,FONT_LARGE,24,T(T_CONTROLS),0xffd800);
+    uint32_t color=cursor==0 ? 0xffd800 : 0xffffff;
+    const char *value=k_stick_response_name[frontend_stick_response()];
+    draw_text(fb,w,h,FONT_MEDIUM,40,90,T(T_STICK_RESPONSE),color);
+    draw_text(fb,w,h,FONT_SMALL,w-40-text_width(FONT_SMALL,value),90,value,color);
+    draw_centered(fb,w,h,FONT_MEDIUM,150,T(T_BACK),cursor==1 ? 0xffd800 : 0xffffff);
+}
+
 void enh_draw_overlay(uint32_t *fb, int w, int h) {
     if (!g_enhanced) return;
     g_fbw = w;
@@ -907,12 +938,13 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
     }
     if (g_paused) {
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
-        static const int items[2] = { T_RESUME, T_MAIN_MENU };
+        static const int items[3] = { T_RESUME, T_CONTROLS, T_MAIN_MENU };
         dim_rect(fb, w, h, 0, 0, w, h, 160);
         draw_centered(fb, w, h, FONT_LARGE, h / 2 - 90, T(T_PAUSE), 0xffd800);
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 3; i++)
             draw_centered(fb, w, h, z, h / 2 - 10 + i * step, T(items[i]), i == g_pause_cursor ? 0xffd800 : 0xffffff);
     }
+    if (g_paused && g_pause_controls) draw_stick_controls(fb,w,h,g_controls_cursor);
     if (enh_menu_active()) draw_menu(fb, w, h);
     if (g_set.show_fps && g_font) {                 /* on top of everything, also in play */
         char buf[16];
@@ -922,6 +954,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
 }
 
 static void draw_menu(uint32_t *fb, int w, int h) {
+    if (g_screen == SCREEN_PAGE && g_page == PAGE_CONTROLS) { draw_stick_controls(fb,w,h,g_page_cursor); return; }
     const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0;
     int lang = menu_language();
     if (g_screen == SCREEN_MAIN) {
@@ -938,14 +971,14 @@ static void draw_menu(uint32_t *fb, int w, int h) {
         for (int i = 0; i < N_MAIN_ITEMS; i++)
             draw_text(fb, w, h, z, left + pad, y0 + pad + i * step, T(k_main_items[i]), i == g_cursor ? yellow : white);
     } else if (g_screen == SCREEN_OPTIONS) {
-        static const int items[N_PAGES + 1] = { T_GAME, T_SOUND, T_DISPLAY, T_BACK };
+        static const int items[N_PAGES + 1] = { T_GAME, T_SOUND, T_DISPLAY, T_CONTROLS, T_BACK };
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
         dim_rect(fb, w, h, 0, 0, w, h, 190);
         draw_centered(fb, w, h, FONT_LARGE, 36, T(T_OPTIONS), yellow);
         for (int i = 0; i <= N_PAGES; i++)
             draw_centered(fb, w, h, z, 120 + i * step + (i == N_PAGES ? step / 2 : 0), T(items[i]), i == g_opt_cursor ? yellow : white);
     } else if (g_screen == SCREEN_PAGE) {
-        static const int titles[N_PAGES] = { T_GAME, T_SOUND, T_DISPLAY };
+        static const int titles[N_PAGES] = { T_GAME, T_SOUND, T_DISPLAY, T_CONTROLS };
         const int z = FONT_MEDIUM, step = font_height(z) + 4, left = 40, right = w - 40;
         int rows[MAX_GAME_OPTIONS + 2], n = page_rows(g_page, rows);
         dim_rect(fb, w, h, 0, 0, w, h, 190);
@@ -958,6 +991,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             if (rows[i] == -1) { label = T(T_DISPLAY); value = T(g_set.fullscreen ? T_FULLSCREEN : T_WINDOW); }
             else if (rows[i] == -2) { label = T(T_SHOW_FPS); value = T(g_set.show_fps ? T_ON : T_OFF); }
             else if (rows[i] == -3) { label = T(T_RESOLUTION); value = g_set.scale == 2 ? "2X" : "1X"; }
+            else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
             else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }
             else {

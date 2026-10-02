@@ -27,3 +27,6 @@ int main(int argc, char **argv) {
  remove(g_settings_path);
  puts("texture filter menu toggle, live application and persistence: passed");
 }
+
+int frontend_stick_response(void) { return 2; }
+void frontend_set_stick_response(int v) { (void)v; }

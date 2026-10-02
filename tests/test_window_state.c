@@ -85,3 +85,6 @@ int main(int argc, char **argv) {
     remove(path);
     puts("window fitting and port settings (classic, enhanced, out of range): passed");
 }
+
+int frontend_stick_response(void) { return 2; }
+void frontend_set_stick_response(int v) { (void)v; }
