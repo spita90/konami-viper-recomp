@@ -149,7 +149,7 @@ takes a little longer, because of the force-feedback wheel test.
 | Pause (enhanced)                                       | Esc                                           | Guide                |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |
 | Fullscreen                                             | F11                                           | —                    |
-| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | —                    |
+| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
 
 ---
 
@@ -338,8 +338,3 @@ listed in [CHANGELOG.md](CHANGELOG.md).
     by BSD-3-Clause.
   - MAME is used here as a hardware reference.
 - The software is provided "as is", without warranty of any kind.
-
-In enhanced mode, **Home / Guide** behaves like **Esc**: pause during a race,
-back out of an options page, and quit from the main menu. In Pause, choose
-**Main Menu** to leave the race, or **Resume** / B / Home to continue driving.
-A / Start still confirms menu choices. In original arcade mode, Home / Esc quits.
