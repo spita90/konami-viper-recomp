@@ -74,6 +74,9 @@ int enh_inputs_owned(void);                            /* the enhanced layer dri
 int enh_name_entry_active(void);                       /* rankings name entry: letters from the keyboard */
 int enh_name_type(int ch);                             /* a letter, '\b' DEL, '\r' END; 1 if accepted */
 void enh_name_step(int dir);                           /* previous (-1) / next (+1) letter on the wheel */
+int enh_wheel_select_active(void);                     /* a choice from the wheel (course, transmission): */
+void enh_wheel_select_step(int dir);                   /* Left/Right step (-1/+1, left to right) */
+double enh_wheel_select_pos(void);                     /* and the wheel is held here (-1..1) */
 void hw_shutdown(void);
 void nvram_save(void);
 void rt_pace_vblank(void);
@@ -91,6 +94,8 @@ void voodoo_lfb_write(uint32_t off, uint32_t v, uint32_t mask);
 uint32_t voodoo_io_read(uint32_t off);
 void voodoo_io_write(uint32_t off, uint32_t v, uint32_t mask);
 uint64_t voodoo_get_frame(uint32_t *dst, int max_pixels, int *w, int *h);
+const uint8_t *voodoo_vram(uint32_t *size);          /* VRAM, to read (no sync with the renderer) */
+uint8_t *voodoo_vram_for_write(void);                /* VRAM, to write: waits for the renderer */
 void voodoo_stats(void);
 void rt_eat_cycles(uint32_t n);
 

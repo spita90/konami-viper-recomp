@@ -153,6 +153,44 @@ def name_entry_config(ne):
             f"#define GAME_ENH_NAME_CONFIRM_REG {ne['confirm_reg']}"]
 
 
+def wheel_select_config(ws):
+    """GAME_ENH_WHEEL_SELECTS: screens that take a choice from zones of the wheel position (the
+    course select, GTI Club 2's transmission select), stepped with Left/Right in the enhanced mode
+    (runtime/enhanced.c). Each key is the name of the hook that runs every frame of the screen;
+    `positions` are wheel positions (-1 full left .. 1 full right) inside each choice's zone, from
+    left to right, and the frontend holds the wheel at the chosen one."""
+    rows = []
+    for hook, w in (ws or {}).items():
+        pos = w['positions']
+        assert 2 <= len(pos) <= 8, hook
+        rows.append(f"{{{c_str(hook)}, {len(pos)}, {{" + ", ".join(f"{float(v)!r}" for v in pos) + "}}")
+    return "#define GAME_ENH_WHEEL_SELECTS {" + "".join(r + ", " for r in rows) + "{NULL, 0, {0}}}"
+
+
+def text_fixes_config(fixes):
+    """GAME_ENH_TEXT_FIXES: typos in the game's text textures, fixed in VRAM in the enhanced mode
+    (runtime/enhanced.c). A fix is a band of rows `y` [first, end) of the A8 texture at `addr`
+    (`stride` bytes per row), recognised by the CRC-32 of the original band; the band is then
+    rebuilt left to right from `spans` of its own columns: [x0, x1] copies those columns, and
+    {"rot180": [x0, x1, y0, y1]} copies that rectangle turned by 180 degrees (an n becomes a u).
+    The line goes into columns `fit` [first, end), the part of the texture the game draws from,
+    squeezed horizontally if it is wider."""
+    rows = []
+    for f in fixes or []:
+        spans = []
+        for s in f['spans']:
+            if isinstance(s, dict):
+                x0, x1, y0, y1 = s['rot180']
+                spans.append(f"{{{x0}, {x1}, {y0}, {y1}}}")
+            else:
+                spans.append(f"{{{s[0]}, {s[1]}, -1, -1}}")
+        assert len(spans) <= 24
+        fit = f.get('fit', [0, f['stride']])
+        rows.append(f"{{0x{int(f['addr'], 16):x}u, {f['stride']}, {f['y'][0]}, {f['y'][1]}, 0x{int(f['crc'], 16):08x}u, "
+                    f"{fit[0]}, {fit[1]}, {len(spans)}, {{" + ", ".join(spans) + "}}")
+    return "#define GAME_ENH_TEXT_FIXES {" + "".join(r + ", " for r in rows) + "{0}}"
+
+
 def game_options_config(opts):
     """GAME_ENH_GAME_OPTIONS: the TEST MODE settings the enhanced-mode OPTIONS pages edit in the
     NVRAM. Each field is `bits` wide at `shift` in the byte (size 1) or big-endian word (size 2)
@@ -198,6 +236,9 @@ def write_config_header(g, out):
         # TEST MODE option block of the NVRAM: words from start to the checksum word sum to 0xffff
         f"#define GAME_NVRAM_OPT_START {int(nvo.get('start', '0'), 16)}",
         f"#define GAME_NVRAM_OPT_CSUM {int(nvo.get('checksum', '0'), 16)}",
+        # option bits forced at every boot (nvram_force: addr -> mask, value), {-1} ends
+        "#define GAME_NVRAM_FORCE {" + "".join(f"{{0x{int(a, 16):x}, 0x{int(v['mask'], 16):02x}, 0x{int(v['value'], 16):02x}}}, "
+                                               for a, v in (g.get('nvram_force') or {}).items()) + "{-1, 0, 0}}",
     ]
     # enhanced ("conversion") mode, runtime/enhanced.c: optional, absent for unverified versions
     enh = g.get('enhanced') or {}
@@ -223,6 +264,8 @@ def write_config_header(g, out):
           for k in ('proj_matrix', 'proj_frustum', 'proj_slot', 'viewport')],
         game_options_config(enh.get('game_options')),
         *name_entry_config(enh.get('name_entry')),
+        wheel_select_config(enh.get('wheel_select')),
+        text_fixes_config(enh.get('text_fixes')),
         # TEST MODE main menu index of GAME MODE: the pause menu's "main menu" returns to the attract through it
         f"#define GAME_ENH_TEST_GAME_MODE {enh.get('test_menu_game_mode', -1)}",
         "#define GAME_ENH_BLANK_STRINGS {" + "".join(f"{{0x{int(b['addr'], 16):08x}u, {c_str(b['text'])}}}, " for b in blanks)

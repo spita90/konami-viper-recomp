@@ -71,7 +71,23 @@ The profile fields:
     game's wheel from index 0, followed by DEL and END; `index_reg` is the register holding the
     wheel index at the `name_index` hook, `index_field` (optional) a 16-bit copy of it at
     `offset` from register `reg`, and `confirm_reg` the result of the confirmation check at the
-    `name_confirm` hook.
+    `name_confirm` hook;
+  - `text_fixes`: typos in the game's text textures, fixed in VRAM (section 5a). Each fix
+    names a band of rows `y` of an A8 texture at `addr` (`stride` bytes per row), the CRC-32
+    of the original band, the `spans` of its own columns that rebuild it (`[x0, x1]`, or
+    `{"rot180": [x0, x1, y0, y1]}` for a rectangle turned upside down) and optionally `fit`,
+    the columns the game draws (a wider line is squeezed into them);
+  - `wheel_select`: the screens that take a choice from the wheel position (section 5a), keyed
+    by the name of the hook that runs on each (`course_select`, `transmission_select`).
+    `positions` are wheel positions (-1 full left … 1 full right), one inside each choice's
+    steering zone, from left to right.
+
+- `nvram_force` (top level): TEST MODE option bits set at every boot, in both modes, as
+  `addr: {mask, value}` (only when the option block's checksum is valid; the checksum is then
+  recomputed). Used for the NETWORK ID: 1, a single cabinet. The GTI Club 2 JAB and Thrill
+  Drive 2 EBB dumps come from cabinet 2 of a linked set, so the race HUD said PLAYER 2 (and
+  GTI Club 2's rank list 2P); the ID is bits 6–7 of `0x9C` (GTI Club 2) or `0xA0` (Thrill
+  Drive 2), as ID − 1. EAA, JAA and AAA are already on ID 1.
 
 `recomp.py` turns the profile into `generated/<id>/game_config.h` (`GAME_*` macros). The runtime
 is compiled once per game against it; there is no runtime game switch. The other TD2 versions
@@ -343,7 +359,9 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
 | Test / Service | F2 / 9 | — |
 | Fullscreen / Quit | F11 / Esc | — |
 
-In the enhanced mode the rankings name is typed on the keyboard (section 5a).
+In the enhanced mode the rankings name is typed on the keyboard, and in the course select (and
+GTI Club 2's transmission select) ← → (A D, the D-pad or the stick) step from one choice to the
+next (section 5a).
 
 ### Memory map (from MAME)
 
@@ -535,6 +553,43 @@ An optional layer on top of the faithful port, in development. Everything is gat
     (`+0x18` of the structure at TOC `0x6EC`) is set.
   - Tested headless on Thrill Drive 2 EBB (a forced ranking, `RT_ENH_MENU` `name=` actions);
     GTI Club 2 needs a finished race, which scripted inputs cannot drive.
+- **Italian typos (Thrill Drive 2):** the Italian texts are A8 textures (`VRAM_I_tex.zin`,
+  eight 256-wide pages, loaded at boot to VRAM `0x295300` + 0x10000 per page), and four have
+  typos: "per Tasmissone Maniale" (car select), "Ostruzione a veicolo di emargenza", "Costo
+  totale Dei danni" and "ORA ANALIZZIAMO LA TUA TECNICA ." (results). In the enhanced mode
+  `text_fixes` rebuilds those rows in VRAM from letters of the same texture: the r of "per"
+  and the i of "Tasmissone", a u from the n of "Maniale" turned by 180 degrees (the lines
+  above have u, in a larger size), the second e of "emargenza", the d of "danni" (as wide as
+  the D), the full stop moved left. "per Trasmissione Manuale" is two letters longer and the
+  game draws columns 0–206 only, so its spaces are 2 pixels narrower and the line is squeezed
+  by about 4%.
+  - Every 16 frames the band's CRC-32 is compared with the original's; on a match the band is
+    rebuilt (with the renderer idle). The game's pixels never leave the game: the profile holds
+    only coordinates and CRCs. The other Italian texts read correctly; the accents are
+    apostrophes ("velocita'"), as the font has none. The classic mode keeps the originals.
+- **Wheel selects (course, transmission):** these screens take the choice from the position of
+  the wheel, in zones of the steering range, so with a key the choice springs back to the
+  centre one as soon as the key is released. In the enhanced mode the selection steps instead:
+  ← → (A D, the D-pad, or the stick pushed to one side) move one choice left or right, and the
+  frontend holds the wheel at that choice's position from the profile (`wheel_select`), ramping
+  there as the keyboard steering does. The game still does the choosing, with its own sounds
+  and animations; no game state is written.
+  - Each screen has a hook that runs every frame of it; the screen counts as active while its
+    hook ran in the last 10 frames, and each new one starts at the position nearest the centre
+    (the wheel at rest). The hook names are resolved once, so `rt_hook()` only compares
+    addresses.
+  - Thrill Drive 2 (EBB, JAA, AAA: the same code at the same addresses): `0x828C4`, index at
+    `r27+0x28`. Below −0x3E80 JAPAN, above +0x3E80 USA, EUROPE in between, with a hysteresis
+    back to ±0x2710 (full lock ±0x7F80): positions −1, 0, +1.
+  - GTI Club 2: the steering read at `0x8CAC8` (EAA `+0x24`), hook after it. Above −0x2000
+    TOWN, down to −0x7000 COAST, below that MOUNTAIN; the centre and the whole right side are
+    TOWN, so the positions are −1 (MOUNTAIN), −0.5625 (COAST), 0 (TOWN). A course not yet
+    available falls back as on the cabinet.
+  - GTI Club 2, transmission (`0x8C010`, steering read at `0x8C024`, EAA `+0x24`): at or below
+    −0x2AAA MANUAL, otherwise AUTOMATIC (the default at rest): positions −1 (MT), 0 (AT).
+    Thrill Drive 2 takes the transmission with the shift lever, so it needs nothing.
+  - Checked headless: fixed wheel values give the expected choice on every screen, and each hook
+    fires only on its screen. The key handling needs the SDL frontend.
 - **Texts:** English and Italian (`k_text`), chosen by the profile's `language` field. The menus
   switch as soon as the option changes. The fonts have no accented letters, so the Italian texts
   avoid them. A value too wide for its row falls back to the small font.
@@ -631,6 +686,11 @@ those moments show a motion blur.
 - The implementation reads a tiled surface linearly with its stride in 128-byte tiles (the
   layout the 3D side writes), applies the ROP (pattern taken as 0), clips the destination and
   advances `dstXY` for `INC_X_START`/`INC_Y_START`.
+- It works a row at a time with no temporary buffer: the destination is clipped once, then each
+  row is a `memmove` for `0xCC` (any other ROP goes byte by byte, from four masks). Rows go in
+  the direction the command gives, as on the hardware, so overlapping rectangles copy right. A
+  blur frame (768 one-row blits) costs about 11 µs, against about 1 ms for a per-pixel copy
+  through a buffer, which was the first version.
 - **Widescreen** (`blur_quad` in `voodoo.cpp`). The textures hold the native 4:3 picture, so
   drawn as they are the blur would stop at the 4:3 edges.
   While copying, the blits also keep the source at full resolution, margins included

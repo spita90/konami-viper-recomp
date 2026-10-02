@@ -97,6 +97,13 @@
     ],
     "handbrake": false
   },
+  "nvram_force": {
+    "0xa0": {
+      "mask": "0xc0",
+      "value": "0x00",
+      "note": "TEST MODE NETWORK OPTIONS, NETWORK ID (bits 6-7, ID - 1): 1. The EBB dump is set to 2 (the race HUD says PLAYER 2)"
+    }
+  },
   "nvram_options": {
     "start": "0x88",
     "checksum": "0x124",
@@ -122,7 +129,8 @@
       "game": {
         "0x7dd40": "attract",
         "0xb59c4": "name_index",
-        "0xb510c": "name_confirm"
+        "0xb510c": "name_confirm",
+        "0x828c4": "course_select"
       },
       "gl": {
         "0x217bc": "projection",
@@ -409,6 +417,48 @@
       },
       "confirm_reg": 3
     },
+    "wheel_select": {
+      "course_select": {
+        "note": "SELECT COURSE (0x828c4, every frame): the course index at r27+0x28 follows the steering zones, below -0x3e80 JAPAN (0), above 0x3e80 USA (2), EUROPE (1) in between, with a hysteresis to +-0x2710 towards the centre (full lock is +-0x7f80)",
+        "positions": [-1.0, 0.0, 1.0]
+      }
+    },
+    "text_fixes": [
+      {
+        "note": "Italian car select, VRAM_I_tex.zin texture 3 (A8 256x256, loaded at 0x2c5300): 'per Tasmissone Maniale' -> 'per Trasmissione Manuale' (the r of 'per', the i of 'Tasmissone', the n of 'Maniale' turned into a u; the line has 2 more letters and the game draws columns 0-206 only, so the spaces are 2 pixels narrower and the line is squeezed into 2-206)",
+        "addr": "0x2c5300",
+        "stride": 256,
+        "y": [67, 86],
+        "crc": "0x10c68191",
+        "fit": [2, 206],
+        "spans": [[10, 37], [39, 55], [29, 37], [55, 109], [88, 92], [108, 139], [141, 178],
+                  {"rot180": [168, 178, 72, 84]}, [181, 207]]
+      },
+      {
+        "note": "Italian results, texture 3: 'ORA ANALIZZIAMO LA TUA TECNICA .' -> 'TECNICA.' (the full stop 4 columns to the left)",
+        "addr": "0x2c5300",
+        "stride": 256,
+        "y": [88, 118],
+        "crc": "0x0965aaf2",
+        "spans": [[0, 247], [251, 254]]
+      },
+      {
+        "note": "Italian results, VRAM_I_tex.zin texture 1 (at 0x2a5300): 'Costo totale Dei danni' -> 'dei' (the d of 'danni', as wide as the D; 'Treno' on the same rows stays in place)",
+        "addr": "0x2a5300",
+        "stride": 256,
+        "y": [195, 234],
+        "crc": "0xc094125f",
+        "spans": [[0, 74], [94, 101], [81, 256]]
+      },
+      {
+        "note": "Italian results, VRAM_I_tex.zin texture 2 (at 0x2b5300): 'Ostruzione a veicolo di emargenza' -> 'emergenza' (the second e of the word in place of the a, both 8 columns wide)",
+        "addr": "0x2b5300",
+        "stride": 256,
+        "y": [122, 158],
+        "crc": "0x06b5212a",
+        "spans": [[0, 195], [218, 226], [203, 256]]
+      }
+    ],
     "test_menu_game_mode": 13
   }
 }

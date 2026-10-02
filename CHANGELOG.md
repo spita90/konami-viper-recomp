@@ -5,6 +5,31 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [0.9.0] - 2026-10-02
+
+### Added
+
+- **Enhanced mode, course select (Thrill Drive 2 and GTI Club 2) and transmission select
+  (GTI Club 2):** ← → (A D, the D-pad or the stick) step from one choice to the next, and the
+  choice stays where it is. On a cabinet the wheel position picks it, so with a key it sprang
+  back to the centre one as soon as the key was released.
+
+- **Enhanced mode, Thrill Drive 2 in Italian:** four typos of the game's texts are fixed:
+  "per Trasmissione Manuale" (was "Tasmissone Maniale"), "emergenza" (was "emargenza"),
+  "Costo totale dei danni" (was "Dei"), "TECNICA." (was "TECNICA ."). The textures are
+  rebuilt in VRAM from letters of the same textures; the classic mode keeps the originals.
+
+### Fixed
+
+- **NETWORK ID 1 (GTI Club 2 JAB, Thrill Drive 2 EBB), both modes:** the NVRAM dumps come
+  from cabinet 2 of a linked set, so the race HUD said PLAYER 2 (and GTI Club 2's rank list
+  2P). The ID is now set to 1 at every boot (`nvram_force`), also in NVRAMs already saved.
+
+### Changed
+
+- **Voodoo screen-to-screen blits** copy a row at a time (`memmove`), without a temporary
+  buffer: about 90 times cheaper, same picture.
+
 ## [0.8.2] - 2026-10-02
 
 ### Fixed
@@ -227,7 +252,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[0.8.2]: https://github.com/spita90/konami-viper-recomp/compare/07e7a08...HEAD
+[0.9.0]: https://github.com/spita90/konami-viper-recomp/compare/99658cb...HEAD
+[0.8.2]: https://github.com/spita90/konami-viper-recomp/compare/07e7a08...99658cb
 [0.8.1]: https://github.com/spita90/konami-viper-recomp/compare/f5a9a22...07e7a08
 [0.8.0]: https://github.com/spita90/konami-viper-recomp/compare/01f29bd...f5a9a22
 [0.7.0]: https://github.com/spita90/konami-viper-recomp/compare/c041b6b...01f29bd

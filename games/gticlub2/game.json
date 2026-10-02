@@ -101,6 +101,13 @@
     ],
     "handbrake": true
   },
+  "nvram_force": {
+    "0x9c": {
+      "mask": "0xc0",
+      "value": "0x00",
+      "note": "TEST MODE NETWORK OPTIONS, NETWORK ID (bits 6-7, ID - 1): 1. The JAB dump is set to 2 (the race HUD says PLAYER 2 and the rank list 2P)"
+    }
+  },
   "nvram_options": {
     "start": "0x84",
     "checksum": "0x120",
@@ -138,7 +145,9 @@
       "game": {
         "0x61b4c": "attract",
         "0x839b4": "name_index",
-        "0x839f8": "name_confirm"
+        "0x839f8": "name_confirm",
+        "0x8cacc": "course_select",
+        "0x8c028": "transmission_select"
       },
       "gl": {
         "0x213f4": "projection",
@@ -390,6 +399,16 @@
       "chars": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.&?! ",
       "index_reg": 24,
       "confirm_reg": 3
+    },
+    "wheel_select": {
+      "course_select": {
+        "note": "SELECT A COURSE (0x8cab0, the steering read at 0x8cac8; EAA +0x24): above -0x2000 TOWN (0), down to -0x7000 COAST (1), below MOUNTAIN (2), so the centre and the whole right side are TOWN; a course not yet available falls back (the mask at +0xa4 of TOC 0x124)",
+        "positions": [-1.0, -0.5625, 0.0]
+      },
+      "transmission_select": {
+        "note": "SELECT TRANSMISSION TYPE (0x8c010, the steering read at 0x8c024; EAA +0x24): at or below -0x2aaa MANUAL (1), otherwise AUTOMATIC (0), the default with the wheel at rest",
+        "positions": [-1.0, 0.0]
+      }
     },
     "test_menu_game_mode": 12
   }

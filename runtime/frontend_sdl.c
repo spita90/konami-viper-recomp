@@ -10,7 +10,9 @@
  *   E  shift up   Q  shift down   5  coin   1  start   F2  test   9  service
  *   (enhanced mode: test, service and coin are not passed to the game: TEST MODE cannot be
  *   opened, and the game is on free play. In the rankings' name entry the keyboard types the
- *   letters, Backspace deletes, Enter ends, Left/Right and the D-pad step through the letters)
+ *   letters, Backspace deletes, Enter ends, Left/Right and the D-pad step through the letters;
+ *   in the course select (and GTI Club 2's transmission select) Left/Right, A/D, the D-pad
+ *   and the stick step through the choices, and the wheel stays on the chosen one)
  *   Gamepad: left stick = steering, R2/L2 = gas/brake, R1/L1 = shift up/down,
  *            X = handbrake, Start = start, Back = coin
  *   F11 fullscreen, Esc quit
@@ -118,12 +120,13 @@ static SDL_GameController *g_pad;
 
 static void apply_inputs(double dt) {
     /* keyboard steering: ramp towards target */
-    double target = !!ctl.steer_right - !!ctl.steer_left;
+    int wsel = enh_wheel_select_active();
+    double target = wsel ? enh_wheel_select_pos() : !!ctl.steer_right - !!ctl.steer_left;
     double speed = 4.0 * dt;
     if (ctl.steer < target) ctl.steer = SDL_min(target, ctl.steer + speed);
     else if (ctl.steer > target) ctl.steer = SDL_max(target, ctl.steer - speed);
     double steer = ctl.steer;
-    if (g_pad && abs(ctl.pad_steer) > 3000) steer = ctl.pad_steer / 32767.0;
+    if (g_pad && abs(ctl.pad_steer) > 3000 && !wsel) steer = ctl.pad_steer / 32767.0;
     /* signed positions for the differential ADC (hw.c): steering -200..+200, pedals -200 (released)..+200 */
     int gas = ctl.gas ? 255 : 0, brake = ctl.brake ? 255 : 0;
     if (g_pad) {
@@ -293,8 +296,14 @@ int frontend_run(int scale) {
                     SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     enh_set_fullscreen(!fs);    /* enhanced mode: remembered in the settings */
                     fs_applied = !fs;
-                } else if (!(enh_name_entry_active() && !enh_paused() && name_key(ev.key.keysym.sym)))
+                } else if (!(enh_name_entry_active() && !enh_paused() && name_key(ev.key.keysym.sym))) {
+                    if (!ev.key.repeat && !enh_paused() && enh_wheel_select_active()) {
+                        SDL_Keycode k = ev.key.keysym.sym;
+                        if (k == SDLK_LEFT || k == SDLK_a) enh_wheel_select_step(-1);
+                        else if (k == SDLK_RIGHT || k == SDLK_d) enh_wheel_select_step(1);
+                    }
                     key(ev.key.keysym.sym, 1);
+                }
                 break;
             case SDL_KEYUP: key(ev.key.keysym.sym, 0); break;
             case SDL_TEXTINPUT:
@@ -305,7 +314,14 @@ int frontend_run(int scale) {
                 if (!g_pad) g_pad = SDL_GameControllerOpen(ev.cdevice.which);
                 break;
             case SDL_CONTROLLERAXISMOTION:
-                if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) ctl.pad_steer = ev.caxis.value;
+                if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) {
+                    /* wheel selects: pushing the stick to one side steps once */
+                    static int zone;
+                    int z = ev.caxis.value < -16000 ? -1 : ev.caxis.value > 16000 ? 1 : 0;
+                    if (z && z != zone && !enh_paused()) enh_wheel_select_step(z);
+                    zone = z;
+                    ctl.pad_steer = ev.caxis.value;
+                }
                 else if (ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) ctl.pad_gas = ev.caxis.value;
                 else if (ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) ctl.pad_brake = ev.caxis.value;
                 break;
@@ -317,6 +333,9 @@ int frontend_run(int scale) {
                 else if (enh_name_entry_active() && !enh_paused() && (ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
                                                                        ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
                     enh_name_step(ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? -1 : 1);
+                else if (enh_wheel_select_active() && !enh_paused() && (ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
+                                                                          ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
+                    enh_wheel_select_step(ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? -1 : 1);
                 else pad_button(ev.cbutton.button, 1);
                 break;
             case SDL_CONTROLLERBUTTONUP: pad_button(ev.cbutton.button, 0); break;
