@@ -27,3 +27,14 @@ int main(int argc, char **argv) {
  remove(g_settings_path);
  puts("texture filter menu toggle, live application and persistence: passed");
 }
+
+int frontend_gyro_enabled(void) { return 0; }
+int frontend_gyro_sensitivity(void) { return 100; }
+void frontend_gyro_set_enabled(int v) { (void)v; }
+void frontend_gyro_set_sensitivity(int v) { (void)v; }
+void frontend_gyro_recenter(void) {}
+int frontend_gyro_available(void) { return 0; }
+int frontend_gyro_ready(void) { return 0; }
+double frontend_gyro_position(void) { return 0; }
+double frontend_stick_position(void) { return 0; }
+double frontend_steering_position(void) { return 0; }
