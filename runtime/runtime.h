@@ -61,6 +61,8 @@ void enh_init(const char *work, const char *settings); /* fonts, port settings *
 int enh_texture_filter(void); /* 0 original, 1 nearest, 2 bilinear */
 int enh_want_fullscreen(void);
 void enh_set_fullscreen(int on);
+int enh_want_window(int *r);                           /* both modes: x, y, w, h; 0 if none */
+void enh_set_window(const int *r);
 int enh_menu_active(void);                             /* attract menu on screen */
 void enh_menu_action(int action);
 int enh_start_held(void);                              /* START GAME: hold START for the game */
@@ -82,7 +84,7 @@ void hw_shutdown(void);
 void nvram_save(void);
 void rt_pace_vblank(void);
 void audio_frontend_push(const uint8_t *blk);
-int frontend_run(int scale);
+int frontend_run(int scale, int scale_explicit);     /* --scale given: its size, not the saved one */
 uint32_t hw_read(uint32_t ea, int size);
 void hw_write(uint32_t ea, int size, uint32_t v);
 
