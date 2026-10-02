@@ -153,6 +153,18 @@ takes a little longer, because of the force-feedback wheel test.
 
 ---
 
+### Controller rumble
+
+Supported SDL controllers (including Nintendo Switch Pro) vibrate in proportion to the
+cabinet's K-type steering motor torque. Set `RT_RUMBLE=0` to disable, or a strength from
+0 to 1 (default `0.5`), for example `RT_RUMBLE=0.25 ./gticlub2`.
+
+This follows actual motor commands, so versions without the K-type motor may not rumble.
+It approximates wheel force as vibration; it does not provide directional wheel force or
+synthesize collision effects. Rumble stops when unfocused, paused, in an enhanced menu,
+during automatic setup, or on normal exit. Short effects expire if the frontend stalls.
+Controllers without rumble support continue to work normally. Requires SDL 2.0.9+ for rumble.
+
 ## Required files
 
 The layout of `roms/` is the same as a MAME rompath. You only need `kviper/` plus the folders of
@@ -345,3 +357,35 @@ listed in [CHANGELOG.md](CHANGELOG.md).
     by BSD-3-Clause.
   - MAME is used here as a hardware reference.
 - The software is provided "as is", without warranty of any kind.
+
+Press **F8** or the Switch Pro **Capture** button in the focused game window for a
+one-second full-torque rumble test using the selected Rumble Strength, including
+while paused. This checks controller output independently of cabinet motor commands.
+A controller error is logged once; lack of physical vibration still needs checking
+on the actual controller even if the API accepts the request.
+
+SDL handles rumble by default on all platforms, including Switch Pro controllers.
+On macOS, `RT_RUMBLE_BACKEND=apple` explicitly selects the experimental
+GameController/CoreHaptics route for one unambiguously matched Switch Pro;
+other controllers and ambiguous multiple-pad setups retain SDL routing.
+`RT_RUMBLE_BACKEND=sdl` also selects the default SDL route.
+Effects stop on pause, focus loss and disconnect.
+
+**Options → Controls** and **Pause → Controls** include a saved **Rumble Strength** multiplier,
+from 0.0× (off) to 4.0× in 0.5× steps. 1.0× retains the default strength; boosting
+amplifies quieter cabinet motor commands and clamps at the controller's maximum.
+Capture / F8 uses this multiplier too: Off silences the test, 0.5× produces quarter
+intensity, 1× half intensity, and 2× reaches maximum. Higher multipliers boost weaker
+cabinet effects but cannot exceed the hardware maximum.
+
+Temporary rumble errors retry after one second instead of disabling rumble until
+reconnection. The Apple backend checks that its engine is started before each effect,
+including the first effect after pause. Native failures retain native routing while
+recovering; unavailable native devices still use SDL.
+
+Cabinet torque maps linearly to rumble before the user's strength multiplier.
+At the default strength, torque 3–5 maps to about 10–17% intensity; full torque
+maps to 50%. Zero remains silent. Capture/F8 tests full torque at the selected strength.
+
+Capture/F8 also records 30 seconds of game motor commands, output strength and
+routing diagnostics, to distinguish weak game forces from controller failures.

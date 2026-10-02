@@ -38,6 +38,11 @@ VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/
 RT_OBJS := $(RT_SRCS:%.c=$(BUILD)/%.o)
 GEN_OBJS := $(GEN_SRCS:%.c=$(BUILD)/%.o)
 VD_OBJS := $(VD_SRCS:%.cpp=$(BUILD)/%.o)
+ifeq ($(shell uname -s),Darwin)
+CFLAGS += -DVIPER_NATIVE_HAPTICS
+RT_OBJS += $(BUILD)/runtime/controller_haptics_mac.o
+LDFLAGS += -framework Foundation -framework GameController -framework CoreHaptics
+endif
 
 ifeq ($(wildcard $(GEN)/sources.mk),)
 $(BIN):
@@ -55,6 +60,10 @@ $(BUILD)/runtime/voodoo/%.o: runtime/voodoo/%.cpp runtime/voodoo/*.h runtime/voo
 $(BUILD)/runtime/%.o: runtime/%.c runtime/*.h $(GEN)/modules.h $(GEN)/game_config.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
+
+$(BUILD)/runtime/%.o: runtime/%.m runtime/*.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -fobjc-arc -c $< -o $@
 
 $(BUILD)/$(GEN)/%.o: $(GEN)/%.c runtime/ppc_rt.h
 	@mkdir -p $(dir $@)

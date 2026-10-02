@@ -20,10 +20,33 @@
 #include "runtime.h"
 #include "game_config.h"
 #include <SDL.h>
+#ifdef VIPER_NATIVE_HAPTICS
+#include "controller_haptics_mac.h"
+static int send_controller_rumble(SDL_GameController *pad, Uint16 low, Uint16 high, Uint32 duration);
+#define CONTROLLER_RUMBLE_SEND send_controller_rumble
+#endif
+#include "controller_rumble.h"
 #include "window_state.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+
+static const char *g_rumble_backend = "SDL";
+#ifdef VIPER_NATIVE_HAPTICS
+static int send_controller_rumble(SDL_GameController *pad, Uint16 low, Uint16 high, Uint32 duration) {
+    const char *backend = getenv("RT_RUMBLE_BACKEND");
+    if (SDL_NumJoysticks() == 1 && SDL_GameControllerGetType(pad) == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO &&
+        (backend && !strcmp(backend, "apple"))) {
+        int result = controller_haptics_rumble((float)SDL_max(low, high) / 65535.0f, duration / 1000.0);
+        if (result > 0) { g_rumble_backend = "Apple"; return 0; }
+        if (result < 0) { g_rumble_backend = "Apple retry"; return SDL_SetError("Apple controller haptics temporarily unavailable"); }
+        /* Native discovery may be delayed or the device may not expose haptics. */
+    }
+    controller_haptics_stop();
+    g_rumble_backend = "SDL";
+    return SDL_GameControllerRumble(pad, low, high, duration);
+}
+#endif
 
 extern uint8_t g_in[8];
 extern int16_t g_analog[4];
@@ -118,6 +141,62 @@ static Controls ctl;
 
 static void hold(int *f, int src, int down) { *f = down ? *f | src : *f & ~src; }
 static SDL_GameController *g_pad;
+static int g_rumble_testing;
+static atomic_uchar g_motor_output;
+static atomic_uint g_motor_writes, g_motor_energized_writes;
+static Uint32 g_rumble_trace_started, g_rumble_trace_tick;
+static int g_rumble_trace;
+static ControllerRumble g_rumble = { .id = -1 };
+static double g_rumble_gain = 0.5;
+
+int frontend_rumble_multiplier(void) { return (int)lround(g_rumble_gain * 200); }
+void frontend_set_rumble_multiplier(int percent) {
+    g_rumble_gain = SDL_clamp(percent, 0, 400) / 200.0;
+}
+static Uint32 g_rumble_test_started;
+
+static void test_rumble(void) {
+    if (!g_pad) { rt_log("rumble test: no controller connected\n"); return; }
+    if (g_rumble_testing) return; /* let the current pulse finish */
+    g_rumble_test_started = SDL_GetTicks();
+    if (controller_rumble_pulse(&g_rumble, g_pad, g_rumble_gain, g_rumble_test_started) < 0) {
+        rt_log("rumble test failed: %s\n", SDL_GetError());
+        return;
+    }
+    g_rumble_testing = 1;
+    g_rumble_trace = 1;
+    g_rumble_trace_started = g_rumble_test_started;
+    g_rumble_trace_tick = g_rumble_test_started - 1000;
+    rt_log("rumble test: single 1000 ms pulse at %.1fx strength (output=%u)\n",
+           frontend_rumble_multiplier() / 100.0, g_rumble.strength);
+}
+
+/* Guest publishes motor commands; SDL calls stay on the host main thread. */
+void frontend_set_motor(uint8_t command) {
+    atomic_store_explicit(&g_motor_output, command, memory_order_relaxed);
+    atomic_fetch_add_explicit(&g_motor_writes, 1, memory_order_relaxed);
+    if ((command & 0x80) && (command & 15)) atomic_fetch_add_explicit(&g_motor_energized_writes, 1, memory_order_relaxed);
+}
+
+static void update_rumble(int active) {
+    Uint32 now = SDL_GetTicks();
+    SDL_Window *window = SDL_GetKeyboardFocus();
+    if (g_rumble_testing && (!window || (Uint32)(now - g_rumble_test_started) >= 1000))
+        g_rumble_testing = 0;
+    uint8_t motor = atomic_load_explicit(&g_motor_output, memory_order_relaxed);
+    if (!g_rumble_testing)
+        controller_rumble_update(&g_rumble, g_pad, motor, g_rumble_gain, active, now);
+    if (g_rumble_trace && (Uint32)(now - g_rumble_trace_started) >= 30000) g_rumble_trace = 0;
+    if (g_rumble_trace && (Uint32)(now - g_rumble_trace_tick) >= 1000) {
+        g_rumble_trace_tick = now;
+        rt_log("rumble: motor=%02x writes=%u energized=%u active=%d test=%d gain=%.1fx output=%u retry=%d backend=%s paused=%d menu=%d turbo=%d owned=%d focus=%d\n",
+            motor, atomic_load_explicit(&g_motor_writes, memory_order_relaxed),
+            atomic_load_explicit(&g_motor_energized_writes, memory_order_relaxed),
+            active, g_rumble_testing, frontend_rumble_multiplier() / 100.0,
+            g_rumble.strength, g_rumble.failed, g_rumble_backend,
+            enh_paused(), enh_menu_active(), enh_turbo(), enh_inputs_owned(), window != NULL);
+    }
+}
 
 static void apply_inputs(double dt) {
     /* keyboard steering: ramp towards target */
@@ -240,9 +319,20 @@ static void save_window(SDL_Window *win) {
 }
 
 int frontend_run(int scale, int scale_explicit) {
+#ifdef VIPER_NATIVE_HAPTICS
+    const char *rumble_backend = getenv("RT_RUMBLE_BACKEND");
+    if (rumble_backend && !strcmp(rumble_backend, "apple")) controller_haptics_init();
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
         rt_log("SDL_Init failed: %s\n", SDL_GetError());
         return -1;
+    }
+    const char *rumble = getenv("RT_RUMBLE");
+    if (rumble) {
+        char *end;
+        double gain = strtod(rumble, &end);
+        if (end != rumble && !*end && isfinite(gain) && gain >= 0 && gain <= 2) g_rumble_gain = gain;
+        else rt_log("RT_RUMBLE: expected 0..2; keeping current setting\n");
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     /* the window of the last run (port settings), fitted to the displays connected now; an
@@ -327,6 +417,7 @@ int frontend_run(int scale, int scale_explicit) {
                 }
                 break;
             case SDL_KEYDOWN:
+                if (ev.key.keysym.sym == SDLK_F8) { if (!ev.key.repeat) test_rumble(); break; }
                 if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     if (!ev.key.repeat) enh_menu_action(menu_key(ev.key.keysym.sym));
                 } else if (ev.key.keysym.sym == SDLK_ESCAPE) {
@@ -354,6 +445,18 @@ int frontend_run(int scale, int scale_explicit) {
             case SDL_CONTROLLERDEVICEADDED:
                 if (!g_pad) g_pad = SDL_GameControllerOpen(ev.cdevice.which);
                 break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (g_pad && ev.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad))) {
+                    g_rumble_testing = 0;
+                    update_rumble(0);
+                    SDL_GameControllerClose(g_pad);
+                    g_pad = NULL;
+                    ctl.pad_steer = ctl.pad_gas = ctl.pad_brake = 0;
+                    ctl.gas &= ~SRC_PAD; ctl.brake &= ~SRC_PAD; ctl.handbrake &= ~SRC_PAD;
+                    ctl.shift_up &= ~SRC_PAD; ctl.shift_down &= ~SRC_PAD;
+                    ctl.coin &= ~SRC_PAD; ctl.start &= ~SRC_PAD;
+                }
+                break;
             case SDL_CONTROLLERAXISMOTION:
                 if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) {
                     /* wheel selects: pushing the stick to one side steps once */
@@ -367,6 +470,12 @@ int frontend_run(int scale, int scale_explicit) {
                 else if (ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) ctl.pad_brake = ev.caxis.value;
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+                if (g_pad && ev.cbutton.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad)) &&
+                    SDL_GetKeyboardFocus() && ev.cbutton.button == SDL_CONTROLLER_BUTTON_MISC1) {
+                    test_rumble(); break;  /* Switch Capture: test the transport independently of game FFB. */
+                }
+#endif
                 if ((enh_menu_active() || enh_paused()) && menu_button(ev.cbutton.button) >= 0) enh_menu_action(menu_button(ev.cbutton.button));
                 else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
                     if (!enh_escape()) running = 0;  /* Home: pause/back in play, quit from main menu. */
@@ -383,6 +492,8 @@ int frontend_run(int scale, int scale_explicit) {
             default: break;
             }
         }
+        update_rumble((SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
+                      !enh_paused() && !enh_menu_active() && !enh_turbo() && !enh_inputs_owned());
         uint64_t now = SDL_GetPerformanceCounter();
         apply_inputs((double)(now - last_tick) / g_pace_freq);
         last_tick = now;
@@ -432,9 +543,15 @@ int frontend_run(int scale, int scale_explicit) {
             window_dirty = 0;
         }
     }
+    g_rumble_testing = 0;
+    update_rumble(0);
     if (window_dirty) save_window(win);
     nvram_save();
+    if (g_pad) SDL_GameControllerClose(g_pad);
     if (g_audio) SDL_CloseAudioDevice(g_audio);
+#ifdef VIPER_NATIVE_HAPTICS
+    controller_haptics_stop();
+#endif
     SDL_Quit();
     return restart ? 2 : 0;
 }

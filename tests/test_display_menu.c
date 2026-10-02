@@ -27,3 +27,6 @@ int main(int argc, char **argv) {
  remove(g_settings_path);
  puts("texture filter menu toggle, live application and persistence: passed");
 }
+
+int frontend_rumble_multiplier(void) { return 100; }
+void frontend_set_rumble_multiplier(int v) { (void)v; }

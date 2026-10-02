@@ -85,3 +85,6 @@ int main(int argc, char **argv) {
     remove(path);
     puts("window fitting and port settings (classic, enhanced, out of range): passed");
 }
+
+int frontend_rumble_multiplier(void) { return 100; }
+void frontend_set_rumble_multiplier(int v) { (void)v; }

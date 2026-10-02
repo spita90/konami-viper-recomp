@@ -198,7 +198,7 @@ static void ffb_update(void) {
     g_analog[0] = (int16_t)g_ffb_pos;
 }
 
-static void motor_write(uint8_t v) { ffb_update(); g_motor = v; }
+static void motor_write(uint8_t v) { ffb_update(); g_motor = v; frontend_set_motor(v); }
 
 static void i2c_done(void *arg) {
     (void)arg;

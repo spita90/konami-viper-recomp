@@ -415,6 +415,7 @@ static void settings_load(void) {
             else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
+            else if (!strcmp(key, "rumble_multiplier")) frontend_set_rumble_multiplier(v);
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
             else for (int i = 0; i < 4; i++) if (!strcmp(key, k_win_key[i])) g_set.win[i] = v;
         }
@@ -428,6 +429,7 @@ static void settings_save(void) {
     if (g_enhanced) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
+        fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());
         fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
     }
     if (g_set.win[2])
@@ -657,7 +659,7 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_COUNT };
+       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_CONTROLS, T_RUMBLE, T_TEXTURE_FILTER, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -668,6 +670,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "PRESS START TO GO BACK", "PREMI START PER TORNARE" }, { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
+    { "CONTROLS", "COMANDI" }, { "RUMBLE STRENGTH", "VIBRAZIONE" },
     { "TEXTURE FILTER", "FILTRO TEXTURE" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
@@ -685,7 +688,7 @@ static int menu_language(void) {
  * the overlay; the guest thread updates the attract state. Plain ints are enough: each field
  * has a single writer. */
 enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS };
-enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, N_PAGES };
+enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, PAGE_CONTROLS, N_PAGES };
 static const int k_main_items[] = { T_START, T_OPTIONS, T_CREDITS, T_QUIT };
 #define N_MAIN_ITEMS 4
 #define MENU_GRACE_FRAMES 300      /* the Konami logo gap in the attract loop lasts about 4 s */
@@ -698,6 +701,7 @@ static volatile int g_starting;            /* START GAME chosen, waiting for the
 static volatile uint64_t g_starting_frame;
 static volatile int g_apply;               /* 1: write the staged options, 2: written, restart */
 static volatile int g_paused, g_pause_cursor;
+static int g_pause_controls, g_controls_cursor;
 static volatile int g_returning;           /* MAIN MENU from the pause: back to the attract */
 static uint64_t g_return_t0;
 static volatile int g_booted;              /* the attract hook has run once since the start */
@@ -726,7 +730,7 @@ int enh_inputs_owned(void) { return g_returning; }   /* the return script drives
 /* Esc from the frontend: 1 if the enhanced mode handled it (pause, or back in a submenu) */
 int enh_escape(void) {
     if (!g_enhanced || !g_font || g_apply || g_returning || !g_booted) return 0;
-    if (g_paused) { g_paused = 0; return 1; }
+    if (g_paused) { if (g_pause_controls) g_pause_controls = 0; else g_paused = 0; return 1; }
     if (enh_menu_active()) {
         if (g_screen == SCREEN_MAIN) return 0;      /* the main menu: Esc quits, as before */
         enh_menu_action(ENH_BACK);
@@ -735,15 +739,38 @@ int enh_escape(void) {
     if (enh_turbo() || g_starting) return 1;
     g_paused = 1;
     g_pause_cursor = 0;
+    g_pause_controls = 0;
     return 1;
 }
 
+static void change_rumble(int dir) {
+    frontend_set_rumble_multiplier(frontend_rumble_multiplier() + dir * 50);
+    settings_save();
+}
+
 static void pause_action(int action) {
+    if (g_pause_controls) {
+        switch (action) {
+        case ENH_UP: case ENH_DOWN: g_controls_cursor ^= 1; break;
+        case ENH_BACK: g_pause_controls = 0; break;
+        case ENH_OK:
+            if (g_controls_cursor == 0) g_pause_controls = 0;
+            else change_rumble(1);
+            break;
+        case ENH_LEFT: case ENH_RIGHT:
+            if (g_controls_cursor == 1) change_rumble(action == ENH_LEFT ? -1 : 1);
+            break;
+        default: break;
+        }
+        return;
+    }
     switch (action) {
-    case ENH_UP: case ENH_DOWN: g_pause_cursor ^= 1; break;
+    case ENH_UP: g_pause_cursor = (g_pause_cursor + 2) % 3; break;
+    case ENH_DOWN: g_pause_cursor = (g_pause_cursor + 1) % 3; break;
     case ENH_BACK: g_paused = 0; break;
     case ENH_OK:
         if (g_pause_cursor == 0) g_paused = 0;
+        else if (g_pause_cursor == 1) { g_pause_controls = 1; g_controls_cursor = 0; }
         else if (GAME_ENH_TEST_GAME_MODE >= 0) { g_returning = 1; g_return_t0 = 0; g_paused = 0; }
         else { g_apply = 2; g_paused = 0; }            /* no known route: reboot the game */
         break;
@@ -762,6 +789,7 @@ int enh_quit_requested(void) { return g_quit; }
 /* the rows of an options page: game options of that page, or the port options (DISPLAY) */
 static int page_rows(int page, int *rows) {
     int n = 0;
+    if (page == PAGE_CONTROLS) { rows[n++] = -5; return n; }
     if (page == PAGE_DISPLAY) {
         rows[n++] = -1;
         rows[n++] = -3;
@@ -776,6 +804,7 @@ static int page_rows(int page, int *rows) {
 }
 
 static void page_change(int row, int dir) {
+    if (row == -5) { change_rumble(dir); return; }
     if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
@@ -797,6 +826,12 @@ void enh_menu_action(int action) {
     if (!enh_menu_active()) return;
     if (g_screen == SCREEN_PAGE) {
         int rows[MAX_GAME_OPTIONS + 2], n = page_rows(g_page, rows);
+        if (g_page == PAGE_CONTROLS && (action == ENH_LEFT || action == ENH_RIGHT || action == ENH_OK)) {
+            if (g_page_cursor == 0) {
+                if (action == ENH_OK) g_screen = SCREEN_OPTIONS;
+            } else change_rumble(action == ENH_LEFT ? -1 : 1);
+            return;
+        }
         switch (action) {
         case ENH_UP: g_page_cursor = (g_page_cursor + n) % (n + 1); break;
         case ENH_DOWN: g_page_cursor = (g_page_cursor + 1) % (n + 1); break;
@@ -893,6 +928,21 @@ static void menu_tick(void) {
 
 static void draw_menu(uint32_t *fb, int w, int h);
 
+static void draw_rumble_controls(uint32_t *fb, int w, int h, int cursor) {
+    char value[16];
+    {
+            if (frontend_rumble_multiplier()) snprintf(value, sizeof value, "%.1fX", frontend_rumble_multiplier() / 100.0);
+            else snprintf(value, sizeof value, "%s", T(T_OFF));
+        }
+    dim_rect(fb, w, h, 0, 0, w, h, 190);
+    draw_centered(fb, w, h, FONT_LARGE, 24, T(T_CONTROLS), 0xffd800);
+    uint32_t col = cursor == 1 ? 0xffd800 : 0xffffff;
+    draw_text(fb, w, h, FONT_MEDIUM, 40, 112, T(T_RUMBLE), col);
+    draw_text(fb, w, h, FONT_MEDIUM, w - 40 - text_width(FONT_MEDIUM, value), 112, value, col);
+    draw_text(fb, w, h, FONT_MEDIUM, 40, 68, T(T_BACK), cursor == 0 ? 0xffd800 : 0xffffff);
+}
+
+
 void enh_draw_overlay(uint32_t *fb, int w, int h) {
     if (!g_enhanced) return;
     g_fbw = w;
@@ -905,14 +955,15 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         draw_centered(fb, w, h, FONT_MEDIUM, h / 2 - font_height(FONT_MEDIUM) / 2, T(g_apply == 1 || g_apply == 2 ? T_APPLYING : T_LOADING), 0xffffff);
         return;
     }
-    if (g_paused) {
+    if (g_paused && !g_pause_controls) {
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
-        static const int items[2] = { T_RESUME, T_MAIN_MENU };
+        static const int items[3] = { T_RESUME, T_CONTROLS, T_MAIN_MENU };
         dim_rect(fb, w, h, 0, 0, w, h, 160);
         draw_centered(fb, w, h, FONT_LARGE, h / 2 - 90, T(T_PAUSE), 0xffd800);
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < 3; i++)
             draw_centered(fb, w, h, z, h / 2 - 10 + i * step, T(items[i]), i == g_pause_cursor ? 0xffd800 : 0xffffff);
     }
+    if (g_paused && g_pause_controls) draw_rumble_controls(fb, w, h, g_controls_cursor);
     if (enh_menu_active()) draw_menu(fb, w, h);
     if (g_set.show_fps && g_font) {                 /* on top of everything, also in play */
         char buf[16];
@@ -938,14 +989,15 @@ static void draw_menu(uint32_t *fb, int w, int h) {
         for (int i = 0; i < N_MAIN_ITEMS; i++)
             draw_text(fb, w, h, z, left + pad, y0 + pad + i * step, T(k_main_items[i]), i == g_cursor ? yellow : white);
     } else if (g_screen == SCREEN_OPTIONS) {
-        static const int items[N_PAGES + 1] = { T_GAME, T_SOUND, T_DISPLAY, T_BACK };
+        static const int items[N_PAGES + 1] = { T_GAME, T_SOUND, T_DISPLAY, T_CONTROLS, T_BACK };
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
         dim_rect(fb, w, h, 0, 0, w, h, 190);
         draw_centered(fb, w, h, FONT_LARGE, 36, T(T_OPTIONS), yellow);
         for (int i = 0; i <= N_PAGES; i++)
-            draw_centered(fb, w, h, z, 120 + i * step + (i == N_PAGES ? step / 2 : 0), T(items[i]), i == g_opt_cursor ? yellow : white);
+            draw_centered(fb, w, h, z, 95 + i * step + (i == N_PAGES ? step / 2 : 0), T(items[i]), i == g_opt_cursor ? yellow : white);
     } else if (g_screen == SCREEN_PAGE) {
-        static const int titles[N_PAGES] = { T_GAME, T_SOUND, T_DISPLAY };
+        if (g_page == PAGE_CONTROLS) { draw_rumble_controls(fb, w, h, g_page_cursor); return; }
+        static const int titles[N_PAGES] = { T_GAME, T_SOUND, T_DISPLAY, T_CONTROLS };
         const int z = FONT_MEDIUM, step = font_height(z) + 4, left = 40, right = w - 40;
         int rows[MAX_GAME_OPTIONS + 2], n = page_rows(g_page, rows);
         dim_rect(fb, w, h, 0, 0, w, h, 190);
