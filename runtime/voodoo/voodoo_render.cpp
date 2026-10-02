@@ -15,13 +15,14 @@
 
 #include <bit>
 #include <atomic>
-#include "texture_filter.h"
+extern "C" void rt_log(const char *fmt, ...);
 
+// enhanced mode, Texture Filter option: 0 = the game's, 1 = nearest magnification. Read once per
+// primitive, in rasterizer_params::compute, so the per-texel code is the original one
 static std::atomic<int> s_texture_filter{0};
 extern "C" void voodoo_set_texture_filter(int mode) {
-    s_texture_filter.store(mode >= 0 && mode <= 2 ? mode : 0, std::memory_order_relaxed);
+	s_texture_filter.store(mode == 1, std::memory_order_relaxed);
 }
-extern "C" void rt_log(const char *fmt, ...);
 #include <set>
 #include <array>
 #include <cstdlib>
@@ -284,6 +285,13 @@ void rasterizer_params::compute(voodoo_regs &regs, voodoo_regs *tmu0regs, voodoo
 		{
 			m_texmode1 = tmu1regs->texture_mode().normalize();
 			m_generic |= GENERIC_TEX1;
+		}
+		// Texture Filter NEAREST: magnification filter (textureMode bit 2) off; minification and
+		// mipmaps stay the game's
+		if (s_texture_filter.load(std::memory_order_relaxed))
+		{
+			if (m_texmode0 != reg_texture_mode::NONE) m_texmode0 &= ~(1u << 2);
+			if (m_texmode1 != reg_texture_mode::NONE) m_texmode1 &= ~(1u << 2);
 		}
 	}
 	compute_equations();
@@ -932,7 +940,7 @@ inline rgb_t rasterizer_texture::lookup_single_texel(u32 format, u32 texbase, s3
 //  the S,T coordinates and LOD
 //-------------------------------------------------
 
-inline rgbaint_t ATTR_FORCE_INLINE rasterizer_texture::fetch_texel(reg_texture_mode const texmode, dither_helper const &dither, s32 x, double iters, double itert, double iterw, s32 &lod, u8 bilinear_mask, int texture_filter)
+inline rgbaint_t ATTR_FORCE_INLINE rasterizer_texture::fetch_texel(reg_texture_mode const texmode, dither_helper const &dither, s32 x, double iters, double itert, double iterw, s32 &lod, u8 bilinear_mask)
 {
 	// determine the S/T/LOD values for this texture; iterated S/T are
 	// in 32.32 format and we want final S/T in 24.8 format
@@ -980,7 +988,7 @@ inline rgbaint_t ATTR_FORCE_INLINE rasterizer_texture::fetch_texel(reg_texture_m
 
 	// determine whether we are point-sampled or bilinear
 	rgbaint_t result;
-	if (!viper_texture_bilinear(texture_filter, lod == m_lodmin, texmode.magnification_filter(), texmode.minification_filter()))
+	if ((lod == m_lodmin && !texmode.magnification_filter()) || (lod != m_lodmin && !texmode.minification_filter()))
 	{
 		// incorporate the fraction shift into ilod
 		ilod += 8;
@@ -2347,8 +2355,6 @@ void voodoo_renderer::rasterizer(s32 y, const voodoo_renderer::extent_t &extent,
 	}
 	poly.info->scanlines++;
 
-	// Read once per scanline, not once per texel, while the UI can change the option.
-	const int texture_filter = s_texture_filter.load(std::memory_order_relaxed);
 	// loop in X
 	dither_helper dither(scry, fbzmode, fogmode);
 	for (s32 x = startx; x < stopx; x++)
@@ -2374,7 +2380,7 @@ void voodoo_renderer::rasterizer(s32 y, const voodoo_renderer::extent_t &extent,
 			if (GenericFlags & rasterizer_params::GENERIC_TEX1)
 			{
 				s32 lod1 = lodbase1;
-				rgbaint_t texel_t1 = poly.tex1->fetch_texel(texmode1, dither, x, iters1, itert1, iterw1, lod1, m_bilinear_mask, texture_filter);
+				rgbaint_t texel_t1 = poly.tex1->fetch_texel(texmode1, dither, x, iters1, itert1, iterw1, lod1, m_bilinear_mask);
 				if (GenericFlags & rasterizer_params::GENERIC_TEX1_IDENTITY)
 					texel = texel_t1;
 				else
@@ -2389,7 +2395,7 @@ void voodoo_renderer::rasterizer(s32 y, const voodoo_renderer::extent_t &extent,
 				if (!texmode0.seq_8_downld())
 				{
 					s32 lod0 = lodbase0;
-					rgbaint_t texel_t0 = poly.tex0->fetch_texel(texmode0, dither, x, iters0, itert0, iterw0, lod0, m_bilinear_mask, texture_filter);
+					rgbaint_t texel_t0 = poly.tex0->fetch_texel(texmode0, dither, x, iters0, itert0, iterw0, lod0, m_bilinear_mask);
 					if (GenericFlags & rasterizer_params::GENERIC_TEX0_IDENTITY)
 						texel = texel_t0;
 					else

@@ -58,7 +58,7 @@ void enh_on_frame(const uint32_t *frame, int w, int h);
 int enh_in_attract(void);
 enum { ENH_UP, ENH_DOWN, ENH_LEFT, ENH_RIGHT, ENH_OK, ENH_BACK };
 void enh_init(const char *work, const char *settings); /* fonts, port settings */
-int enh_texture_filter(void); /* 0 original, 1 nearest, 2 bilinear */
+int enh_texture_filter(void); /* 0 original, 1 nearest */
 int enh_want_fullscreen(void);
 void enh_set_fullscreen(int on);
 int enh_want_window(int *r);                           /* both modes: x, y, w, h; 0 if none */

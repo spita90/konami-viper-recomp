@@ -5,6 +5,16 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [0.9.3] - 2026-10-02
+
+### Added
+
+- **Enhanced mode, DISPLAY → TEXTURE FILTER:** ORIGINAL (the game's filtering, the default) or
+  NEAREST, which turns off the filtering of enlarged textures, for hard texel edges, and scales
+  the window without smoothing. The filtering of distant textures and the mipmaps stay the
+  game's. Applied at once and saved in the port settings. With ORIGINAL, and in classic mode,
+  the frames are the same as before, bit for bit.
+
 ## [0.9.2] - 2026-10-02
 
 ### Added
@@ -278,7 +288,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[0.9.2]: https://github.com/spita90/konami-viper-recomp/compare/786d3bb...HEAD
+[0.9.3]: https://github.com/spita90/konami-viper-recomp/compare/5d7ac70...HEAD
+[0.9.2]: https://github.com/spita90/konami-viper-recomp/compare/786d3bb...5d7ac70
 [0.9.1]: https://github.com/spita90/konami-viper-recomp/compare/adb36c8...786d3bb
 [0.9.0]: https://github.com/spita90/konami-viper-recomp/compare/99658cb...adb36c8
 [0.8.2]: https://github.com/spita90/konami-viper-recomp/compare/07e7a08...99658cb

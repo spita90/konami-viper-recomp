@@ -18,13 +18,12 @@ int main(int argc, char **argv) {
  assert(filter_row>=0 && g_set.texture_filter==0);
  for(int i=0;i<filter_row;i++) enh_menu_action(ENH_DOWN);
  enh_menu_action(ENH_RIGHT);assert(g_set.texture_filter==1 && applied_filter==1 && enh_texture_filter()==1);
- enh_menu_action(ENH_RIGHT);assert(g_set.texture_filter==2 && applied_filter==2);
  enh_menu_action(ENH_RIGHT);assert(g_set.texture_filter==0 && applied_filter==0);
- enh_menu_action(ENH_LEFT);assert(g_set.texture_filter==2 && applied_filter==2);
- g_set.texture_filter=0;settings_load();assert(g_set.texture_filter==2);
+ enh_menu_action(ENH_LEFT);assert(g_set.texture_filter==1 && applied_filter==1);
+ g_set.texture_filter=0;settings_load();assert(g_set.texture_filter==1);
  FILE *f=fopen(g_settings_path,"w");assert(f);fputs("texture_filter = 99\n",f);fclose(f);
  settings_load();assert(g_set.texture_filter==0);
  g_enhanced=0;g_set.texture_filter=1;assert(enh_texture_filter()==0);
  remove(g_settings_path);
- puts("texture filter menu cycling, live application and persistence: passed");
+ puts("texture filter menu toggle, live application and persistence: passed");
 }

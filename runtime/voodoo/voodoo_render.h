@@ -350,7 +350,7 @@ public:
 	rgb_t lookup_single_texel(u32 format, u32 texbase, s32 s, s32 t);
 
 	// fetch a texel given coordinates and LOD information
-	rgbaint_t fetch_texel(voodoo::reg_texture_mode const texmode, voodoo::dither_helper const &dither, s32 x, double iters, double itert, double iterw, s32 &lod, u8 bilinear_mask, int texture_filter);
+	rgbaint_t fetch_texel(voodoo::reg_texture_mode const texmode, voodoo::dither_helper const &dither, s32 x, double iters, double itert, double iterw, s32 &lod, u8 bilinear_mask);
 
 	// texture-specific color combination unit
 	rgbaint_t combine_texture(voodoo::reg_texture_mode const texmode, rgbaint_t const &c_local, rgbaint_t const &c_other, s32 lod);

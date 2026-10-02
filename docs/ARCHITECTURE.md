@@ -476,10 +476,12 @@ An optional layer on top of the faithful port, in development. Everything is gat
 - **Port settings:** `<binary>_enhanced_settings.ini` next to the executable (`--settings FILE`
   to override), with `fullscreen` and `show_fps`, and the window position and size
   (`window_x`, `window_y`, `window_width`, `window_height`). The classic mode has its own
-  `<binary>_settings.ini`, with the window only, as each mode has its own NVRAM. These are
-  options of the port, not of the game; the game's settings stay in its NVRAM. The OPTIONS page
-  edits them (left and right, or OK), and the frontend applies the display mode. F11 also
-  updates the setting.
+  `<binary>_settings.ini`, with the window only, as each mode has its own NVRAM.
+  `texture_filter = 1` (NEAREST) clears the magnification filter bit (bit 2) of textureMode in
+  `rasterizer_params::compute`, once per primitive, so the per-texel code is MAME's and ORIGINAL
+  is bit-identical. These are options of the port, not of the game; the game's settings stay
+  in its NVRAM. The OPTIONS page edits them (left and right, or OK), and the frontend applies
+  the display mode. F11 also updates the setting.
 - **Game settings (NVRAM):** the TEST MODE options are a block of the NVRAM with a checksum.
   The big-endian 16-bit words from `nvram_options.start` up to the checksum word, included, sum
   to `0xFFFF`. The block is TD2 `0x88`–`0x125` and GTI Club 2 `0x84`–`0x121` (JAB and EAA); the

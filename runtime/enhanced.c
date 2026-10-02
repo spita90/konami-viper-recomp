@@ -412,7 +412,7 @@ static void settings_load(void) {
     while (fgets(line, sizeof line, f))
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
-            else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v >= 0 && v <= 2 ? v : 0;
+            else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
@@ -670,7 +670,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "ASPECT RATIO", "FORMATO" },
     { "TEXTURE FILTER", "FILTRO TEXTURE" },
 };
-static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST", "BILINEAR" };
+static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
 
 static int menu_language(void) {
@@ -776,12 +776,7 @@ static int page_rows(int page, int *rows) {
 }
 
 static void page_change(int row, int dir) {
-    if (row == -10) {
-        g_set.texture_filter = (g_set.texture_filter + dir + 3) % 3;
-        voodoo_set_texture_filter(g_set.texture_filter);
-        settings_save();
-        return;
-    }
+    if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
     if (row == -3) { g_set.scale = g_set.scale == 1 ? 2 : 1; voodoo_set_scale(g_set.scale); settings_save(); return; }

@@ -14,6 +14,7 @@ void hw_nvram_options_fix(uint8_t *nv) { (void)nv; }
 void nvram_save(void) {}
 void voodoo_set_scale(int n) { (void)n; }
 void voodoo_set_wide(int n) { (void)n; }
+void voodoo_set_texture_filter(int n) { (void)n; }
 unsigned long long voodoo_swap_count(void) { return 0; }
 
 static char g_text[4096];

@@ -247,6 +247,9 @@ The environment variables for debugging are described in
     3D scene on the left and right, with the same vertical field of view; the window widens to
     match. The HUD and the 2D screens keep their 4:3 layout in the centre, and a few 2D effects
     (the noise on Thrill Drive 2's crash screen) cover only that part.
+  - **Texture filter:** ORIGINAL (the game's original bilinear filtering) or NEAREST, which turns off the
+    filtering of enlarged textures, for hard texel edges, and scales the window without
+    smoothing. The filtering of distant textures and the mipmaps stay the game's.
 - **Saving the options:** game and sound options are the game's own TEST MODE settings, stored
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
   a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
@@ -342,10 +345,3 @@ listed in [CHANGELOG.md](CHANGELOG.md).
     by BSD-3-Clause.
   - MAME is used here as a hardware reference.
 - The software is provided "as is", without warranty of any kind.
-
-**Options → Display → Texture Filter** controls enlarged texture sampling:
-**Original** follows the game’s choice (default), **Nearest** keeps hard texel edges,
-and **Bilinear** blends neighbouring texels. Changes apply immediately and persist
-per game in enhanced mode. Distant-texture minification/mipmap choices stay with the
-game. Nearest also uses nearest-neighbour final window scaling so menu text stays
-crisp; Original and Bilinear retain bilinear final scaling.
