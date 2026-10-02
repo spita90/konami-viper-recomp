@@ -338,3 +338,8 @@ listed in [CHANGELOG.md](CHANGELOG.md).
     by BSD-3-Clause.
   - MAME is used here as a hardware reference.
 - The software is provided "as is", without warranty of any kind.
+
+Window position and size are remembered per game in a `.window` companion to its
+settings file, in both original and enhanced modes. Fullscreen and maximized bounds
+do not replace the normal window placement. Restored windows are fitted to a currently
+available display, including when a saved monitor has been disconnected.

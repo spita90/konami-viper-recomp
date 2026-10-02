@@ -109,3 +109,5 @@ static inline uint32_t le_bus_write(uint32_t old, int k, int size, uint32_t v) {
     old &= ~(0xffu << (8 * k));
     return old | ((v & 0xff) << (8 * k));
 }
+
+void frontend_set_settings_path(const char *path); /* companion .window file, both game modes */

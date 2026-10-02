@@ -33,3 +33,5 @@ dispatch_miss.txt
 .DS_Store
 __pycache__/
 /*_settings.ini
+
+/*_settings.ini.window

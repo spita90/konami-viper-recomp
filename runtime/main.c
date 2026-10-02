@@ -316,6 +316,7 @@ int main(int argc, char **argv) {
     }
     enh_set_headless(headless);
     enh_init(work, settings);
+    frontend_set_settings_path(settings);
     if (!headless && !file_exists(nvsave)) {
         run_first_time_calibration(g_exe, work, nvram, nvsave);
         if (g_enhanced) run_enhanced_setup(g_exe, work, nvram, nvsave);
