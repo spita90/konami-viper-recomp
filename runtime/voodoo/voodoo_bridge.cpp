@@ -181,6 +181,19 @@ void publish_frame()
 
 extern "C" {
 
+/* VRAM for the enhanced mode's checks (read only, no sync) and patches (the renderer idle) */
+const uint8_t *voodoo_vram(uint32_t *size)
+{
+	if (!s_dev) return nullptr;
+	*size = s_dev->debug_fbsize();
+	return s_dev->debug_fbram();
+}
+
+uint8_t *voodoo_vram_for_write(void)
+{
+	return s_dev ? s_dev->fbram_for_write() : nullptr;
+}
+
 static int s_scale = 1;          /* kept for voodoo_init when set before the device exists */
 static int s_wide = 0;
 void voodoo_init(void)

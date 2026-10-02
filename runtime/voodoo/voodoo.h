@@ -504,9 +504,10 @@ public:
 		pix = m_hires_out.data(); w = m_hires_out_w; h = m_hires_out_h;
 		return true;
 	}
-	// recomp debug: raw framebuffer/texture memory (RT_VOODOO_VRAMDUMP)
+	// recomp: raw framebuffer/texture memory (RT_VOODOO_VRAMDUMP, enhanced-mode text fixes)
 	u8 const *debug_fbram() const { return m_fbram; }
 	u32 debug_fbsize() const { return m_fbmask + 1; }
+	u8 *fbram_for_write() { m_renderer->wait("fbram_for_write"); return m_fbram; }   // the renderer idle first
 	// nominal clock values
 	static constexpr u32 NOMINAL_CLOCK = 50'000'000;
 

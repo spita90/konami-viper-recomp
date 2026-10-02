@@ -1701,25 +1701,6 @@ void voodoo_banshee_device::screen_to_screen_blit(u32 srcx, u32 srcy)
 		}
 	}
 
-	// copy through a temporary buffer: overlapping rectangles need no particular order
-	std::vector<u8> tmp(size_t(w) * h * bpp);
-	for (s32 y = 0; y < h; y++)
-		for (s32 x = 0; x < w; x++)
-		{
-			u8 *t = &tmp[(size_t(y) * w + x) * bpp];
-			s32 const px = sx0 + x, py = sy0 + y;
-			if (hires && py * n < hrows)
-			{
-				u16 const v = hires[size_t(py) * n * hrow + (px + m_wide) * n];
-				memcpy(t, &v, 2);
-			}
-			else
-			{
-				u32 const a = srcbase + py * srcstride + px * bpp;
-				if (a + bpp <= m_fbmask + 1) memcpy(t, &m_fbram[a], bpp);
-				else memset(t, 0, bpp);
-			}
-		}
 	// widescreen: keep this part of the source at full resolution (the margins too, at the 4:3
 	// edges) and which source row each texture row holds, for blur_quad
 	if (hires && m_wide)
@@ -1746,26 +1727,44 @@ void voodoo_banshee_device::screen_to_screen_blit(u32 srcx, u32 srcy)
 		bt.filled = g_voodoo_swaps;
 	}
 
-	for (s32 y = 0; y < h; y++)
+	// the destination clipped, the source corner moved with it
+	s32 const x0 = std::max(tx0, cx0), x1 = std::min(tx0 + w, cx1), y0 = std::max(ty0, cy0), y1 = std::min(ty0 + h, cy1);
+	s32 const sx = sx0 + (x0 - tx0), sy = sy0 + (y0 - ty0), span = (x1 - x0) * s32(bpp);
+	u8 const r0 = BIT(rop, 0) ? 0xff : 0, r1 = BIT(rop, 1) ? 0xff : 0, r2 = BIT(rop, 2) ? 0xff : 0, r3 = BIT(rop, 3) ? 0xff : 0;
+	auto rop3 = [=](u8 sv, u8 dv) -> u8 {      // ROP3 a byte at a time, the pattern at 0
+		return (~sv & ~dv & r0) | (~sv & dv & r1) | (sv & ~dv & r2) | (sv & dv & r3);
+	};
+	s64 const fbsize = s64(m_fbmask) + 1;
+
+	// rows (and bytes) in the direction the command gives, as the hardware: overlapping
+	// rectangles copy right without a temporary buffer
+	for (s32 i = 0; i < y1 - y0 && span > 0; i++)
 	{
-		s32 const py = ty0 + y;
-		if (py < cy0 || py >= cy1) continue;
-		for (s32 x = 0; x < w; x++)
+		s32 const row = dy > 0 ? i : y1 - y0 - 1 - i, py = sy + row;
+		s64 const da = s64(dstbase) + s64(y0 + row) * dststride + s64(x0) * bpp;
+		if (da < 0 || da + span > fbsize) continue;
+		u8 *const d = &m_fbram[da];
+		if (hires && py >= 0 && py * n < hrows)
 		{
-			s32 const px = tx0 + x;
-			if (px < cx0 || px >= cx1) continue;
-			u32 const a = dstbase + py * dststride + px * bpp;
-			if (a + bpp > m_fbmask + 1) continue;
-			u8 const *t = &tmp[(size_t(y) * w + x) * bpp];
-			for (u32 b = 0; b < bpp; b++)
+			u16 const *const sr = &hires[size_t(py) * n * hrow];
+			for (s32 x = 0; x < x1 - x0; x++)
 			{
-				u8 const sv = t[b], dv = m_fbram[a + b];
-				u8 r = 0;
-				for (int bit = 0; bit < 8; bit++)        // ROP3 with the pattern at 0: index = S * 2 + D
-					r |= BIT(rop, BIT(sv, bit) * 2 + BIT(dv, bit)) << bit;
-				m_fbram[a + b] = r;
+				u16 const v = sr[(sx + x + m_wide) * n];
+				d[x * 2] = rop3(u8(v), d[x * 2]);
+				d[x * 2 + 1] = rop3(u8(v >> 8), d[x * 2 + 1]);
 			}
+			continue;
 		}
+		s64 const sa = s64(srcbase) + s64(py) * srcstride + s64(sx) * bpp;
+		if (sa < 0 || sa + span > fbsize) continue;
+		u8 const *const sv = &m_fbram[sa];
+		if (rop == 0xcc) memmove(d, sv, span);
+		else
+			for (s32 b = 0; b < span; b++)
+			{
+				s32 const k = dx > 0 ? b : span - 1 - b;
+				d[k] = rop3(sv[k], d[k]);
+			}
 	}
 
 	if (BIT(cmd, 10)) m_blt_dst_x += w * dx;      // INC_X_START

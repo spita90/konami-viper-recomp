@@ -684,6 +684,24 @@ void hw_nvram_options_fix(uint8_t *nv) {
     nv[GAME_NVRAM_OPT_CSUM + 1] = (uint8_t)cs;
 }
 
+/* The profile's nvram_force: TEST MODE option bits set at every boot, in both modes (the NETWORK
+ * ID: 1, a single cabinet; some dumps come from cabinet 2 of a linked set, and the race HUD then
+ * says PLAYER 2). Only an option block whose checksum is valid is touched; an empty NVRAM gets
+ * the game's factory settings. */
+static void nvram_force(void) {
+    static const struct { int addr, mask, value; } k_force[] = GAME_NVRAM_FORCE;
+    if (k_force[0].addr < 0 || !GAME_NVRAM_OPT_CSUM) return;
+    uint32_t sum = 0;
+    for (int o = GAME_NVRAM_OPT_START; o <= GAME_NVRAM_OPT_CSUM; o += 2) sum += (uint32_t)(g_nvram[o] << 8 | g_nvram[o + 1]);
+    if ((sum & 0xffff) != 0xffff) return;
+    int changed = 0;
+    for (int i = 0; k_force[i].addr >= 0; i++) {
+        uint8_t v = (uint8_t)((g_nvram[k_force[i].addr] & ~k_force[i].mask) | k_force[i].value);
+        if (v != g_nvram[k_force[i].addr]) { g_nvram[k_force[i].addr] = v; changed = 1; }
+    }
+    if (changed) { hw_nvram_options_fix(g_nvram); rt_log("NVRAM: profile settings applied (nvram_force)\n"); }
+}
+
 static uint8_t nvram_read(uint32_t off) {
     uint8_t r = g_nvram[off];
     if (off == RTC_DATE) r &= ~DATE_BL;
@@ -1116,6 +1134,7 @@ void hw_init(const HwConfig *cfg) {
     if (f) {
         if (fread(g_nvram, 1, sizeof g_nvram, f) != sizeof g_nvram) rt_log("NVRAM: short file\n");
         fclose(f);
+        nvram_force();
     } else {
         rt_log("NVRAM: %s not found, starting from an empty NVRAM\n", cfg->nvram_path ? cfg->nvram_path : "(none)");
     }

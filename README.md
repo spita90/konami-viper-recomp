@@ -149,7 +149,7 @@ takes a little longer, because of the force-feedback wheel test.
 | Pause (enhanced)                                       | Esc                                           | Guide                |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |
 | Fullscreen                                             | F11                                           | —                    |
-| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | —                    |
+| Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
 
 ---
 
