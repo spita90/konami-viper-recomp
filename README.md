@@ -338,3 +338,10 @@ listed in [CHANGELOG.md](CHANGELOG.md).
     by BSD-3-Clause.
   - MAME is used here as a hardware reference.
 - The software is provided "as is", without warranty of any kind.
+
+**Options → Display → Texture Filter** controls enlarged texture sampling:
+**Original** follows the game’s choice (default), **Nearest** keeps hard texel edges,
+and **Bilinear** blends neighbouring texels. Changes apply immediately and persist
+per game in enhanced mode. Distant-texture minification/mipmap choices stay with the
+game. Nearest also uses nearest-neighbour final window scaling so menu text stays
+crisp; Original and Bilinear retain bilinear final scaling.
