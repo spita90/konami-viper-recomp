@@ -68,7 +68,7 @@ static void diff_kernel_text(void) {
 static const char *g_dump_ram;
 
 void rt_fatal(const char *why) {
-    if (!strcmp(why, "window closed")) { hw_shutdown(); wav_close(); fflush(stderr); _exit(0); }
+    if (!strcmp(why, "window closed")) { net_shutdown(); hw_shutdown(); wav_close(); fflush(stderr); _exit(0); }
     rt_log("STOP: %s\n", why);
     if (g_dump_ram) { FILE *f = fopen(g_dump_ram, "wb"); if (f) { fwrite(g_ram, 1, RAM_SIZE, f); fclose(f); } }
     diff_kernel_text();
@@ -131,6 +131,7 @@ static void input_fifo_poll(void) {
 
 void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     enh_on_frame(buf, w, h);
+    net_frame();
     input_fifo_poll();
     static int fps_stats = -1;
     static uint64_t last_hash, uniq, last_sec;
@@ -250,6 +251,7 @@ static int run_enhanced_setup(const char *self, const char *work, const char *nv
 static void stop_event(void *arg) { (void)arg; rt_fatal("time limit"); }
 static void on_sigint(int s) { (void)s; rt_fatal("interrupted"); }
 
+
 static const RtModuleInfo *const k_modules[] = { RT_ALL_MODULES };
 
 static const char *g_argv0 = "";
@@ -258,6 +260,17 @@ static const char *g_argv0 = "";
  * works when started from another directory, e.g. by double-clicking it in the file manager.
  * Paths given on the command line stay relative to the current directory. */
 static char g_exe[PATH_MAX], g_exe_dir[PATH_MAX];
+static char **g_argv;
+
+/* re-executes this program with the same arguments (the environment carries any state, e.g.
+ * RT_NET_SESSION); used where the frontend's restart is not available (headless) */
+void rt_restart(void) {
+    hw_shutdown();
+    fflush(NULL);
+    execv(g_exe, g_argv);
+    rt_fatal("restart failed");
+}
+
 
 static void find_executable(const char *argv0) {
     char raw[PATH_MAX] = "";
@@ -301,9 +314,11 @@ static void usage(void) {
             "  --settings F    port settings (default " GAME_SETTINGS ", enhanced " GAME_ENH_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
-            "  --net-id N      link play: this cabinet's NETWORK ID (1-4; default: no link, ID 1)\n"
-            "  --net-port P    link play: local UDP port (default 7340)\n"
-            "  --net-peer H:P  link play: the host to join (without it, this node is the host)\n"
+            "  --net-host      link play: host a session (NETWORK ID 1) at --net-port\n"
+            "  --net-join H:P  link play: join the host H:P; it gives the NETWORK ID (enhanced mode)\n"
+            "  --net-id N      link play, tests: this node's NETWORK ID (1 = host; 2-4 with --net-peer)\n"
+            "  --net-peer H:P  link play, tests: the host of --net-id 2-4\n"
+            "  --net-port P    link play: local UDP port (default 24700)\n"
             "  --net-buffer N  link play: playout buffer in cycles against jitter (default 2)\n"
             "  --realtime      headless at the speed of the clock (a linked node with no window)\n"
             "  -v              verbose\n", g_argv0);
@@ -312,14 +327,16 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     g_argv0 = argv[0];
+    g_argv = argv;
     find_executable(argv[0]);
     const char *settings = beside_exe(GAME_SETTINGS);
     const char *work = beside_exe(GAME_DEFAULT_WORK), *cf = NULL, *nvram = beside_exe(GAME_DEFAULT_NVRAM),
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
-    int net_id = 0, net_port = 7340, net_buffer = 2;
-    const char *net_peer = NULL;
+    int net_id = 0, net_port = 24700, net_buffer = 2;
+    const char *net_peer = NULL, *net_join_to = NULL;
+    int net_host_flag = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : NULL;
@@ -341,6 +358,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--enhanced")) g_enhanced = 1;
         else if (!strcmp(a, "--settings") && v) { settings = v; settings_explicit = 1; i++; }
         else if (!strcmp(a, "--net-id") && v) { net_id = atoi(v); i++; }
+        else if (!strcmp(a, "--net-host")) net_host_flag = 1;
+        else if (!strcmp(a, "--net-join") && v) { net_join_to = v; i++; }
         else if (!strcmp(a, "--net-port") && v) { net_port = atoi(v); i++; }
         else if (!strcmp(a, "--net-peer") && v) { net_peer = v; i++; }
         else if (!strcmp(a, "--net-buffer") && v) { net_buffer = atoi(v); i++; }
@@ -352,11 +371,17 @@ int main(int argc, char **argv) {
         if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
         if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
     }
-    if (net_id) {
-        int net_init(int id, int port, const char *peer, int buffer);
-        if (net_id < 1 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
-        if (net_init(net_id, net_port, net_peer, net_buffer)) return 1;
-    }
+    if (net_id < 0 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
+    /* a session handed over by the process before a restart comes first: --net-join is done */
+    int net_rc = net_resume(net_buffer);
+    if (net_rc) net_rc = net_rc < 0;
+    else if (getenv("RT_NET_DONE")) net_rc = 0;      /* restarted after its session: no link */
+    else if (net_host_flag || (net_id == 1 && !net_peer)) net_rc = net_host(net_port, net_buffer);
+    else if (net_join_to) net_rc = net_join(net_join_to, 0, 0, 0, net_buffer);
+    else if (net_id && net_peer) net_rc = net_join(net_peer, net_port, net_id, 0, net_buffer);
+    else if (net_id) { fprintf(stderr, "--net-id %d wants --net-peer host:port\n", net_id); return 2; }
+    if (net_rc) return 1;
+    atexit(net_shutdown);
     enh_set_headless(headless);
     enh_init(work, settings);
     if (!headless && !file_exists(nvsave)) {
@@ -377,6 +402,7 @@ int main(int argc, char **argv) {
     g_kernel_len = n;
 
     signal(SIGINT, on_sigint);
+    signal(SIGTERM, on_sigint);
     if (wav) wav_open(wav);
     for (size_t i = 0; i < sizeof k_modules / sizeof k_modules[0]; i++) rt_register_module(k_modules[i]);
     rt_log("kernel: %zu bytes at 0x00000000\n", n);

@@ -97,6 +97,26 @@ void voodoo_lfb_write(uint32_t off, uint32_t v, uint32_t mask);
 uint32_t voodoo_io_read(uint32_t off);
 void voodoo_io_write(uint32_t off, uint32_t v, uint32_t mask);
 uint64_t voodoo_get_frame(uint32_t *dst, int max_pixels, int *w, int *h);
+/* network link (net.c): the LANC ring over UDP */
+extern int g_net_id;                                   /* NETWORK ID of this node, 0 = no link */
+int net_host(int port, int buffer);
+int net_join(const char *peer, int port, int id, uint32_t token, int buffer);
+int net_resume(int buffer);                            /* RT_NET_SESSION after a restart; 1 if resumed */
+int net_active(void);
+void net_cycle(uint8_t *lanc_ram);
+void net_frame(void);                                  /* every video frame */
+int net_game_halted(void);                             /* the game stopped its link (NETWORK ERROR) */
+int net_restart_wanted(void);                          /* an ID was given: restart with it */
+int net_session_over(void);                            /* left, closed or lost */
+void net_leave(void);
+void net_off(void);
+void net_shutdown(void);                               /* at exit: LEAVE / CLOSE */
+int net_code_encode(const char *ip, int port, char *out, size_t n);   /* session code XXXXX-XXXXX */
+int net_code_decode(const char *code, char *hostport, size_t n);
+void portmap_start(int port);                          /* portmap.c: the host's port on the router */
+void portmap_stop(void);
+int portmap_status(char *pub, int publen, char *problem, int problemlen);   /* 0 idle 1 working 2 open 3 failed */
+void rt_restart(void);                                 /* re-executes the program (same arguments) */
 const uint8_t *voodoo_vram(uint32_t *size);          /* VRAM, to read (no sync with the renderer) */
 uint8_t *voodoo_vram_for_write(void);                /* VRAM, to write: waits for the renderer */
 void voodoo_stats(void);

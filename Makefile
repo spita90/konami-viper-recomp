@@ -30,7 +30,12 @@ LDFLAGS += -lpthread -lm $(SDL_LIBS)
 CXX     ?= c++
 CXXFLAGS += $(EXTRA) $(OPT) $(ARCHFLAGS) -g -std=c++20 -Iruntime/voodoo -Wno-unused-private-field \
             -Wno-deprecated-declarations
-RT_SRCS := runtime/cpu.c runtime/sched.c runtime/hw.c runtime/main.c runtime/frontend_sdl.c runtime/enhanced.c runtime/net.c
+RT_SRCS := runtime/cpu.c runtime/sched.c runtime/hw.c runtime/main.c runtime/frontend_sdl.c runtime/enhanced.c runtime/net.c runtime/portmap.c
+# third-party, compiled in (third_party/README.md): UPnP and NAT-PMP for the link-play host
+TP_SRCS := $(wildcard third_party/miniupnpc/src/*.c) third_party/libnatpmp/natpmp.c third_party/libnatpmp/getgateway.c
+TP_INC := -Ithird_party/miniupnpc/include -Ithird_party/libnatpmp -DMINIUPNP_STATICLIB -DNATPMP_STATICLIB
+TP_CFLAGS := -O2 -w $(ARCHFLAGS) $(TP_INC) -Ithird_party/miniupnpc/src -DMINIUPNPC_SET_SOCKET_TIMEOUT \
+             -DMINIUPNPC_GET_SRC_ADDR -D_BSD_SOURCE -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
 VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/voodoo_banshee.cpp \
            runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp runtime/voodoo/video/rgbutil.cpp
 -include $(GEN)/sources.mk
@@ -38,13 +43,14 @@ VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/
 RT_OBJS := $(RT_SRCS:%.c=$(BUILD)/%.o)
 GEN_OBJS := $(GEN_SRCS:%.c=$(BUILD)/%.o)
 VD_OBJS := $(VD_SRCS:%.cpp=$(BUILD)/%.o)
+TP_OBJS := $(TP_SRCS:%.c=$(BUILD)/%.o)
 
 ifeq ($(wildcard $(GEN)/sources.mk),)
 $(BIN):
 	@echo "$(GEN)/ is missing: run 'make extract GAME=$(GAME)' and 'make recomp GAME=$(GAME)' first" >&2
 	@exit 1
 else
-$(BIN): $(RT_OBJS) $(VD_OBJS) $(GEN_OBJS)
+$(BIN): $(RT_OBJS) $(VD_OBJS) $(GEN_OBJS) $(TP_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 endif
 
@@ -54,7 +60,11 @@ $(BUILD)/runtime/voodoo/%.o: runtime/voodoo/%.cpp runtime/voodoo/*.h runtime/voo
 
 $(BUILD)/runtime/%.o: runtime/%.c runtime/*.h $(GEN)/modules.h $(GEN)/game_config.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(TP_INC) -c $< -o $@
+
+$(BUILD)/third_party/%.o: third_party/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(TP_CFLAGS) -c $< -o $@
 
 $(BUILD)/$(GEN)/%.o: $(GEN)/%.c runtime/ppc_rt.h
 	@mkdir -p $(dir $@)

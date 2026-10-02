@@ -153,6 +153,31 @@ def name_entry_config(ne):
             f"#define GAME_ENH_NAME_CONFIRM_REG {ne['confirm_reg']}"]
 
 
+def net_ghost_config(gh):
+    """GAME_NET_GHOST_*: a linked node whose packets stopped (runtime/net.c). With `keep` it stays
+    a frozen ghost until the attract mode (a game that stops a linked race with NETWORK ERROR when a
+    node is missing); without it, it is dropped after the short concealment. In the ghost's flags
+    word (at `flags`, big-endian), when the mode field (`mode` = [shift, value]) says in game and the
+    substate field (`substate` = [shift, race, first setup, last setup]) says racing, `race_over`
+    is ORed in after 10 s (the others do not wait for it at the goal); in the setup substates the
+    word at `solo` = [offset, bits] is ORed (the game drops a solo node from the race)."""
+    gh = gh or {}
+    mode = gh.get('mode', [0, 0])
+    sub = gh.get('substate', [0, -1, -1, -1])
+    solo = gh.get('solo', ['0', '0'])
+    return [f"#define GAME_NET_GHOST_KEEP {1 if gh.get('keep') else 0}",
+            f"#define GAME_NET_GHOST_FLAGS 0x{int(gh.get('flags', '0'), 16):x}",
+            f"#define GAME_NET_GHOST_MODE_SHIFT {mode[0]}",
+            f"#define GAME_NET_GHOST_MODE_GAME {mode[1]}",
+            f"#define GAME_NET_GHOST_SUB_SHIFT {sub[0]}",
+            f"#define GAME_NET_GHOST_SUB_RACE {sub[1]}",
+            f"#define GAME_NET_GHOST_SUB_SETUP_LO {sub[2]}",
+            f"#define GAME_NET_GHOST_SUB_SETUP_HI {sub[3]}",
+            f"#define GAME_NET_GHOST_RACE_OVER 0x{int(gh.get('race_over', '0'), 16):x}u",
+            f"#define GAME_NET_GHOST_SOLO_OFF 0x{int(solo[0], 16):x}",
+            f"#define GAME_NET_GHOST_SOLO_BITS 0x{int(solo[1], 16):x}u"]
+
+
 def wheel_select_config(ws):
     """GAME_ENH_WHEEL_SELECTS: screens that take a choice from zones of the wheel position (the
     course select, GTI Club 2's transmission select), stepped with Left/Right in the enhanced mode
@@ -239,6 +264,7 @@ def write_config_header(g, out):
         f"#define GAME_NVRAM_OPT_CSUM {int(nvo.get('checksum', '0'), 16)}",
         # TEST MODE NETWORK ID (bits 6-7, ID - 1) in the NVRAM: set at boot to 1 or --net-id (0: none)
         f"#define GAME_NETWORK_ID_ADDR 0x{int((g.get('network') or {}).get('id_addr', '0'), 16):x}",
+        *net_ghost_config((g.get('network') or {}).get('ghost')),
     ]
     # enhanced ("conversion") mode, runtime/enhanced.c: optional, absent for unverified versions
     enh = g.get('enhanced') or {}

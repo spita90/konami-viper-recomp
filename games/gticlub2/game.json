@@ -103,6 +103,15 @@
   },
   "network": {
     "id_addr": "0x9c",
+    "ghost": {
+      "note": "a linked race stops with NETWORK ERROR (code 3, check 0x8d968 in mode-4 substates 8-11) when a member of the race mask E (flags bits 14-17) sends no valid in-game packet; nothing drops a member during the race. So a lost node stays a ghost (its last packet, sequence advanced) until the attract mode; in the race (substate 11) after 10 s its flags get 0x80 (race over) | 0x20 (ready at the end), so the others do not wait 2 x 232 frames at the goal; in the setup substates 9-10 its +0x10 bit 31 (solo) makes the others drop it from E (0x89ae4). Flags word at +4: bit 31 active, bits 27-30 mode (4 = game), bits 23-26 substate",
+      "keep": true,
+      "flags": "0x4",
+      "mode": [27, 4],
+      "substate": [23, 11, 9, 10],
+      "race_over": "0xa0",
+      "solo": ["0x10", "0x80000000"]
+    },
     "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The JAB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {

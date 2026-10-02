@@ -99,6 +99,10 @@
   },
   "network": {
     "id_addr": "0xa0",
+    "ghost": {
+      "note": "no link-loss error in Thrill Drive 2 (the fatal function 0x3bb28 has only hardware codes): a node whose packets stop just leaves the linked mask, so a lost node is dropped after the short concealment, as a cabinet that left",
+      "keep": false
+    },
     "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The EBB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {

@@ -354,6 +354,7 @@ static void nvram_poke_tick(void) {
 }
 
 static void menu_tick(void);
+static void net_tick(void);
 static void scripted_menu(void);
 static void fps_tick(const uint32_t *buf, int w, int h);
 static int count_game_options(void);
@@ -369,6 +370,7 @@ void enh_on_frame(const uint32_t *buf, int w, int h) {
     g_attract = attract;
     wide_tick(g_set.aspect);
     menu_tick();
+    net_tick();
     scripted_menu();
     nvram_poke_tick();
     text_fix_tick();
@@ -733,6 +735,7 @@ int enh_escape(void) {
         return 1;
     }
     if (enh_turbo() || g_starting) return 1;
+    if (net_active() && !net_session_over()) return 1;   /* link play: no pause, as on linked cabinets */
     g_paused = 1;
     g_pause_cursor = 0;
     return 1;
@@ -889,6 +892,31 @@ static void menu_tick(void) {
         g_apply = 2;
         if (g_headless) rt_fatal("restart for the new settings");
     }
+}
+
+/* link play (net.c): the game reads its NETWORK ID at boot, so a node that was given one restarts
+ * with it, and a node with ID 2-4 whose session is over (left, closed by the host, host lost)
+ * restarts with ID 1, but only back in the attract mode, never in the middle of a race. The host
+ * keeps ID 1 and just stops linking. */
+static void net_tick(void) {
+    if (!net_active() || g_apply || g_returning) return;
+    if (net_game_halted()) {                     /* NETWORK ERROR: the game waits for an attendant */
+        if (net_session_over()) { unsetenv("RT_NET_SESSION"); setenv("RT_NET_DONE", "1", 1); }
+        rt_log("enhanced: the game stopped on a link error, restarting\n");
+        if (g_headless) rt_restart();
+        g_apply = 2;
+        return;
+    }
+    if (!net_restart_wanted()) {
+        if (!net_session_over()) return;
+        if (g_net_id <= 1) { net_off(); rt_log("enhanced: link play over\n"); return; }
+        if (!g_attract) return;
+        unsetenv("RT_NET_SESSION");
+        setenv("RT_NET_DONE", "1", 1);           /* and not again from the command line */
+    }
+    rt_log("enhanced: restarting for the link play\n");
+    if (g_headless) rt_restart();
+    g_apply = 2;
 }
 
 static void draw_menu(uint32_t *fb, int w, int h);

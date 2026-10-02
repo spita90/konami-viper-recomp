@@ -982,9 +982,7 @@ static void lanc_reg_write(uint32_t off, uint8_t v) {
     case 1:
         if (!(v & 1)) { lanc.status = 0; lanc.irq = 0; }
         else {                  /* a ring cycle: our slot goes out, the peers' come in */
-            extern int g_net_id;
-            void net_cycle(uint8_t *ram);
-            if (g_net_id) net_cycle(lanc.ram);
+            if (net_active()) net_cycle(lanc.ram);
             if (lanc.irq_enable) lanc.irq = 1;
         }
         if (v & 8) lanc.status = 0x10;
