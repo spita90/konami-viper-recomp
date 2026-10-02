@@ -23,6 +23,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 extern uint8_t g_in[8];
 extern int16_t g_analog[4];
@@ -80,8 +81,26 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
 static uint64_t g_pace_t0;          /* host ticks at virtual time 0 */
 static double g_pace_freq;
 
+/* headless --realtime (a linked node with no window, net.c): the emulated time follows the clock */
+int g_realtime;
+static void headless_pace(double virt) {
+    static double t0 = -1;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    double real = ts.tv_sec + ts.tv_nsec * 1e-9;
+    if (t0 < 0 || enh_turbo() || real - t0 - virt > 0.25) t0 = real - virt;   /* start, fast-forward, stalls */
+    double ahead = virt - (real - t0);
+    if (ahead > 0.0005) {
+        struct timespec d = { 0, (long)(ahead * 1e9) };
+        nanosleep(&d, NULL);
+    }
+}
+
 void rt_pace_vblank(void) {
-    if (!g_frontend_active) return;
+    if (!g_frontend_active) {
+        if (g_realtime) headless_pace((double)rt_now() / CPU_HZ);
+        return;
+    }
     double virt = (double)rt_now() / CPU_HZ;
     if (enh_turbo()) {                  /* enhanced mode boot/apply: as fast as possible */
         g_pace_t0 = SDL_GetPerformanceCounter() - (uint64_t)(virt * g_pace_freq);

@@ -101,12 +101,9 @@
     ],
     "handbrake": true
   },
-  "nvram_force": {
-    "0x9c": {
-      "mask": "0xc0",
-      "value": "0x00",
-      "note": "TEST MODE NETWORK OPTIONS, NETWORK ID (bits 6-7, ID - 1): 1. The JAB dump is set to 2 (the race HUD says PLAYER 2 and the rank list 2P)"
-    }
+  "network": {
+    "id_addr": "0x9c",
+    "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The JAB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {
     "start": "0x84",

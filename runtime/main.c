@@ -13,6 +13,7 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <limits.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -105,8 +106,32 @@ static void wav_open(const char *path) {
 static const char *g_frames_dir;
 static int g_frame_every = 30;
 
+/* RT_INPUT_FIFO=path: live scripted input from a named pipe (mkfifo), lines "port=hex" with the
+ * ports of RT_INPUT, read at every frame without blocking (a headless linked node driven by hand) */
+static void input_fifo_poll(void) {
+    static int fd = -2;
+    static char line[256];
+    static size_t len;
+    extern uint8_t g_in[8];
+    extern int16_t g_analog[4];
+    if (fd == -2) { const char *p = getenv("RT_INPUT_FIFO"); fd = p ? open(p, O_RDONLY | O_NONBLOCK) : -1; }
+    if (fd < 0) return;
+    char c;
+    while (read(fd, &c, 1) == 1) {
+        if (c != '\n' && c != ',') { if (len < sizeof line - 1) line[len++] = c; continue; }
+        line[len] = 0;
+        len = 0;
+        int port; unsigned v;
+        if (sscanf(line, "%d=%x", &port, &v) != 2) continue;
+        if (port >= 10) g_analog[(port - 10) & 3] = (int16_t)v;
+        else g_in[port & 7] = (uint8_t)v;
+        rt_log("input (fifo): %s%d = %02x\n", port >= 10 ? "AN" : "IN", port >= 10 ? port - 10 : port, v);
+    }
+}
+
 void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     enh_on_frame(buf, w, h);
+    input_fifo_poll();
     static int fps_stats = -1;
     static uint64_t last_hash, uniq, last_sec;
     if (fps_stats < 0) fps_stats = getenv("RT_FPS_STATS") != NULL;
@@ -276,6 +301,11 @@ static void usage(void) {
             "  --settings F    enhanced-mode port settings (default " GAME_ENH_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
+            "  --net-id N      link play: this cabinet's NETWORK ID (1-4; default: no link, ID 1)\n"
+            "  --net-port P    link play: local UDP port (default 7340)\n"
+            "  --net-peer H:P  link play: the host to join (without it, this node is the host)\n"
+            "  --net-buffer N  link play: playout buffer in cycles against jitter (default 2)\n"
+            "  --realtime      headless at the speed of the clock (a linked node with no window)\n"
             "  -v              verbose\n", g_argv0);
     exit(2);
 }
@@ -287,7 +317,8 @@ int main(int argc, char **argv) {
     const char *work = beside_exe(GAME_DEFAULT_WORK), *cf = NULL, *nvram = beside_exe(GAME_DEFAULT_NVRAM),
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
-    int headless = 0, scale = 2, nvsave_explicit = 0;
+    int headless = 0, scale = 2, nvsave_explicit = 0, net_id = 0, net_port = 7340, net_buffer = 2;
+    const char *net_peer = NULL;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : NULL;
@@ -308,11 +339,21 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-v")) g_verbose = 1;
         else if (!strcmp(a, "--enhanced")) g_enhanced = 1;
         else if (!strcmp(a, "--settings") && v) { settings = v; i++; }
+        else if (!strcmp(a, "--net-id") && v) { net_id = atoi(v); i++; }
+        else if (!strcmp(a, "--net-port") && v) { net_port = atoi(v); i++; }
+        else if (!strcmp(a, "--net-peer") && v) { net_peer = v; i++; }
+        else if (!strcmp(a, "--net-buffer") && v) { net_buffer = atoi(v); i++; }
+        else if (!strcmp(a, "--realtime")) { extern int g_realtime; g_realtime = 1; }
         else usage();
     }
     if (g_enhanced) {
         if (!GAME_HAS_ENHANCED) { fprintf(stderr, "the enhanced mode is not available for " GAME_TITLE " yet\n"); return 2; }
         if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
+    }
+    if (net_id) {
+        int net_init(int id, int port, const char *peer, int buffer);
+        if (net_id < 1 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
+        if (net_init(net_id, net_port, net_peer, net_buffer)) return 1;
     }
     enh_set_headless(headless);
     enh_init(work, settings);

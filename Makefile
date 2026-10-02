@@ -30,7 +30,7 @@ LDFLAGS += -lpthread -lm $(SDL_LIBS)
 CXX     ?= c++
 CXXFLAGS += $(EXTRA) $(OPT) $(ARCHFLAGS) -g -std=c++20 -Iruntime/voodoo -Wno-unused-private-field \
             -Wno-deprecated-declarations
-RT_SRCS := runtime/cpu.c runtime/sched.c runtime/hw.c runtime/main.c runtime/frontend_sdl.c runtime/enhanced.c
+RT_SRCS := runtime/cpu.c runtime/sched.c runtime/hw.c runtime/main.c runtime/frontend_sdl.c runtime/enhanced.c runtime/net.c
 VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/voodoo_banshee.cpp \
            runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp runtime/voodoo/video/rgbutil.cpp
 -include $(GEN)/sources.mk

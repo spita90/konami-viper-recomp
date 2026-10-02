@@ -236,9 +236,8 @@ def write_config_header(g, out):
         # TEST MODE option block of the NVRAM: words from start to the checksum word sum to 0xffff
         f"#define GAME_NVRAM_OPT_START {int(nvo.get('start', '0'), 16)}",
         f"#define GAME_NVRAM_OPT_CSUM {int(nvo.get('checksum', '0'), 16)}",
-        # option bits forced at every boot (nvram_force: addr -> mask, value), {-1} ends
-        "#define GAME_NVRAM_FORCE {" + "".join(f"{{0x{int(a, 16):x}, 0x{int(v['mask'], 16):02x}, 0x{int(v['value'], 16):02x}}}, "
-                                               for a, v in (g.get('nvram_force') or {}).items()) + "{-1, 0, 0}}",
+        # TEST MODE NETWORK ID (bits 6-7, ID - 1) in the NVRAM: set at boot to 1 or --net-id (0: none)
+        f"#define GAME_NETWORK_ID_ADDR 0x{int((g.get('network') or {}).get('id_addr', '0'), 16):x}",
     ]
     # enhanced ("conversion") mode, runtime/enhanced.c: optional, absent for unverified versions
     enh = g.get('enhanced') or {}
