@@ -5,6 +5,13 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Changed
+
+- **Gamepad Guide (Home) works like Esc:** in enhanced mode it pauses, goes back in the menus
+  and quits from the main menu, where before it did nothing there; in classic mode it quits.
+
 ## [0.9.0] - 2026-10-02
 
 ### Added
