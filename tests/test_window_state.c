@@ -1,3 +1,4 @@
+#include "fixtures/track_explorer_stubs.h"
 /* The saved window: fitting to the displays (window_state.h) and the port settings that keep it
  * (enhanced.c, one file per mode). No ROMs: game_config.h comes from a profile. */
 #include "window_state.h"
@@ -85,3 +86,14 @@ int main(int argc, char **argv) {
     remove(path);
     puts("window fitting and port settings (classic, enhanced, out of range): passed");
 }
+
+int frontend_gyro_enabled(void) { return 0; }
+int frontend_gyro_sensitivity(void) { return 100; }
+void frontend_gyro_set_enabled(int v) { (void)v; }
+void frontend_gyro_set_sensitivity(int v) { (void)v; }
+void frontend_gyro_recenter(void) {}
+int frontend_gyro_available(void) { return 0; }
+int frontend_gyro_ready(void) { return 0; }
+double frontend_gyro_position(void) { return 0; }
+double frontend_stick_position(void) { return 0; }
+double frontend_steering_position(void) { return 0; }

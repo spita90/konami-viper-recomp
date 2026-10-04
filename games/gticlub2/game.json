@@ -147,7 +147,9 @@
         "0x839b4": "name_index",
         "0x839f8": "name_confirm",
         "0x8cacc": "course_select",
-        "0x8c028": "transmission_select"
+        "0x8c028": "transmission_select",
+        "0x8ec84": "explorer_camera",
+        "0xb403c": "explorer_race"
       },
       "gl": {
         "0x213f4": "projection",
