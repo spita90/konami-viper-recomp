@@ -1,5 +1,11 @@
 {
   "inherits": "thrild2",
+  "network": {
+    "hot": {
+      "options_ram": "0x704520",
+      "note": "the RAM copy of the NVRAM options is at 0x704520 + offset in this version (the set-ID routine and the hook are at the same addresses as the base version)"
+    }
+  },
   "id": "thrild2a",
   "version": "ver AAA",
   "mame_set": "thrild2a",

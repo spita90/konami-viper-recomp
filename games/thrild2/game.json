@@ -97,12 +97,18 @@
     ],
     "handbrake": false
   },
-  "nvram_force": {
-    "0xa0": {
-      "mask": "0xc0",
-      "value": "0x00",
-      "note": "TEST MODE NETWORK OPTIONS, NETWORK ID (bits 6-7, ID - 1): 1. The EBB dump is set to 2 (the race HUD says PLAYER 2)"
-    }
+  "network": {
+    "id_addr": "0xa0",
+    "hot": {
+      "note": "as GTI Club 2: set-ID 0x402b0(id - 1) (copy at 0x706165, message 3 to task 7, handler 0x40190), from the net_set_id hook at the entry of the per-frame send 0x42e54; RAM copy of the NVRAM options at 0x7044f0 + offset (JAA and AAA: 0x704520)",
+      "set_id": "0x402b0",
+      "options_ram": "0x7044f0"
+    },
+    "ghost": {
+      "note": "no link-loss error in Thrill Drive 2 (the fatal function 0x3bb28 has only hardware codes): a node whose packets stop just leaves the linked mask, so a lost node is dropped after the short concealment, as a cabinet that left",
+      "keep": false
+    },
+    "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The EBB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {
     "start": "0x88",
@@ -130,7 +136,8 @@
         "0x7dd40": "attract",
         "0xb59c4": "name_index",
         "0xb510c": "name_confirm",
-        "0x828c4": "course_select"
+        "0x828c4": "course_select",
+        "0x42e54": "net_set_id"
       },
       "gl": {
         "0x217bc": "projection",

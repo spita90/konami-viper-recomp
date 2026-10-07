@@ -5,6 +5,45 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+## [0.10.0] - 2026-10-07
+
+### Added
+
+- **Link play (enhanced mode, MULTIPLAYER), both games:** up to four players race together over
+  the Internet, as linked cabinets did; the CPU cars fill the rest of the grid.
+  - HOST A GAME opens the host's UDP port on the home router by itself (NAT-PMP or UPnP) and
+    shows a session code of 7 characters; the others type or paste it in JOIN A GAME. No
+    server, nothing to install, nothing to set up on the joining side.
+  - The lobby shows the four players; the host starts the race once one at least is linked, and
+    the others' games join it by themselves. While a session is open, the lobby replaces the
+    main menu; there is no pause in link play.
+  - No restart: a player takes its NETWORK ID live, as the game's TEST MODE does, and takes ID 1
+    back on leaving.
+  - Network drops are concealed: the game does not see a short drop at all; a player lost for
+    good stays on the track standing still (GTI Club 2, which would otherwise stop the race with
+    NETWORK ERROR) or leaves the race (Thrill Drive 2); one whose connection comes back within
+    30 s goes on racing linked.
+  - A player in the host's own home finds it on the local network, on every network interface
+    and also when the router gave the host another external port; a second host in the same
+    home takes the next free port.
+  - Command line: `--net-host`, `--net-join CODE`, `--net-port`, `--net-buffer`; `--net-id` with
+    `--net-peer` and `--realtime` for tests.
+- **Third-party code:** miniupnpc 2.3.3 and libnatpmp (BSD-3-Clause), in `third_party/`,
+  compiled into the executable.
+- **Windows cross-build (experimental):** `make WIN=1 GAME=<id>` builds a self-contained
+  `<bin>.exe` on macOS with mingw-w64 and the SDL2 MinGW package. Tested in link play on one PC.
+
+### Changed
+
+- **NETWORK ID:** the profile's `network.id_addr` replaces `nvram_force`; the ID is still set to
+  1 at every boot, or to `--net-id`.
+- **Fps counter (enhanced mode):** counts frames per real second, so a host too slow for the game
+  shows its real frame rate instead of 29.
+- **Session code entry:** pasting replaces what was typed; Enter does nothing until the code is
+  complete.
+
 ## [0.9.3] - 2026-10-02
 
 ### Added
@@ -288,7 +327,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[0.9.3]: https://github.com/spita90/konami-viper-recomp/compare/5d7ac70...HEAD
+[0.10.0]: https://github.com/spita90/konami-viper-recomp/compare/ae5a011...HEAD
+[0.9.3]: https://github.com/spita90/konami-viper-recomp/compare/5d7ac70...ae5a011
 [0.9.2]: https://github.com/spita90/konami-viper-recomp/compare/786d3bb...5d7ac70
 [0.9.1]: https://github.com/spita90/konami-viper-recomp/compare/adb36c8...786d3bb
 [0.9.0]: https://github.com/spita90/konami-viper-recomp/compare/99658cb...adb36c8

@@ -101,12 +101,24 @@
     ],
     "handbrake": true
   },
-  "nvram_force": {
-    "0x9c": {
-      "mask": "0xc0",
-      "value": "0x00",
-      "note": "TEST MODE NETWORK OPTIONS, NETWORK ID (bits 6-7, ID - 1): 1. The JAB dump is set to 2 (the race HUD says PLAYER 2 and the rank list 2P)"
-    }
+  "network": {
+    "id_addr": "0x9c",
+    "hot": {
+      "note": "the TEST MODE NETWORK ID item applies a new ID at once through 0x3e4fc(id - 1) (it writes the copy at 0x85906d and sends message 3 to the link task 7, whose handler 0x3e3dc sets the driver's mask, slot and watchdog); called from the net_set_id hook (entry of the per-frame send 0x40a74) in the attract mode. The NVRAM option block has a RAM copy at 0x858740 + offset, checked against the NVRAM checksum in the attract (HARDWARE ERROR on a mismatch), so both change together",
+      "set_id": "0x3e4fc",
+      "options_ram": "0x858740"
+    },
+    "ghost": {
+      "note": "a linked race stops with NETWORK ERROR (code 3, check 0x8d968 in mode-4 substates 8-11) when a member of the race mask E (flags bits 14-17) sends no valid in-game packet; nothing drops a member during the race. So a lost node stays a ghost (its last packet, sequence advanced) until the attract mode; in the race (substate 11) after 10 s its flags get 0x80 (race over) | 0x20 (ready at the end), so the others do not wait 2 x 232 frames at the goal; in the setup substates 9-10 its +0x10 bit 31 (solo) makes the others drop it from E (0x89ae4). Mode 7 in the own packet is the error state (fatal 0x3af3c, sticky), NETWORK ERROR on the screen. Flags word at +4: bit 31 active, bits 27-30 mode (4 = game), bits 23-26 substate",
+      "keep": true,
+      "flags": "0x4",
+      "mode": [27, 4],
+      "substate": [23, 11, 9, 10],
+      "race_over": "0xa0",
+      "solo": ["0x10", "0x80000000"],
+      "error_mode": 7
+    },
+    "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The JAB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {
     "start": "0x84",
@@ -147,7 +159,8 @@
         "0x839b4": "name_index",
         "0x839f8": "name_confirm",
         "0x8cacc": "course_select",
-        "0x8c028": "transmission_select"
+        "0x8c028": "transmission_select",
+        "0x40a74": "net_set_id"
       },
       "gl": {
         "0x213f4": "projection",

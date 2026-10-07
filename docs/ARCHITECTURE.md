@@ -82,12 +82,20 @@ The profile fields:
     `positions` are wheel positions (-1 full left … 1 full right), one inside each choice's
     steering zone, from left to right.
 
-- `nvram_force` (top level): TEST MODE option bits set at every boot, in both modes, as
-  `addr: {mask, value}` (only when the option block's checksum is valid; the checksum is then
-  recomputed). Used for the NETWORK ID: 1, a single cabinet. The GTI Club 2 JAB and Thrill
-  Drive 2 EBB dumps come from cabinet 2 of a linked set, so the race HUD said PLAYER 2 (and
-  GTI Club 2's rank list 2P); the ID is bits 6–7 of `0x9C` (GTI Club 2) or `0xA0` (Thrill
-  Drive 2), as ID − 1. EAA, JAA and AAA are already on ID 1.
+- `network` (top level): link play (section 5e).
+  - `id_addr`: the NVRAM byte of the TEST MODE NETWORK ID (bits 6–7, ID − 1): `0x9C` in GTI
+    Club 2, `0xA0` in Thrill Drive 2. It is set at every boot, in both modes, to 1 (a single
+    cabinet) or to `--net-id`, only when the option block's checksum is valid (it is then
+    recomputed). The GTI Club 2 JAB and Thrill Drive 2 EBB dumps come from cabinet 2 of a
+    linked set, so the race HUD said PLAYER 2 (and GTI Club 2's rank list 2P).
+  - `hot`: the game's own live NETWORK ID change: `set_id`, the routine that TEST MODE calls
+    (argument ID − 1), and `options_ram`, the address of the game's RAM copy of the NVRAM
+    option block (RAM = `options_ram` + NVRAM offset). The hook `net_set_id` (in
+    `enhanced.hooks`) sits at the entry of the per-frame packet send.
+  - `ghost`: what to do with a node whose packets stopped: `keep` (a frozen ghost until the
+    attract mode) or not, the flags word and its mode / substate fields, the bits that make a
+    ghost leave the race the way the game allows (`race_over`, `solo`), and `error_mode`, the
+    mode of a game stopped on NETWORK ERROR.
 
 `recomp.py` turns the profile into `generated/<id>/game_config.h` (`GAME_*` macros). The runtime
 is compiled once per game against it; there is no runtime game switch. The other TD2 versions
@@ -598,9 +606,11 @@ An optional layer on top of the faithful port, in development. Everything is gat
 - **Texts:** English and Italian (`k_text`), chosen by the profile's `language` field. The menus
   switch as soon as the option changes. The fonts have no accented letters, so the Italian texts
   avoid them. A value too wide for its row falls back to the small font.
-- **Fps counter:** the frames the game drew per emulated second, counted from the Voodoo buffer
-  swaps (`voodoo_swap_count()`). It reads 28–29 (the ~57.5 Hz display halved). Counting distinct
-  pictures would undercount static screens and fades. It is drawn with the small game font, on
+- **Fps counter:** the frames the game drew per real second, counted from the Voodoo buffer
+  swaps (`voodoo_swap_count()`) over the wall clock. At full speed it reads 28–29 (the ~57.5 Hz
+  display halved); on a host too slow for the game it reads less (per emulated second it would
+  always read 29, since emulated time slows down too). A second without frames (pause) restarts
+  the count. Counting distinct pictures would undercount static screens and fades. It is drawn with the small game font, on
   top of everything, also in play.
   - Frames dumped with `--frames` in enhanced mode include the overlay.
     `RT_ENH_MENU="seconds:up|down|ok|back,…"` drives the menu in headless tests (`name=TEXT`
@@ -818,6 +828,151 @@ were run headless; the findings come from those runs and from reading the code.
 Not covered: input combinations or DIP switches that could open a debug screen were not
 searched for in the input code.
 
+## 5e. Link play (multiplayer, `runtime/net.c`, `runtime/portmap.c`)
+
+Both games link up to four cabinets for a race together (on a cabinet: a cable between the
+boards' network jacks). The emulation carries that link over UDP, so up to four instances of the
+port race together over the Internet. In the enhanced mode it is the MULTIPLAYER menu; it needs
+no server and no setting on the joining side.
+
+**The hardware and the games' protocol** (found statically; GTI Club 2 addresses, Thrill Drive 2
+uses the same Konami link library).
+- **K056230 "LANC"** at `0xFFE98000` (registers) and `0xFFE9A000` (8 KB RAM), IRQ through the
+  EPIC. The RAM holds four slots of 0x400 bytes, slot n for NETWORK ID n + 1. Each completed ring
+  cycle hands the CPU all four slots, its own included.
+  - Registers: reg0 the node's own slot mask (written before each re-arm); reg1 the control
+    (`0x00` ack, `0x6E`/`0x6F` the kick that starts a cycle, `0x6A` the re-arm); reg2 the status
+    (bit 4: cycle done / IRQ pending, cleared by reg1 = 0); reg3 a mask of the slots received
+    badly; reg5 = 1 the IRQ enable.
+  - The driver is task 7 (`0x3DB54`). It is not lockstep: the game never waits for the network.
+- **The packet** is the game's state struct (`0x7F5EB8`), sent every frame (`0x40A74`) and read
+  every frame (`0x40BB4`): `"NWK"` and an 8-bit sequence (+3); a flags word (+4: bit 31 active,
+  bits 27–30 the mode, 4 = game, 7 = error; bits 23–26 the substate; bits 18–21 the nodes it
+  receives; bits 14–17 E, the race membership); the region byte (+0x12); the car's state
+  (+0x14–0x87).
+  - Validation checks only the magic, the region and the sequence: the same sequence for up to 4
+    frames, then rejected; a jump of 1–4 accepted. A constant latency is therefore harmless.
+  - A node counts as linked only if each of the two receives the other, held 29 frames.
+- **NETWORK ERROR** (GTI Club 2 only; Thrill Drive 2 has no link-loss error): in the race setup
+  and the race (mode-4 substates 8–11, check `0x8D968`) every member of E must send valid in-game
+  packets; after 58 frames (setup) or 290 frames (race) of failures the game stops with error
+  code 3, mode 7, sticky, "CALL ATTENDANT". Nothing drops a member during a race.
+- **The NETWORK ID** is a TEST MODE option, read through a getter (`0x3DAF0`) by about 90 call
+  sites; the driver takes its mask and slot at boot (`0x3DA34`). The TEST MODE item applies a new
+  ID at once through `0x3E4FC` (Thrill Drive 2 `0x402B0`): it updates the game's copy and has the
+  link task recompute mask, slot and watchdog.
+
+**The emulation.**
+- **A ring cycle** (`hw.c`: a kick, reg1 bit 0) calls `net_cycle()`: the node's own slot goes
+  out, the peers' newest slots come in, the IRQ follows. reg3 always reads 0.
+- **A star.** The host is NETWORK ID 1 and hands out IDs 2–4; the others talk to the host only,
+  and the host relays each packet to its other members. Only the host needs a reachable port.
+- **Datagrams:** data `"VPL1"`, sender ID, flags (bit 0: in the lobby, ready for a START), length,
+  32-bit sequence, then the slot with zero runs coded as 0x00 count (a race packet is a few
+  hundred bytes); control `"VPLC"`, type, ID, 32-bit token.
+- **A playout queue** per peer (`--net-buffer`, default 2 cycles) smooths the jitter: one packet
+  per cycle, as the sender produces them, the oldest dropped when the queue runs long.
+- **Polled** on the guest thread at each cycle, non-blocking, and at each video frame for the
+  timers and the control traffic (the game may stop its cycles).
+
+**Sessions** (control datagrams).
+- `JOIN` (token 0) asks the host for a free ID: `WELCOME` (ID, token) or `FULL`. The node then
+  takes the ID live (below) and sends `JOIN` with its token; the host takes its data from then
+  on. A reserved ID waits 60 s for its node.
+- `FIND` (broadcast on the local network, with the public address of the code) / `HERE` (the
+  host's answer, with its public address if it knows it): a node in the host's own home cannot
+  always reach it through the public address (routers without hairpin NAT), so while it asks to
+  join it also looks for the host next to it, and talks to its local address if it answers.
+  - `FIND` goes to the limited broadcast and to each up interface's own broadcast address
+    (listed once, at join: `getifaddrs`, or `GetAdaptersAddresses` on Windows, which sends the
+    limited broadcast out of one interface only).
+  - The host listens at its local port, which is not the code's port when the router gave
+    another one outside (two hosts in one home: the second gets external 24701 but may listen
+    at 24700 locally). So `FIND` goes to the code's port and to 24700–24703.
+  - The host logs the first `FIND` of each node ("a node on the local network looks for this
+    host").
+  - Found on 2026-10-07 with a Windows PC behind the same router as the Mac host (a modem with
+    no hairpin NAT): joins in both directions failed until these two changes.
+- `START` (host to the members that were ready when it started): the members' games press START,
+  so they join the race the host starts. Repeated every 0.5 s for 10 s to each member whose data
+  still says it is in the lobby; a member keeps one pending for 10 s of wall clock.
+- `LEAVE` frees the ID; `CLOSE` (host to all, also when its window closes or the process is
+  interrupted) ends the session. A member silent for 30 s loses its ID; a host silent for 30 s
+  ends the session.
+- **Live NETWORK ID change** (profile `network.hot`, `enhanced.c`): in the attract mode, from the
+  `net_set_id` hook, the ID bits change in the NVRAM and in the game's RAM copy of the option
+  block, both checksums fixed (GTI Club 2 compares them in the attract mode: HARDWARE ERROR on a
+  mismatch); then the game's set-ID routine is called, with the registers kept. Joining and
+  leaving restart nothing; a member out of its session takes ID 1 back the same way, once it is
+  in the attract mode, and the menu goes back to the main menu.
+- **Drops.** A peer's packets that stop are concealed: the game is given its last packet again,
+  with the sequence byte (which `net.c` rewrites for every peer) advanced every 2 game frames, so
+  it looks alive and its car stands still; when its packets come back, the sequence goes on.
+  After 2.5 s the peer is lost:
+  - GTI Club 2 keeps it as a frozen ghost until the attract mode, since its absence would stop
+    the race with NETWORK ERROR. In the race, after 10 s, its flags get "race over" (0x80) and
+    "ready at the end" (0x20), so the others do not wait for it at the goal; in the setup
+    substates 9–10 its solo bit (+0x10 bit 31) makes the others drop it from the race.
+  - Thrill Drive 2 drops it: its car leaves the race.
+  - If its packets come back within 30 s it is linked again; the race goes on linked.
+- **NETWORK ERROR anyway** (the game's own packet in `error_mode`, or no LANC cycle for 5 s): the
+  enhanced mode closes the session and restarts the game, with ID 1. It is the one restart left
+  in link play (with the concealment it did not happen in any test), besides the one for new
+  game options.
+
+**The host's port** (`portmap.c`).
+- The UDP port is opened on the home router with NAT-PMP or, failing that, UPnP IGD (miniupnpc
+  2.3.3 and libnatpmp, in `third_party/`, compiled into the executable). The router also tells
+  the public address. It all runs on a thread of its own (discovery takes up to a few seconds),
+  so the game never stalls.
+- The mapping has a 120 s lease, renewed every 60 s, so it expires by itself if the process dies;
+  it is removed when the session closes and at exit (waiting at most 1.5 s). A router whose UPnP
+  takes only permanent mappings gets one, removed at exit; one left by a crashed run is taken
+  over.
+- Ports: the default is 24700, in the IANA-unassigned block 24681–24726. A host takes the first
+  free local port of the block; on the router UPnP tries the next public ports if another device
+  holds one, and NAT-PMP takes the port the router gives.
+- A public address that is itself private (another router in between, or the provider's CGNAT)
+  is reported in the lobby: the others will not reach the host.
+
+**The session code** carries the host's public IPv4 address and port, with a check against
+typing errors, in Crockford's base32 (no I, L, O, U): 7 characters for the default port (32 bits
+of address, 3 of check), 10 for another one (48 bits, 2 of check), shown as `XXX XXXX`. Reading
+folds lowercase, O to 0, I and L to 1, and skips spaces and dashes. A single-character typo is
+rejected 7 times in 8; one that slips through ends in "no answer from the host".
+
+**The lobby** (enhanced mode, MULTIPLAYER, `enhanced.c`).
+- HOST A GAME shows the code, the four players (YOU, LINKED, JOINING, LOST, FREE) and START GAME,
+  enabled once at least one player is linked and ready (its game in the attract mode), and CLOSE
+  THE SESSION.
+- JOIN A GAME takes the code from the keyboard (Cmd+V or Ctrl+V pastes it); then IN THE SESSION AS
+  PLAYER n and LEAVE THE SESSION.
+- While a session is open the lobby replaces the main menu; leaving it (Esc too) closes or leaves
+  the session. There is no pause in link play, and no way to leave a race other than closing the
+  window.
+- The menu runs on the frontend thread and only files requests (`net_request_*`), which the guest
+  thread carries out; it reads a snapshot (`net_status`).
+
+**Command line** (tests, or without the menu): `--net-host`, `--net-join CODE|host:port`
+(enhanced mode), `--net-id N --net-peer host:port` (a node with a fixed ID), `--net-port P`,
+`--net-buffer N`, and `--realtime` (headless at the speed of the clock, for a linked node with no
+window).
+
+**Tests** (all on one machine, headless nodes at real time).
+- `RT_NET_DELAY="ms,jitter_ms,loss%"` delays, reorders and drops the outgoing datagrams;
+  `RT_NET_OUTAGE="t,s,…"` cuts the network for s seconds from emulated time t;
+  `RT_NET_NOCONCEAL=1` turns the concealment off; `RT_NET_NOPORTMAP=1` leaves the router alone;
+  `RT_NET_WATCH=addr` logs the changes of two guest words (GTI Club 2: `0x859070`, the link hold
+  counters; `0x861E60` + 3, the race's player count); `RT_INPUT_FIFO=path` drives a node's inputs
+  live from a named pipe.
+- Results: 2, 3 and 4 linked players in both games (the CPU cars fill the rest: Thrill Drive 2
+  races 4 cars, GTI Club 2 6). No link lost with 100 ms ± 50 ms and 1% loss. A node killed, the
+  host killed, 2 s and 10 s outages, a frozen process: no NETWORK ERROR, the races go on. 16 lobby
+  sessions with random join times, start times and 40 ± 30 ms with 3% loss: every race started
+  with exactly the players that were ready.
+- A real test at home: NAT-PMP opened the port in 0.2 s; the joining node found the host on the
+  local network; on closing, the mapping was removed.
+
 ## 6. Current status (2026-09-29)
 
 Thrill Drive 2 is working:
@@ -873,8 +1028,31 @@ Open:
   left in play;
 - cabinet settings stored in the starting NVRAM: "SOUND IN ATTRACT MODE: COMPLETE OFF", and
   BGM/SE volume at 3. This is why the default audio gain is ×16;
-- Windows/Linux builds. First-run calibration uses `system()`, which needs adapting for
-  Windows.
+- Windows: a cross-build from macOS works (`make WIN=1`, below) and was tested in link play on
+  one Windows PC; there is no native Windows build yet (extraction, recompilation, and the
+  options-apply restart with `execv`, which splits paths with spaces). Linux is untested.
+
+### Windows cross-build (`make WIN=1`)
+
+- Toolchain: mingw-w64 from Homebrew (`brew install mingw-w64`) and the SDL2 MinGW development
+  package (`SDL2-devel-*-mingw.tar.gz` from libsdl.org), unpacked under `build/win-deps/`
+  (`SDL2_MINGW` points to its `x86_64-w64-mingw32/`). Recompilation and extraction run on the
+  Mac as usual; only the build step changes.
+- Output: `<bin>.exe` (for example `td2.exe`), objects in `build/<id>-win/`. SDL2 and the MinGW
+  runtime are linked statically, so the executable needs only system DLLs (Windows 10 or later).
+  It is a console program: the log shows in the console and can be redirected. Built with
+  `-mfma -mavx2` (Haswell or later).
+- Code changes, all under `#ifdef _WIN32`:
+  - `net.c`, `portmap.c`: Winsock (started before the first name lookup), `ioctlsocket` for
+    non-blocking sockets, `SIO_UDP_CONNRESET` off (otherwise an ICMP "port unreachable" makes the
+    next `recvfrom` fail);
+  - `main.c`: executable path from `GetModuleFileNameA`, the first-run scripted passes pass their
+    variables through the inherited environment (`cmd.exe` has no `VAR=value cmd`), no
+    `RT_INPUT_FIFO`;
+  - `runtime.h`: `localtime_r`, `setenv`, `unsetenv` mapped to the MSVC runtime;
+  - `voodoo/emu.h`: GCC rejects `inline` twice, so `ATTR_FORCE_INLINE` is MAME's own definition
+    (`always_inline` alone) when the compiler is not Clang;
+  - libnatpmp needs its `wingettimeofday.c` on Windows (added to `third_party/`).
 
 ### MAME oracle (development tool)
 
@@ -895,6 +1073,8 @@ Recompiled-side tools:
 - `RT_FPS_STATS=1`: counts distinct frames per emulated second;
 - `RT_PROFILE=seconds`: a virtual-time profiler;
 - `RT_I2C_LOG=1`, `RT_SC_LOG=1`, `RT_BP=…`;
+- `RT_MMIO_FROM=seconds` starts the `RT_MMIO_LOG` log at that emulated time;
+- the link-play test switches of section 5e (`RT_NET_*`, `RT_INPUT_FIFO`);
 - `tools/contact_sheet.py`: builds contact sheets from dumped frames.
 
 Notes:
@@ -921,6 +1101,7 @@ make -j8 game GAME=thrild2      # extract + recomp + build in one step
 make extract GAME=thrild2       # roms/thrild2/ -> work/thrild2/
 make recomp  GAME=thrild2       # work/thrild2/ -> generated/thrild2/*.c + game_config.h
 make -j      GAME=thrild2       # ./td2   (GAME defaults to thrild2)
+make -j WIN=1 GAME=thrild2      # td2.exe, Windows x64 cross-build (section 6)
 make distclean GAME=thrild2     # removes work/, generated/, build/ of that game and its saved NVRAM
 python3 recomp/coverage.py thrild2 [module]   # coverage report
 ./td2                           # play (SDL window)
@@ -934,4 +1115,7 @@ RT_VOODOO_LOG=1 ./td2                 # messages from MAME's Voodoo core
 RT_VOODOO_TEXLOG=1 ./td2              # log each new texture setup (format, LODs, base registers)
 RT_VOODOO_VRAMDUMP=vram.bin:1300 ./td2 --headless ...   # dump the whole VRAM at frame 1300
 RT_CF_LOG=1 ./td2 --headless ...      # log each CF read command (LBA, sectors): which game files load
+./gticlub2 --enhanced --net-host      # link play: host a session (the code is in the log and the lobby)
+./gticlub2 --enhanced --net-join "XXX XXXX"   # link play: join it with its code
+./gticlub2 --headless --realtime --net-id 2 --net-peer 127.0.0.1:24700   # a linked test node, ID 2
 ```

@@ -24,6 +24,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 extern uint8_t g_in[8];
 extern int16_t g_analog[4];
@@ -81,8 +82,26 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
 static uint64_t g_pace_t0;          /* host ticks at virtual time 0 */
 static double g_pace_freq;
 
+/* headless --realtime (a linked node with no window, net.c): the emulated time follows the clock */
+int g_realtime;
+static void headless_pace(double virt) {
+    static double t0 = -1;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    double real = ts.tv_sec + ts.tv_nsec * 1e-9;
+    if (t0 < 0 || enh_turbo() || real - t0 - virt > 0.25) t0 = real - virt;   /* start, fast-forward, stalls */
+    double ahead = virt - (real - t0);
+    if (ahead > 0.0005) {
+        struct timespec d = { 0, (long)(ahead * 1e9) };
+        nanosleep(&d, NULL);
+    }
+}
+
 void rt_pace_vblank(void) {
-    if (!g_frontend_active) return;
+    if (!g_frontend_active) {
+        if (g_realtime) headless_pace((double)rt_now() / CPU_HZ);
+        return;
+    }
     double virt = (double)rt_now() / CPU_HZ;
     if (enh_turbo()) {                  /* enhanced mode boot/apply: as fast as possible */
         g_pace_t0 = SDL_GetPerformanceCounter() - (uint64_t)(virt * g_pace_freq);
@@ -308,8 +327,8 @@ int frontend_run(int scale, int scale_explicit) {
     while (running) {
         /* text input only for the name entry: SDL starts it with the video, and while it is on
          * macOS opens its accent picker on a held letter key (W, A, S, D while driving) */
-        if (enh_name_entry_active() != text_on) {
-            text_on = enh_name_entry_active();
+        if (enh_text_input_active() != text_on) {
+            text_on = enh_text_input_active();
             if (text_on) SDL_StartTextInput(); else SDL_StopTextInput();
         }
         if (enh_want_fullscreen() != fs_applied) {      /* enhanced mode: DISPLAY option */
@@ -327,7 +346,17 @@ int frontend_run(int scale, int scale_explicit) {
                 }
                 break;
             case SDL_KEYDOWN:
-                if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
+                if (enh_code_entry_active()) {           /* MULTIPLAYER code: the letters type */
+                    SDL_Keycode k = ev.key.keysym.sym;
+                    if (k == SDLK_ESCAPE) enh_menu_action(ENH_BACK);
+                    else if (k == SDLK_BACKSPACE) enh_code_key('\b');
+                    else if ((k == SDLK_RETURN || k == SDLK_KP_ENTER) && !ev.key.repeat) enh_code_key('\r');
+                    else if (k == SDLK_v && (ev.key.keysym.mod & (KMOD_CTRL | KMOD_GUI))) {
+                        char *clip = SDL_GetClipboardText();
+                        enh_code_paste(clip);
+                        SDL_free(clip);
+                    }
+                } else if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     if (!ev.key.repeat) enh_menu_action(menu_key(ev.key.keysym.sym));
                 } else if (ev.key.keysym.sym == SDLK_ESCAPE) {
                     if (!ev.key.repeat && !enh_escape()) running = 0;   /* enhanced: pause / back */
@@ -348,7 +377,9 @@ int frontend_run(int scale, int scale_explicit) {
                 break;
             case SDL_KEYUP: key(ev.key.keysym.sym, 0); break;
             case SDL_TEXTINPUT:
-                if (enh_name_entry_active() && !enh_paused())
+                if (enh_code_entry_active() && !(SDL_GetModState() & (KMOD_CTRL | KMOD_GUI)))
+                    for (const char *p = ev.text.text; *p; p++) enh_code_key((unsigned char)*p);
+                else if (enh_name_entry_active() && !enh_paused())
                     for (const char *p = ev.text.text; *p; p++) enh_name_type((unsigned char)*p);
                 break;
             case SDL_CONTROLLERDEVICEADDED:

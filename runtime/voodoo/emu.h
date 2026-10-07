@@ -37,7 +37,11 @@ using attoseconds_t = s64;
 
 #define ATTR_COLD
 #define ATTR_HOT
+#ifdef __clang__
 #define ATTR_FORCE_INLINE inline __attribute__((always_inline))
+#else                               /* GCC rejects a second inline; MAME's own definition */
+#define ATTR_FORCE_INLINE __attribute__((always_inline))
+#endif
 #define ATTR_PRINTF(x, y) __attribute__((format(printf, x, y)))
 #define FUNC(x) &x, #x
 #define NAME(x) x, #x

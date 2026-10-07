@@ -57,10 +57,11 @@ menus.
 |                     | Classic                   | Enhanced                                                                                                 |
 | ------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **Starting a game** | Insert coins, press START | START GAME from the menu                                                                                 |
-| **Main screen**     | Attract mode              | Menu: START GAME, OPTIONS, CREDITS, QUIT over the attract mode                                           |
+| **Main screen**     | Attract mode              | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                              |
 | **Options**         | None                      | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, fps counter |
-| **Pause**           | None                      | Esc: RESUME or MAIN MENU                                                                                 |
+| **Pause**           | None                      | Esc: RESUME or MAIN MENU (not in multiplayer)                                                            |
 | **Ranking name**    | Chosen with the wheel     | Typed on the keyboard                                                                                    |
+| **Multiplayer**     | Linked cabinets only      | MULTIPLAYER: up to 4 players over the Internet, with a session code                                       |
 | **Resolution**      | 512×384, as the original  | 512×384 or 1024×768 (1X or 2X)                                                                           |
 | **Aspect ratio**    | 4:3, as the original      | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                              |
 | **TEST MODE**       | F2                        | None (TEST, SERVICE and COIN are ignored)                                                                |
@@ -85,7 +86,8 @@ supports both modes. The `GAME=` value is the game's MAME set name. Per-version 
 ## Build and run
 
 Tested on macOS (Apple Silicon). Linux should work with the same steps but is untested.
-Windows is not supported yet.
+Windows is not supported yet: an experimental Windows executable can be cross-built on macOS
+(`make WIN=1 GAME=<id>`, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#windows-cross-build-make-win1)).
 
 **1. Install the tools.** You need a C/C++ compiler, `make`, Python 3, SDL2 and `chdman` (from
 MAME's tools).
@@ -261,6 +263,22 @@ The environment variables for debugging are described in
   instead of turning the wheel. Backspace deletes, Enter ends the name early. Left and right
   still browse the letters, and the accelerator (or START) takes the one shown, so a gamepad
   works too (D-pad left and right, then R2 or A).
+- **Multiplayer:** up to four players race together over the Internet, as linked cabinets did;
+  the CPU cars fill the rest of the grid (Thrill Drive 2 races 4 cars, GTI Club 2 6).
+  - **Hosting:** MULTIPLAYER → HOST A GAME. The game opens its port on your router by itself
+    (NAT-PMP or UPnP, which most home routers have) and shows a **session code** of 7
+    characters: send it to the other players. The lobby lists the four players; START GAME
+    starts the race for everyone once at least one player has joined. CLOSE THE SESSION ends
+    it.
+  - **Joining:** MULTIPLAYER → JOIN A GAME, then type the code or paste it (Cmd+V or Ctrl+V)
+    and press Enter. You become PLAYER 2, 3 or 4 and wait in the lobby; when the host starts,
+    your game starts too. LEAVE THE SESSION takes you back to the main menu.
+  - No server and nothing to install. If the router does not open the port (UPnP and NAT-PMP
+    off, or a provider's CGNAT), the lobby says so: open UDP port 24700 by hand to host.
+    Joining needs nothing on your side.
+  - While a session is open, the lobby is the main menu, and there is no pause. A player whose
+    connection drops stays on the track standing still (GTI Club 2) or leaves the race
+    (Thrill Drive 2), and races on if the connection comes back.
 - **Separate saves:** the enhanced mode keeps its own NVRAM, `<executable>_enhanced_nvram.bin`,
   so it never changes the classic mode's settings. Delete that file to set it up again.
 - **Fast boot:** the game boots at full speed, muted, behind a LOADING screen, until the

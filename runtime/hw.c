@@ -684,22 +684,22 @@ void hw_nvram_options_fix(uint8_t *nv) {
     nv[GAME_NVRAM_OPT_CSUM + 1] = (uint8_t)cs;
 }
 
-/* The profile's nvram_force: TEST MODE option bits set at every boot, in both modes (the NETWORK
- * ID: 1, a single cabinet; some dumps come from cabinet 2 of a linked set, and the race HUD then
- * says PLAYER 2). Only an option block whose checksum is valid is touched; an empty NVRAM gets
- * the game's factory settings. */
-static void nvram_force(void) {
-    static const struct { int addr, mask, value; } k_force[] = GAME_NVRAM_FORCE;
-    if (k_force[0].addr < 0 || !GAME_NVRAM_OPT_CSUM) return;
+/* The NETWORK ID (TEST MODE NETWORK OPTIONS, bits 6-7 of the profile's network.id_addr, as
+ * ID - 1), set at every boot in both modes: 1, a single cabinet, or --net-id for a link (net.c).
+ * Some dumps come from cabinet 2 of a linked set, and the race HUD then says PLAYER 2. Only an
+ * option block whose checksum is valid is touched; an empty NVRAM gets the factory settings. */
+static void nvram_network_id(void) {
+    extern int g_net_id;
+    if (!GAME_NETWORK_ID_ADDR || !GAME_NVRAM_OPT_CSUM || getenv("RT_NVRAM_NOFORCE")) return;
     uint32_t sum = 0;
     for (int o = GAME_NVRAM_OPT_START; o <= GAME_NVRAM_OPT_CSUM; o += 2) sum += (uint32_t)(g_nvram[o] << 8 | g_nvram[o + 1]);
     if ((sum & 0xffff) != 0xffff) return;
-    int changed = 0;
-    for (int i = 0; k_force[i].addr >= 0; i++) {
-        uint8_t v = (uint8_t)((g_nvram[k_force[i].addr] & ~k_force[i].mask) | k_force[i].value);
-        if (v != g_nvram[k_force[i].addr]) { g_nvram[k_force[i].addr] = v; changed = 1; }
-    }
-    if (changed) { hw_nvram_options_fix(g_nvram); rt_log("NVRAM: profile settings applied (nvram_force)\n"); }
+    int id = g_net_id ? g_net_id : 1;
+    uint8_t v = (uint8_t)((g_nvram[GAME_NETWORK_ID_ADDR] & 0x3f) | (id - 1) << 6);
+    if (v == g_nvram[GAME_NETWORK_ID_ADDR]) return;
+    g_nvram[GAME_NETWORK_ID_ADDR] = v;
+    hw_nvram_options_fix(g_nvram);
+    rt_log("NVRAM: NETWORK ID set to %d\n", id);
 }
 
 static uint8_t nvram_read(uint32_t off) {
@@ -966,7 +966,7 @@ static void uart_write(uint32_t off, uint8_t v) {
     uart_regs[ch][r] = v;
 }
 
-/* ================================================================== K056230 LANC (network, no peers) */
+/* ================================================================== K056230 LANC (network: net.c) */
 static struct { uint8_t ram[0x2000]; uint8_t status, control, unk[2]; int irq_enable, irq; } lanc = { .status = 0x08 };
 
 static uint8_t lanc_reg_read(uint32_t off) {
@@ -981,7 +981,10 @@ static void lanc_reg_write(uint32_t off, uint8_t v) {
     switch (off & 7) {
     case 1:
         if (!(v & 1)) { lanc.status = 0; lanc.irq = 0; }
-        else if (lanc.irq_enable) lanc.irq = 1;
+        else {                  /* a ring cycle: our slot goes out, the peers' come in */
+            if (net_active()) net_cycle(lanc.ram);
+            if (lanc.irq_enable) lanc.irq = 1;
+        }
         if (v & 8) lanc.status = 0x10;
         if (lanc.irq) epic_raise(EPIC_IRQ1);
         lanc.control = v;
@@ -1007,13 +1010,15 @@ static void bytes_write(void (*fn)(uint32_t, uint8_t), uint32_t off, int size, u
 
 static long g_mmio_log = -1;
 static uint32_t g_mmio_lo = 0, g_mmio_hi = 0xffffffffu;
+static uint64_t g_mmio_from;           /* RT_MMIO_FROM=seconds: log from that emulated time on */
 static int mmio_logging_ea(uint32_t ea) {
     if (g_mmio_log < 0) {
-        const char *e = getenv("RT_MMIO_LOG"), *r = getenv("RT_MMIO_RANGE");
+        const char *e = getenv("RT_MMIO_LOG"), *r = getenv("RT_MMIO_RANGE"), *f = getenv("RT_MMIO_FROM");
         g_mmio_log = e ? atol(e) : 0;
         if (r) sscanf(r, "%x-%x", &g_mmio_lo, &g_mmio_hi);
+        if (f) g_mmio_from = (uint64_t)(atof(f) * CPU_HZ);
     }
-    if (ea < g_mmio_lo || ea > g_mmio_hi) return 0;
+    if (ea < g_mmio_lo || ea > g_mmio_hi || rt_now() < g_mmio_from) return 0;
     return g_mmio_log > 0 ? (g_mmio_log--, 1) : 0;
 }
 #define mmio_logging() mmio_logging_ea(ea)
@@ -1134,7 +1139,7 @@ void hw_init(const HwConfig *cfg) {
     if (f) {
         if (fread(g_nvram, 1, sizeof g_nvram, f) != sizeof g_nvram) rt_log("NVRAM: short file\n");
         fclose(f);
-        nvram_force();
+        nvram_network_id();
     } else {
         rt_log("NVRAM: %s not found, starting from an empty NVRAM\n", cfg->nvram_path ? cfg->nvram_path : "(none)");
     }

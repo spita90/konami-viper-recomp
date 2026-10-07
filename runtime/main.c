@@ -13,9 +13,13 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <limits.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
+#endif
+#ifdef _WIN32
+#include <windows.h>
 #endif
 
 uint8_t *g_ram;
@@ -67,7 +71,7 @@ static void diff_kernel_text(void) {
 static const char *g_dump_ram;
 
 void rt_fatal(const char *why) {
-    if (!strcmp(why, "window closed")) { hw_shutdown(); wav_close(); fflush(stderr); _exit(0); }
+    if (!strcmp(why, "window closed")) { net_shutdown(); hw_shutdown(); wav_close(); fflush(stderr); _exit(0); }
     rt_log("STOP: %s\n", why);
     if (g_dump_ram) { FILE *f = fopen(g_dump_ram, "wb"); if (f) { fwrite(g_ram, 1, RAM_SIZE, f); fclose(f); } }
     diff_kernel_text();
@@ -105,8 +109,37 @@ static void wav_open(const char *path) {
 static const char *g_frames_dir;
 static int g_frame_every = 30;
 
+/* RT_INPUT_FIFO=path: live scripted input from a named pipe (mkfifo), lines "port=hex" with the
+ * ports of RT_INPUT, read at every frame without blocking (a headless linked node driven by hand) */
+static void input_fifo_poll(void) {
+    static int fd = -2;
+    static char line[256];
+    static size_t len;
+    extern uint8_t g_in[8];
+    extern int16_t g_analog[4];
+#ifdef _WIN32
+    fd = -1;                                        /* no named pipes: a test tool for macOS/Linux */
+#else
+    if (fd == -2) { const char *p = getenv("RT_INPUT_FIFO"); fd = p ? open(p, O_RDONLY | O_NONBLOCK) : -1; }
+#endif
+    if (fd < 0) return;
+    char c;
+    while (read(fd, &c, 1) == 1) {
+        if (c != '\n' && c != ',') { if (len < sizeof line - 1) line[len++] = c; continue; }
+        line[len] = 0;
+        len = 0;
+        int port; unsigned v;
+        if (sscanf(line, "%d=%x", &port, &v) != 2) continue;
+        if (port >= 10) g_analog[(port - 10) & 3] = (int16_t)v;
+        else g_in[port & 7] = (uint8_t)v;
+        rt_log("input (fifo): %s%d = %02x\n", port >= 10 ? "AN" : "IN", port >= 10 ? port - 10 : port, v);
+    }
+}
+
 void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     enh_on_frame(buf, w, h);
+    net_frame();
+    input_fifo_poll();
     static int fps_stats = -1;
     static uint64_t last_hash, uniq, last_sec;
     if (fps_stats < 0) fps_stats = getenv("RT_FPS_STATS") != NULL;
@@ -137,7 +170,11 @@ void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     fclose(f);
 }
 
+#ifdef _WIN32
+static void dump_frames_loop(void) { for (;;) Sleep(INFINITE); }
+#else
 static void dump_frames_loop(void) { for (;;) pause(); }
+#endif
 
 /* scripted input for tests: RT_INPUT="20.0:3=fb,20.2:3=ff" (seconds:port=hex);
  * ports 0-7 = digital IN0-7, 10-13 = analog positions AN0-3 (16-bit two's complement, -255..255) */
@@ -180,9 +217,19 @@ static int file_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) fclose(
 static int run_scripted_pass(const char *what, const char *script, int seconds, const char *self,
                              const char *work, const char *nvram, const char *nvsave) {
     char cmd[8192];
+#ifdef _WIN32                           /* cmd.exe: the variables through the inherited environment */
+    _putenv_s("RT_FFB_WHEEL", "1");
+    _putenv_s("RT_INPUT", script);
+    snprintf(cmd, sizeof cmd, "\"\"%s\" --headless --work \"%s\" --nvram \"%s\" --nvram-save \"%s\" --seconds %d >NUL 2>&1\"",
+             self, work, nvram, nvsave, seconds);
+    int rc = system(cmd);
+    _putenv_s("RT_FFB_WHEEL", "");
+    _putenv_s("RT_INPUT", "");
+#else
     snprintf(cmd, sizeof cmd, "RT_FFB_WHEEL=1 RT_INPUT='%s' '%s' --headless --work '%s' --nvram '%s' --nvram-save '%s' --seconds %d >/dev/null 2>&1",
              script, self, work, nvram, nvsave, seconds);
     int rc = system(cmd);
+#endif
     if (rc != 0 || !file_exists(nvsave)) { fprintf(stderr, "%s failed (rc=%d)\n", what, rc); return -1; }
     return 0;
 }
@@ -225,6 +272,7 @@ static int run_enhanced_setup(const char *self, const char *work, const char *nv
 static void stop_event(void *arg) { (void)arg; rt_fatal("time limit"); }
 static void on_sigint(int s) { (void)s; rt_fatal("interrupted"); }
 
+
 static const RtModuleInfo *const k_modules[] = { RT_ALL_MODULES };
 
 static const char *g_argv0 = "";
@@ -234,11 +282,16 @@ static const char *g_argv0 = "";
  * Paths given on the command line stay relative to the current directory. */
 static char g_exe[PATH_MAX], g_exe_dir[PATH_MAX];
 
+
 static void find_executable(const char *argv0) {
     char raw[PATH_MAX] = "";
 #ifdef __APPLE__
     uint32_t size = sizeof raw;
     if (_NSGetExecutablePath(raw, &size) != 0) raw[0] = 0;
+#elif defined(_WIN32)
+    DWORD n = GetModuleFileNameA(NULL, raw, sizeof raw);
+    raw[n < sizeof raw ? n : 0] = 0;
+#define realpath(p, out) _fullpath(out, p, PATH_MAX)
 #else
     ssize_t n = readlink("/proc/self/exe", raw, sizeof raw - 1);
     raw[n > 0 ? n : 0] = 0;
@@ -248,6 +301,10 @@ static void find_executable(const char *argv0) {
     }
     snprintf(g_exe_dir, sizeof g_exe_dir, "%s", g_exe);
     char *slash = strrchr(g_exe_dir, '/');
+#ifdef _WIN32
+    char *bs = strrchr(g_exe_dir, '\\');
+    if (bs > slash) slash = bs;
+#endif
     if (slash) *slash = 0; else snprintf(g_exe_dir, sizeof g_exe_dir, ".");
 }
 
@@ -276,6 +333,13 @@ static void usage(void) {
             "  --settings F    port settings (default " GAME_SETTINGS ", enhanced " GAME_ENH_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
+            "  --net-host      link play: host a session (NETWORK ID 1) at --net-port\n"
+            "  --net-join H:P  link play: join the host H:P; it gives the NETWORK ID (enhanced mode)\n"
+            "  --net-id N      link play, tests: this node's NETWORK ID (1 = host; 2-4 with --net-peer)\n"
+            "  --net-peer H:P  link play, tests: the host of --net-id 2-4\n"
+            "  --net-port P    link play: local UDP port (default 24700)\n"
+            "  --net-buffer N  link play: playout buffer in cycles against jitter (default 2)\n"
+            "  --realtime      headless at the speed of the clock (a linked node with no window)\n"
             "  -v              verbose\n", g_argv0);
     exit(2);
 }
@@ -288,6 +352,9 @@ int main(int argc, char **argv) {
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
+    int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 2;
+    const char *net_peer = NULL, *net_join_to = NULL;
+    int net_host_flag = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : NULL;
@@ -308,6 +375,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-v")) g_verbose = 1;
         else if (!strcmp(a, "--enhanced")) g_enhanced = 1;
         else if (!strcmp(a, "--settings") && v) { settings = v; settings_explicit = 1; i++; }
+        else if (!strcmp(a, "--net-id") && v) { net_id = atoi(v); i++; }
+        else if (!strcmp(a, "--net-host")) net_host_flag = 1;
+        else if (!strcmp(a, "--net-join") && v) { net_join_to = v; i++; }
+        else if (!strcmp(a, "--net-port") && v) { net_port = atoi(v); i++; }
+        else if (!strcmp(a, "--net-peer") && v) { net_peer = v; i++; }
+        else if (!strcmp(a, "--net-buffer") && v) { net_buffer = atoi(v); i++; }
+        else if (!strcmp(a, "--realtime")) { extern int g_realtime; g_realtime = 1; }
         else usage();
     }
     if (g_enhanced) {
@@ -315,6 +389,16 @@ int main(int argc, char **argv) {
         if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
         if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
     }
+    if (net_id < 0 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
+    net_set_port(net_port);
+    if (net_join_to && !g_enhanced) { fprintf(stderr, "--net-join wants --enhanced (the NETWORK ID is taken live there)\n"); return 2; }
+    int net_rc = 0;
+    if (net_host_flag || (net_id == 1 && !net_peer)) net_rc = net_host(net_port, net_buffer);
+    else if (net_join_to) net_rc = net_join(net_join_to, 0, 0, 0, net_buffer);
+    else if (net_id && net_peer) net_rc = net_join(net_peer, net_port, net_id, 0, net_buffer);
+    else if (net_id) { fprintf(stderr, "--net-id %d wants --net-peer host:port\n", net_id); return 2; }
+    if (net_rc) return 1;
+    atexit(net_shutdown);
     enh_set_headless(headless);
     enh_init(work, settings);
     if (!headless && !file_exists(nvsave)) {
@@ -335,6 +419,7 @@ int main(int argc, char **argv) {
     g_kernel_len = n;
 
     signal(SIGINT, on_sigint);
+    signal(SIGTERM, on_sigint);
     if (wav) wav_open(wav);
     for (size_t i = 0; i < sizeof k_modules / sizeof k_modules[0]; i++) rt_register_module(k_modules[i]);
     rt_log("kernel: %zu bytes at 0x00000000\n", n);
