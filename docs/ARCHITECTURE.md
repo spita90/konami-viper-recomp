@@ -298,8 +298,38 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
   - serial port at `0xFF300000`;
   - audio IRQ3 every 256 samples at 44.1 kHz (RAM buffers at `0xFFF000`/`0xFFF800`).
 - **Multithreaded rendering**: the `poly.h` work queue runs on a thread pool. The default is
-  min(4, cores/3), and `RT_RENDER_THREADS` overrides it. With more than 4 threads, lock
-  contention makes performance worse.
+  one worker per hardware thread minus one (the guest thread helps while it waits), between 1
+  and 4, and `RT_RENDER_THREADS` overrides it. With more than 4 threads, lock contention makes
+  performance worse. TD2 headless, 90 s of attract on an M4 Pro: 0 workers 23.9 s, 1 13.8 s,
+  2 10.9 s, 3 9.5 s, 4 9.1 s. On a 4-core Windows i5, 0 is far too slow, 2 almost holds 30 fps,
+  4 is slightly better and 6 is worse.
+- **Rasterizers specialised for these games** (`s_predef_raster_table` in `voodoo_render.cpp`).
+  - Every pixel goes through a template whose parameters are the mode registers (colour path,
+    alpha, fog, fbzMode, the two texture modes). MAME instantiates it with constants for the
+    common combinations of a few games; any other combination takes a generic instance that
+    decodes the registers at every pixel. Nothing was listed for the Viper games, so all of
+    their pixels took the generic one (about 80% of the host time).
+  - The table now lists the 150 combinations that cover 99% of the pixels of TD2 and GTI Club 2,
+    weighting equally 400 s of attract mode and one race on each course (TD2 Japan, Europe,
+    U.S.A.; GTI Club 2 Town, Coast, Mountain). The attract mode alone was not enough: its
+    combinations covered only 38% of the pixels of a race in Europe. Each session stays
+    covered at 98.5% or more.
+  - TEXTURE FILTER NEAREST (enhanced mode) clears bit 2 of the texture modes in use, which
+    makes different combinations. `RASTERIZER_AND_NEAREST` lists each entry that has the bit
+    set together with its variant without it (136 more instances, about 320 KB of code), so
+    NEAREST keeps the specialised rasterizers.
+  - Same arithmetic, so the frames are bit-identical (checked on both games, normal and
+    enhanced mode, 1X and 2X). One thread, 90 s of attract on an M4 Pro: TD2 25.1 → 16.9 s,
+    GTI Club 2 21.3 → 14.3 s (1.49×). With 4 workers the M4 Pro is bound elsewhere
+    (9.6 → 8.5 s and 9.4 → 9.3 s); a slower CPU gains more.
+  - `make EXTRA=-DRT_RASTER_STATS` logs, every 1000 swaps, the pixels drawn by each
+    combination, sorted, in the table's own format. In normal builds the per-scanline counter
+    is not updated, so the render threads no longer write to a shared cache line.
+- **Inline bilinear filter** (`video/rgbutil_inline.h`). MAME's `rgbutil.cpp` became a header
+  included by `rgbutil.h`, so `bilinear_filter_rgbaint` is inlined into the rasterizers instead
+  of being a call per texel (13% of the host time in a profile). One thread, 90 s of attract:
+  TD2 16.9 → 14.4 s, GTI Club 2 14.3 → 12.7 s; with the table above, 1.7× in all against the
+  generic rasterizer. Frames bit-identical.
 - **Voodoo3** (`runtime/voodoo/`): the **MAME core**, almost unchanged (`voodoo.cpp`,
   `voodoo_2.cpp`, `voodoo_banshee.cpp`, `voodoo_render.cpp`, `poly.h`, `rgbutil`; BSD-3).
   - **Fix: multibase texture addresses** (`rasterizer_texture::recompute`).
@@ -1113,6 +1143,7 @@ RT_MMIO_LOG=10000 RT_MMIO_RANGE=fe000000-feffffff ./td2   # log MMIO accesses
 RT_SC_LOG=1 ./td2                     # log kernel syscalls
 RT_VOODOO_LOG=1 ./td2                 # messages from MAME's Voodoo core
 RT_VOODOO_TEXLOG=1 ./td2              # log each new texture setup (format, LODs, base registers)
+make EXTRA=-DRT_RASTER_STATS          # log the pixels drawn per rasterizer mode combination
 RT_VOODOO_VRAMDUMP=vram.bin:1300 ./td2 --headless ...   # dump the whole VRAM at frame 1300
 RT_CF_LOG=1 ./td2 --headless ...      # log each CF read command (LBA, sectors): which game files load
 ./gticlub2 --enhanced --net-host      # link play: host a session (the code is in the log and the lobby)

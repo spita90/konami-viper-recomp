@@ -7,6 +7,25 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-08
+
+### Changed
+
+- **More render threads by default on 4- and 8-thread CPUs:** one per hardware thread minus one,
+  up to 4 (it was a third of them, so a 4-core CPU got one). `RT_RENDER_THREADS` still overrides it.
+- **Faster software rendering (about 1.5× per thread), both games:** the Voodoo rasterizer has
+  specialised versions for the 150 mode combinations that draw 99% of the pixels, measured in
+  attract mode and in races on every course; before, every pixel took the generic version,
+  which decodes the modes at each pixel. The frames are bit-identical.
+- **Bilinear texture filter inlined into the rasterizers:** about 15% less time per thread.
+- **TEXTURE FILTER NEAREST keeps the faster rendering:** the table also has the variants of each
+  combination that this option produces.
+
+### Added
+
+- `make EXTRA=-DRT_RASTER_STATS`: logs the pixels drawn per rasterizer mode combination, to
+  rebuild the table.
+
 ## [0.10.0] - 2026-10-07
 
 ### Added
@@ -327,7 +346,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[0.10.0]: https://github.com/spita90/konami-viper-recomp/compare/ae5a011...HEAD
+[0.10.1]: https://github.com/spita90/konami-viper-recomp/compare/00c16fb...HEAD
+[0.10.0]: https://github.com/spita90/konami-viper-recomp/compare/ae5a011...00c16fb
 [0.9.3]: https://github.com/spita90/konami-viper-recomp/compare/5d7ac70...ae5a011
 [0.9.2]: https://github.com/spita90/konami-viper-recomp/compare/786d3bb...5d7ac70
 [0.9.1]: https://github.com/spita90/konami-viper-recomp/compare/adb36c8...786d3bb

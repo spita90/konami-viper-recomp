@@ -464,7 +464,7 @@ struct rasterizer_info
 	voodoo_poly_manager::render_delegate callback; // callback pointer
 	u8 is_generic;              // is this a generic rasterizer?
 	u8 display;                 // display index, used for sorted printing
-	u32 scanlines;              // how many scanlines we've used this for
+	u64 scanlines;              // how many scanlines we've used this for (recomp: pixels, see RT_RASTER_STATS)
 	u32 polys;                  // how many polys we've used this for
 	u32 fullhash;               // full 32-bit hash
 	rasterizer_params params;   // full copy of the relevant parameters

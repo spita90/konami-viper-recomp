@@ -2,28 +2,32 @@
 // copyright-holders:Vas Crabb, Ryan Holtz
 /***************************************************************************
 
-    rgbutil.cpp
+    rgbutil_inline.h
 
     Utility definitions for RGB manipulation. Allows RGB handling to be
     performed in an abstracted fashion and optimized with SIMD.
 
+    recomp: MAME's rgbutil.cpp, made inline and included by rgbutil.h, so
+    that the bilinear filter is inlined into the rasterizers (it was a call
+    per texel)
+
 ***************************************************************************/
 
-#include "emu.h"
-#include "rgbutil.h"
+#ifndef MAME_EMU_VIDEO_RGBUTIL_INLINE_H
+#define MAME_EMU_VIDEO_RGBUTIL_INLINE_H
 
 #if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && (_M_IX86_FP >= 2))
 
 #include <emmintrin.h>
 
-namespace {
+namespace rgbutil_detail {
 
-struct
+struct statics
 {
 	__m128  dummy_for_alignment;
 	s16     scale_table[256][8];
-}
-const rgbutil_statics =
+};
+inline const statics rgbutil_statics =
 {
 	{ 0 },
 	{
@@ -158,14 +162,16 @@ const rgbutil_statics =
 	}
 };
 
-__m128i scale_factor(u8 index)
+inline __m128i scale_factor(u8 index)
 {
 	return *reinterpret_cast<const __m128i *>(&rgbutil_statics.scale_table[index][0]);
 }
 
-} // anonymous namespace
+} // namespace rgbutil_detail
 
-u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+using rgbutil_detail::scale_factor;
+
+inline u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	__m128i color00 = _mm_cvtsi32_si128(rgb00);
 	__m128i color01 = _mm_cvtsi32_si128(rgb01);
@@ -189,7 +195,7 @@ u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u,
 	return _mm_cvtsi128_si32(color01);
 }
 
-void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+inline void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	__m128i color00 = _mm_cvtsi32_si128(rgb00);
 	__m128i color01 = _mm_cvtsi32_si128(rgb01);
@@ -219,7 +225,7 @@ void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb
 
 #include <arm_neon.h>
 
-u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+inline u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	// interpolate on u axis
 	const uint16x8_t colorx0 = vmulq_n_u16(vmovl_u8(vcreate_u8((u64(rgb10) << 32) | rgb00)), 256U - u);
@@ -235,7 +241,7 @@ u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u,
 	return vget_lane_u32(vreinterpret_u32_u8(vqmovn_u16(vcombine_u16(color16, color16))), 0);
 }
 
-void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+inline void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	// interpolate on u axis
 	const uint16x8_t colorx0 = vmulq_n_u16(vmovl_u8(vcreate_u8((u64(rgb10) << 32) | rgb00)), 256U - u);
@@ -254,7 +260,7 @@ void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb
 
 #else
 
-u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+inline u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	// interpolate on u axis
 	const u32 ag00 = ((rgb00 >> 8) & 0x00ff00ff) * (256U  - u);
@@ -279,7 +285,7 @@ u32 rgbaint_t::bilinear_filter(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u,
 	return (a << 24) | (r << 16) | (g << 8) | (b << 0);
 }
 
-void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
+inline void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb11, u8 u, u8 v) noexcept
 {
 	// interpolate on u axis
 	const u32 ag00 = ((rgb00 >> 8) & 0x00ff00ff) * (256U  - u);
@@ -303,3 +309,5 @@ void rgbaint_t::bilinear_filter_rgbaint(u32 rgb00, u32 rgb01, u32 rgb10, u32 rgb
 }
 
 #endif
+
+#endif // MAME_EMU_VIDEO_RGBUTIL_INLINE_H

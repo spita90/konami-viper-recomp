@@ -54,7 +54,7 @@ TP_INC := -Ithird_party/miniupnpc/include -Ithird_party/libnatpmp -DMINIUPNP_STA
 TP_CFLAGS := -O2 -w $(ARCHFLAGS) $(TP_INC) -Ithird_party/miniupnpc/src -DMINIUPNPC_SET_SOCKET_TIMEOUT \
              -DMINIUPNPC_GET_SRC_ADDR -D_BSD_SOURCE -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
 VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/voodoo_banshee.cpp \
-           runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp runtime/voodoo/video/rgbutil.cpp
+           runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp
 -include $(GEN)/sources.mk
 
 RT_OBJS := $(RT_SRCS:%.c=$(BUILD)/%.o)

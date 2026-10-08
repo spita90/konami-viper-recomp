@@ -436,4 +436,6 @@ protected:
 	s32 m_b;
 };
 
+#include "rgbutil_inline.h"
+
 #endif // MAME_EMU_VIDEO_RGBUTIL_H

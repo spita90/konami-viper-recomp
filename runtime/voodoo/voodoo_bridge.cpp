@@ -58,8 +58,9 @@ struct osd_work_queue
 osd_work_queue *osd_work_queue_alloc(int flags)
 {
 	auto *q = new osd_work_queue;
-	// a few workers scale well; more mostly add lock contention (measured on Apple M-series)
-	int n = std::min(4, std::max(1, int(std::thread::hardware_concurrency()) / 3));
+	// one worker per hardware thread, leaving one for the guest (which helps while waiting), and
+	// at most 4: more mostly add lock contention (measured on Apple M-series and a 4-core i5)
+	int n = std::clamp(int(std::thread::hardware_concurrency()) - 1, 1, 4);
 	if (getenv("RT_RENDER_THREADS")) n = atoi(getenv("RT_RENDER_THREADS"));
 	n = std::clamp(n, 0, WORK_MAX_THREADS - 1);
 	for (int t = 0; t < n; t++)
