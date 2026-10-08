@@ -1003,6 +1003,91 @@ window).
 - A real test at home: NAT-PMP opened the port in 0.2 s; the joining node found the host on the
   local network; on closing, the mapping was removed.
 
+## 5f. GPU renderer (enhanced mode, DISPLAY → RENDERER)
+
+In the enhanced mode the Voodoo can be drawn by the GPU instead of the software rasterizer:
+`runtime/voodoo/voodoo_gpu.cpp` (recording, guest thread) and `runtime/gpu_gl.cpp` (OpenGL 3.3
+core, host main thread). Status: tested on GTI Club 2 and Thrill Drive 2 (attract, races, Foggy
+Europe, the rear-view mirror).
+
+**When.** Only in the enhanced mode, and there by default: `renderer = 0` in the settings file
+(DISPLAY → RENDERER: HARDWARE). `renderer = 1` (SOFTWARE) keeps the software rasterizer, whose
+frames stay bit-identical. The classic mode always uses the software rasterizer. If the window
+cannot get an OpenGL 3.3 context, or the shaders do not build, the frontend switches the device
+back to software (`voodoo_set_gpu(0)`) and carries on. Changing the option restarts the game
+(the window is of another kind). On Windows the executable exports `NvOptimusEnablement` and
+`AmdPowerXpressRequestHighPerformance`, so laptops with two GPUs run it on the dedicated one.
+
+**Why OpenGL 3.3.** One API for macOS (4.1 core, on Metal), Windows, Linux and, later, the Nintendo
+Switch (Mesa); Vulkan would need MoltenVK on macOS and has no Switch homebrew driver. The functions
+are loaded through `SDL_GL_GetProcAddress`, so nothing new is linked.
+
+**Recording** (`gpu_triangle`, `gpu_fastfill`, `gpu_frame`).
+- `triangle()` and `reg_fastfill_w` record instead of queuing to the rasterizer. A triangle record
+  holds what the rasterizer starts from: vertex A, the start values and gradients of R, G, B, A, Z,
+  W (64-bit) and of each TMU's S, T, W, and the LOD base. A state record (shared by consecutive
+  triangles) holds the mode registers, colours, clip rectangle, Y origin and each TMU's texture
+  setup (masks, LOD range, the nine LOD offsets, the lookup table row).
+- The emulated timing still gets the native pixel count: `count_pixels` repeats `poly.h`'s
+  scanline extents without rasterizing.
+- Textures are read on the GPU from a copy of the VRAM (8 MB, 1024 words per row). Every CPU write
+  into the VRAM (BAR1, texture port, command FIFO packet 5, 2D blits) marks its 4 KB page; before a
+  triangle reads a texture, the marked pages it spans are copied into the list. The command FIFO's
+  own pages are marked too but never read as textures, so they are never uploaded.
+- 256-entry tables (texel lookups, NCC and palettes as the TMU last computed them, the fog table,
+  the display CLUT) go to rows of a lookup texture, shared and deduplicated by content.
+- At each vblank `gpu_frame` adds the displayed buffer and hands the list to the frontend; the
+  guest waits only if 128 MB of lists are pending (a fast boot runs many vblanks per window frame).
+  The rasterizer's object pools, normally reset when its queue drains, are reset there.
+
+**Drawing.**
+- Each colour buffer the game draws into is a render target `(row pixels + 2M) × N` wide and
+  `512 × N` high (RGBA8), with its aux buffer as a 32-bit float depth texture. Vertices are placed
+  as on the software scaled targets: native x + M, rows following the Y origin, times N.
+- The fragment shader is MAME's pixel pipeline: iterators at the pixel from the start values
+  (exact integer arithmetic at 1X; at N > 1 the native position the pixel stands for, as the
+  scaled targets), W float and depth (with bias), clipping and stipple (pattern mode), texture
+  fetch for every format (LOD, point or bilinear, clamp/wrap, lookups) and combine, colour
+  combine, chroma key, alpha mask and test, fog (table, iterated A/Z/W), and the 5-6-5 dithering.
+  The depth test and alpha blending are the GPU's: depth values are exact (16-bit integers in a
+  float buffer); blending mixes 8-bit colours (dual-source for the colour-before-fog factor), so
+  translucent pixels are not dithered between passes as on the Voodoo.
+- The display draws the front buffer's picture through the CLUT, letterboxed in the window, then
+  the enhanced-mode overlay. The overlay is drawn on a transparent layer of its own (premultiplied
+  alpha, the same `blend()` as the software path) and uploaded only while something is on it.
+
+**Checking it against the software rasterizer.** `RT_GPU_CAPTURE=file:first:count` (any mode, also
+headless; first ≥ 2) makes the device record and rasterize: the lists of those frames go to the
+file after the VRAM and lookup rows they start from. `tools/gpu_replay.cpp` (build line in the file)
+draws them in a hidden window and writes `gpu_NNNNNN.ppm`; `tools/gpu_compare.py` compares them with
+the software frames of the same run (`--frames DIR`) and writes software | GPU | difference images
+(`tools/ppm2png.py` converts them). GTI Club 2's attract at 1X: 4.6% of the pixels differ, by at most
+24 and only on translucent ones (shadows, the filtered edges of sprites); opaque pixels are exact.
+- A TMU whose combine equation is the identity has its equation bits cleared in the normalized mode
+  and a flag in `rasterizer_params::generic()` (`GENERIC_TEX0/1_IDENTITY`); the state carries those
+  flags (`S_GENERIC`), otherwise the shader computes "pass the other TMU" and gets 0.
+
+**Render targets read back** (Thrill Drive 2: the rear-view mirror, the reflections on the car
+windows, the fog, the motion blur).
+- The recorder keeps, for each colour buffer the GPU drew into, the native rectangle drawn since
+  the VRAM copy last got it. Before a triangle reads a texture over such a rectangle, a
+  `CMD_COPY` has the GPU write it into the VRAM copy: a pass drawn into the R32UI texture (each
+  fragment one word, two 5-6-5 pixels, read at the centre of the scaled pixels), rounded to whole
+  words. Those pages are then the GPU's: CPU uploads never go over them.
+- A 16-bit screen-to-screen blit (ROP copy) whose source is a GPU render target is a `CMD_COPY`
+  too, from that target to the destination surface; consecutive one-row blits (the motion blur
+  copies 768 per frame, the source rows going up) merge into one. While capturing, the
+  rasterizer's own copy still runs but does not mark the pages, so the replay shows the GPU's.
+- Widescreen motion blur, as `blur_quad`: at the first blit from a target drawn since, a
+  `CMD_SNAPSHOT` keeps its picture (margins included) in a texture; the blits record which source
+  row each blur texture row holds. A quad that maps such a texture one texel per pixel back over
+  the same place (the same checks as `blur_quad`) becomes one `TF_BLUR` quad: the snapshot at
+  each pixel times the start colour, blended with the start alpha, its 4:3 edges out to the
+  margins. Checked in TD2's attract at 2X 16:9: the blur reaches the margins as in software.
+
+**Not handled yet** (logged once when a game does it): LFB pixel writes into a colour buffer, depth
+source compare, reads of the pixel counters (`fbiPixelsIn`…), the rotating stipple.
+
 ## 6. Current status (2026-09-29)
 
 Thrill Drive 2 is working:
@@ -1116,7 +1201,8 @@ Notes:
 1. Graphics: catalogue what is left after the multibase fix, against real
    references (gameplay videos or real hardware). MAME's core shares the same bugs, so it is not a
    reference for graphics.
-2. Further rasteriser optimisation (SIMD, less contention); eventually a GPU backend.
+2. GPU renderer (section 5f): the Switch port.
+   Further software rasteriser optimisation (SIMD, less contention).
 3. CMake builds for Windows and Linux, CI.
 4. Distributable package: the game data stays external and is extracted from the user's CHD.
 

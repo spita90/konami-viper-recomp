@@ -54,12 +54,15 @@ TP_INC := -Ithird_party/miniupnpc/include -Ithird_party/libnatpmp -DMINIUPNP_STA
 TP_CFLAGS := -O2 -w $(ARCHFLAGS) $(TP_INC) -Ithird_party/miniupnpc/src -DMINIUPNPC_SET_SOCKET_TIMEOUT \
              -DMINIUPNPC_GET_SRC_ADDR -D_BSD_SOURCE -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
 VD_SRCS := runtime/voodoo/voodoo.cpp runtime/voodoo/voodoo_2.cpp runtime/voodoo/voodoo_banshee.cpp \
-           runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp
+           runtime/voodoo/voodoo_render.cpp runtime/voodoo/voodoo_bridge.cpp runtime/voodoo/voodoo_gpu.cpp
+# the GPU renderer's OpenGL side (enhanced mode); GL is loaded through SDL at run time
+GL_SRCS := runtime/gpu_gl.cpp
 -include $(GEN)/sources.mk
 
 RT_OBJS := $(RT_SRCS:%.c=$(BUILD)/%.o)
 GEN_OBJS := $(GEN_SRCS:%.c=$(BUILD)/%.o)
 VD_OBJS := $(VD_SRCS:%.cpp=$(BUILD)/%.o)
+GL_OBJS := $(GL_SRCS:%.cpp=$(BUILD)/%.o)
 TP_OBJS := $(TP_SRCS:%.c=$(BUILD)/%.o)
 
 ifeq ($(wildcard $(GEN)/sources.mk),)
@@ -67,13 +70,17 @@ $(BIN):
 	@echo "$(GEN)/ is missing: run 'make extract GAME=$(GAME)' and 'make recomp GAME=$(GAME)' first" >&2
 	@exit 1
 else
-$(BIN): $(RT_OBJS) $(VD_OBJS) $(GEN_OBJS) $(TP_OBJS)
+$(BIN): $(RT_OBJS) $(VD_OBJS) $(GL_OBJS) $(GEN_OBJS) $(TP_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 endif
 
 $(BUILD)/runtime/voodoo/%.o: runtime/voodoo/%.cpp runtime/voodoo/*.h runtime/voodoo/video/*.h
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/runtime/gpu_gl.o: runtime/gpu_gl.cpp runtime/voodoo/voodoo_gpu.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
 $(BUILD)/runtime/%.o: runtime/%.c runtime/*.h $(GEN)/modules.h $(GEN)/game_config.h
 	@mkdir -p $(dir $@)

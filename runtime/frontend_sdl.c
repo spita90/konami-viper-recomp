@@ -37,6 +37,11 @@ static atomic_uint g_ring_w, g_ring_r;
 static SDL_AudioDeviceID g_audio;
 int g_audio_gain = 16;                    /* samples peak ~1.5% FS; the cabinet has a power amp */
 
+/* GPU renderer (gpu_gl.cpp) */
+int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest);
+void gpu_gl_shutdown(void);
+
 static int16_t sat16(int64_t v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
 static int g_frontend_active;
 
@@ -283,9 +288,19 @@ int frontend_run(int scale, int scale_explicit) {
             free(displays);
         }
     }
+    /* GPU renderer (enhanced mode): an OpenGL 3.3 core window; the device already records for it */
+    int gpu = voodoo_gpu_active();
+    if (gpu) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    }
     SDL_Window *win = SDL_CreateWindow(g_enhanced ? GAME_TITLE " - enhanced" : GAME_TITLE,
         window_rect.x, window_rect.y, window_rect.w, window_rect.h,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (gpu ? SDL_WINDOW_OPENGL : 0));
     if (!win) { rt_log("SDL_CreateWindow failed: %s\n", SDL_GetError()); SDL_Quit(); return -1; }
     SDL_SetWindowMinimumSize(win, 320, 240);
     int window_dirty = 0;               /* moved or resized: saved 0.5 s after the last change */
@@ -295,10 +310,22 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_SetHint("SDL_FORCE_RAISEWINDOW", "1");
         SDL_RaiseWindow(win);
     }
-    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    SDL_RenderSetLogicalSize(ren, 512, 384);
-    SDL_Texture *tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 512, 384);
-    int tw = 512, th = 384;
+    if (gpu) {
+        uint32_t vram_size = 0;
+        if (!voodoo_vram(&vram_size) || !gpu_gl_init(win, vram_size)) {
+            rt_log("gpu: not available, back to the software renderer\n");
+            voodoo_set_gpu(0);
+            gpu = 0;
+        }
+    }
+    SDL_Renderer *ren = NULL;
+    SDL_Texture *tex = NULL;
+    if (!gpu) {
+        ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        SDL_RenderSetLogicalSize(ren, 512, 384);
+        tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 512, 384);
+    }
+    int tw = 512, th = 384, overlay_drawn = 0;
     int window_filter_applied = SDL_ScaleModeLinear;   /* the textures are made linear (the hint) */
 
     SDL_AudioSpec want = {0}, have;
@@ -426,7 +453,7 @@ int frontend_run(int scale, int scale_explicit) {
         int fresh = cnt != last_frame && w > 0 && h > 0;
         if (fresh) {
             last_frame = cnt;
-            voodoo_get_frame(raw, 2048 * 2048, &w, &h);
+            if (!gpu) voodoo_get_frame(raw, 2048 * 2048, &w, &h);
             if (w != tw || h != th) {
                 /* a new aspect ratio (enhanced mode, widescreen): the window keeps its height,
                  * unless it already has that ratio (a window restored from the settings) */
@@ -435,12 +462,26 @@ int frontend_run(int scale, int scale_explicit) {
                     SDL_GetWindowSize(win, &ww, &wh);
                     if ((long)w * wh != (long)h * ww) SDL_SetWindowSize(win, (int)((long)wh * w / h), wh);
                 }
-                SDL_DestroyTexture(tex);
-                tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-                window_filter_applied = SDL_ScaleModeLinear;
-                SDL_RenderSetLogicalSize(ren, w, h);
+                if (!gpu) {
+                    SDL_DestroyTexture(tex);
+                    tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+                    window_filter_applied = SDL_ScaleModeLinear;
+                    SDL_RenderSetLogicalSize(ren, w, h);
+                }
                 tw = w; th = h;
+                overlay_drawn = 1;          /* the layer below is cleared at the new size */
             }
+        }
+        if (gpu) {
+            /* the menus on a layer of their own, cleared only after something was drawn on it */
+            if (overlay_drawn) memset(frame, 0, (size_t)tw * th * 4);
+            overlay_drawn = g_enhanced && last_frame && enh_draw_overlay_layer(frame, tw, th);
+            gpu_gl_frame(win, overlay_drawn ? frame : NULL, tw, th, enh_texture_filter());   /* vsync paces */
+            if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {
+                save_window(win);
+                window_dirty = 0;
+            }
+            continue;
         }
         /* the overlay is redrawn over the last game frame every loop, so the enhanced menus
          * respond while the game is paused */
@@ -465,6 +506,7 @@ int frontend_run(int scale, int scale_explicit) {
     }
     if (window_dirty) save_window(win);
     nvram_save();
+    if (gpu) gpu_gl_shutdown();
     if (g_audio) SDL_CloseAudioDevice(g_audio);
     SDL_Quit();
     return restart ? 2 : 0;

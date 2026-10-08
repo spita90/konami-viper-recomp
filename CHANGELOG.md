@@ -7,6 +7,29 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-09
+
+### Added
+
+- **Hardware rendering (enhanced mode, both games):** the GPU draws the Voodoo's 3D graphics, with
+  OpenGL 3.3 on macOS, Windows and Linux. It is the default in the enhanced mode; OPTIONS →
+  DISPLAY → RENDERER switches back to SOFTWARE (`renderer` in the settings file), and a computer
+  without OpenGL 3.3 falls back to it by itself. The classic mode always draws in software.
+  - The fragment shader runs the Voodoo's pixel pipeline with the rasterizer's own arithmetic:
+    opaque pixels match the software renderer; translucent ones can differ slightly.
+  - Thrill Drive 2's rear-view mirror, reflections, fog and motion blur (also in widescreen) work.
+  - GTI Club 2, 90 s of attract on an Apple M4 Pro: 27% less time at 1X and 39% at 2X, with 63%
+    and 78% less CPU time; 2X costs the same as 1X.
+  - On Windows laptops with two GPUs it runs on the dedicated one.
+- Development tools for it: `RT_GPU_CAPTURE` with `tools/gpu_replay.cpp` and
+  `tools/gpu_compare.py` (GPU frames against the software ones of the same run), `RT_GPU_BENCH`
+  (headless benchmark on the GPU), `tools/ppm2png.py`.
+
+### Changed
+
+- The software renderer's frames are unchanged (bit-identical on both games, classic and
+  enhanced, 1X and 2X).
+
 ## [0.10.1] - 2026-10-08
 
 ### Changed

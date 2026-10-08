@@ -831,6 +831,8 @@ color_equation color_equation::from_texmode(reg_texture_mode const texmode, colo
 
 void rasterizer_texture::recompute(voodoo_regs const &regs, u8 *ram, u32 mask, rgb_t const *lookup, u32 addrmask, u8 addrshift)
 {
+	static u32 s_gen;
+	m_gen = ++s_gen;
 	m_ram = ram;
 	m_mask = mask;
 	m_lookup = lookup;

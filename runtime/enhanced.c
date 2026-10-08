@@ -36,7 +36,7 @@ static int g_attract, g_enh_log = -1;
 int enh_in_attract(void) { return g_attract; }
 
 /* port settings (<binary>_enhanced_settings.ini, see below) */
-static struct { int fullscreen, show_fps, scale, aspect, texture_filter, win[4]; } g_set = { 0, 0, 1, 0, 0, { 0 } };
+static struct { int fullscreen, show_fps, scale, aspect, texture_filter, renderer, win[4]; } g_set = { 0, 0, 1, 0, 0, 0, { 0 } };
 
 /* ================================================================== widescreen */
 /* The games draw a 512x384 picture through Konami's gl library, which keeps its state at fixed
@@ -454,6 +454,7 @@ static void settings_load(void) {
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
             else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
+            else if (!strcmp(key, "renderer")) g_set.renderer = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
@@ -470,6 +471,7 @@ static void settings_save(void) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
+        fprintf(f, "# 0 = hardware (GPU, when this computer has OpenGL 3.3), 1 = software\nrenderer = %d\n", g_set.renderer);
     }
     if (g_set.win[2])
         for (int i = 0; i < 4; i++) fprintf(f, "%s = %d\n", k_win_key[i], g_set.win[i]);
@@ -477,6 +479,7 @@ static void settings_save(void) {
 }
 
 int enh_texture_filter(void) { return g_enhanced ? g_set.texture_filter : 0; }
+int enh_want_gpu(void) { return g_enhanced && g_set.renderer == 0; }
 int enh_want_fullscreen(void) { return g_enhanced && g_set.fullscreen; }
 void enh_set_fullscreen(int on) { if (g_enhanced && g_set.fullscreen != !!on) { g_set.fullscreen = !!on; settings_save(); } }
 
@@ -551,12 +554,21 @@ static int text_width(int z, const char *s) {
     return w;
 }
 
+/* the GPU renderer draws the overlay on a layer of its own, transparent where nothing is drawn:
+ * premultiplied alpha, so the same "over" gives its colour and its alpha grows */
+static int g_layer, g_layer_drawn;
+
 static void blend(uint32_t *px, uint32_t rgb, int a) {
     uint32_t d = *px;
     int r = (((rgb >> 16) & 255) * a + ((d >> 16) & 255) * (255 - a)) / 255;
     int g = (((rgb >> 8) & 255) * a + ((d >> 8) & 255) * (255 - a)) / 255;
     int b = ((rgb & 255) * a + (d & 255) * (255 - a)) / 255;
-    *px = 0xff000000u | (uint32_t)(r << 16) | (uint32_t)(g << 8) | (uint32_t)b;
+    uint32_t alpha = 0xff;
+    if (g_layer) {
+        alpha = (uint32_t)(a + (int)(d >> 24) * (255 - a) / 255);
+        g_layer_drawn = 1;
+    }
+    *px = (alpha << 24) | (uint32_t)(r << 16) | (uint32_t)(g << 8) | (uint32_t)b;
 }
 
 /* alpha of glyph g at (u, v) in glyph pixels, bilinear */
@@ -705,7 +717,7 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER,
+       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_RENDERER,
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
@@ -720,7 +732,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "PRESS START TO GO BACK", "PREMI START PER TORNARE" }, { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
-    { "TEXTURE FILTER", "FILTRO TEXTURE" },
+    { "TEXTURE FILTER", "FILTRO TEXTURE" }, { "RENDERER", "RENDERING" },
     { "MULTIPLAYER", "MULTIGIOCATORE" }, { "HOST A GAME", "OSPITA UNA PARTITA" },
     { "JOIN A GAME", "UNISCITI A UNA PARTITA" }, { "CLOSE THE SESSION", "CHIUDI LA SESSIONE" },
     { "LEAVE THE SESSION", "ESCI DALLA SESSIONE" }, { "SESSION CODE", "CODICE DELLA SESSIONE" },
@@ -739,6 +751,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "IN THE SESSION AS PLAYER", "IN SESSIONE COME GIOCATORE" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
+static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
 
 static int menu_language(void) {
@@ -840,6 +853,7 @@ static int page_rows(int page, int *rows) {
         rows[n++] = -3;
         if (GAME_ENH_WIDE_VIEWPORT) rows[n++] = -4;
         rows[n++] = -10;
+        rows[n++] = -11;
         rows[n++] = -2;
         return n;
     }
@@ -850,6 +864,8 @@ static int page_rows(int page, int *rows) {
 
 static void page_change(int row, int dir) {
     if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
+    /* the renderer changes with the window's kind: applied by the restart on leaving OPTIONS */
+    if (row == -11) { g_set.renderer = !g_set.renderer; settings_save(); g_opt_dirty = 1; return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
     if (row == -3) { g_set.scale = g_set.scale == 1 ? 2 : 1; voodoo_set_scale(g_set.scale); settings_save(); return; }
@@ -1113,6 +1129,15 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
     }
 }
 
+/* the overlay alone on a cleared (transparent) layer: nonzero if anything was drawn */
+int enh_draw_overlay_layer(uint32_t *fb, int w, int h) {
+    g_layer = 1;
+    g_layer_drawn = 0;
+    enh_draw_overlay(fb, w, h);
+    g_layer = 0;
+    return g_layer_drawn;
+}
+
 /* MULTIPLAYER and its code entry, over the dimmed attract */
 static void draw_net(uint32_t *fb, int w, int h) {
     const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0, red = 0xff7070, green = 0x60ff60;
@@ -1235,6 +1260,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             else if (rows[i] == -2) { label = T(T_SHOW_FPS); value = T(g_set.show_fps ? T_ON : T_OFF); }
             else if (rows[i] == -3) { label = T(T_RESOLUTION); value = g_set.scale == 2 ? "2X" : "1X"; }
             else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }
+            else if (rows[i] == -11) { label = T(T_RENDERER); value = k_renderer_name[g_set.renderer]; }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }
             else {
                 const GameOption *o = &k_game_options[rows[i]];

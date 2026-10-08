@@ -498,6 +498,7 @@ public:
 	// (the game draws at x from -M to width + M); applied at the next buffer swap
 	void set_wide_margin(int m) { m_wide_pending = m < 0 ? 0 : m > 512 ? 512 : m; }
 	int render_scale() const { return m_hires_scale; }
+	int wide_margin() const { return m_wide; }
 	bool hires_frame(u32 const *&pix, int &w, int &h) const
 	{
 		if (!m_hires_out_valid) return false;
@@ -507,7 +508,18 @@ public:
 	// recomp: raw framebuffer/texture memory (RT_VOODOO_VRAMDUMP, enhanced-mode text fixes)
 	u8 const *debug_fbram() const { return m_fbram; }
 	u32 debug_fbsize() const { return m_fbmask + 1; }
-	u8 *fbram_for_write() { m_renderer->wait("fbram_for_write"); return m_fbram; }   // the renderer idle first
+	u8 *fbram_for_write() { m_renderer->wait("fbram_for_write"); gpu_mark_all(); return m_fbram; }   // the renderer idle first
+	// recomp: GPU renderer (voodoo_gpu.cpp, voodoo_gpu.h): the device records what it would draw
+	struct gpu_state;
+	static bool gpu_wanted();                                   // voodoo_set_gpu
+	static bool gpu_shadow();                                   // capturing: the rasterizer draws too
+	void gpu_enable(bool on);
+	bool gpu_active() const { return m_gpu != nullptr; }
+	void gpu_mark(u32 addr, u32 bytes) { if (m_gpu != nullptr) gpu_mark_pages(addr, bytes); }   // the CPU wrote VRAM
+	void gpu_mark_all();
+	void gpu_frame(rectangle const &vis, u32 const *clut);      // at every vblank, recording
+	// a 16-bit screen-to-screen blit whose source the GPU drew: recorded (true), else false
+	bool gpu_blit(u32 srcbase, u32 srcstride, s32 sx, s32 sy, u32 dstbase, u32 dststride, s32 x0, s32 y0, s32 w, s32 h);
 	// nominal clock values
 	static constexpr u32 NOMINAL_CLOCK = 50'000'000;
 
@@ -686,6 +698,24 @@ protected:
 	std::vector<u16> m_blur_frame;                              // the last copied frame, scaled target layout
 	std::unordered_map<u32, blur_tex> m_blur_tex;               // textures copied from a displayed buffer
 	bool blur_quad(voodoo::poly_data const &poly, voodoo::voodoo_renderer::vertex_t const *vert, u16 *target);
+	// recomp: GPU renderer
+	gpu_state *m_gpu = nullptr;
+	s32 gpu_triangle(voodoo::poly_data &poly, voodoo::voodoo_renderer::vertex_t const *vert);
+	u32 gpu_fastfill(voodoo::poly_data &poly);
+	void gpu_mark_pages(u32 addr, u32 bytes);
+	void gpu_upload(u32 lo, u32 hi);
+	u32 gpu_lut(u32 const *data);
+	void gpu_scale();
+	void gpu_target(u16 const *dest, u16 const *depth);
+	u32 gpu_state_index(u32 const *words);
+	void gpu_draw(u32 nverts, u32 key);
+	void gpu_texture(int which, voodoo::rasterizer_texture const &tex, u32 *words);
+	void gpu_common_state(voodoo::poly_data const &poly, u32 *st);
+	void gpu_drawn(s32 x0, s32 y0, s32 x1, s32 y1);
+	s32 gpu_blur_quad(voodoo::poly_data const &poly, voodoo::voodoo_renderer::vertex_t const *vert);
+	void gpu_resolve(u32 lo, u32 hi);
+	void gpu_copy(u32 const *words);
+	void gpu_clean(u32 lo, u32 hi);
 	u32 m_fbmask;                            // mask to apply to pointers
 	std::unique_ptr<u8[]> m_memory;          // allocated framebuffer/texture memory
 	std::unique_ptr<voodoo::shared_tables> m_shared; // shared tables

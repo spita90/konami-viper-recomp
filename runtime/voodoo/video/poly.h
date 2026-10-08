@@ -305,6 +305,9 @@ public:
 	// register a poly_array to be reset after a wait
 	void register_poly_array(poly_array_base &array) { m_arrays.push_back(&array); }
 
+	// recomp: reset the arrays when nothing was queued (the GPU renderer records, never queues)
+	void reset_arrays() { for (auto array : m_arrays) array->reset(); }
+
 	// tiles
 	template<int ParamCount>
 	uint32_t render_tile(rectangle const &cliprect, const render_delegate &callback, vertex_t const &v1, vertex_t const &v2);

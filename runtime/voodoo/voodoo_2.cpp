@@ -116,7 +116,10 @@ void command_fifo::write(offs_t addr, u32 data)
 
 	// write the data if it's within range
 	if (addr < m_ram_end)
+	{
 		m_ram[(addr / 4) & m_mask] = data;
+		m_device.gpu_mark(((addr / 4) & m_mask) * 4, 4);
+	}
 
 	// count holes?
 	if (m_count_holes)
@@ -590,7 +593,10 @@ u32 command_fifo::packet_type_5(u32 command)
 
 			m_device.renderer().wait("packet_type_5(0)");
 			for (u32 word = 0; word < count; word++)
+			{
+				m_device.gpu_mark((target & m_mask) * 4, 4);
 				m_ram[target++ & m_mask] = little_endianize_int32(read_next());
+			}
 			break;
 
 		// 3D LFB

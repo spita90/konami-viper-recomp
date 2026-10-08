@@ -370,6 +370,7 @@ void voodoo_banshee_device::write_lfb(offs_t offset, u32 data, u32 mem_mask)
 		if (LOG_LFB)
 			logerror("%s:write_lfb(%X) = %08X & %08X\n", machine().describe_context(), addr, data, mem_mask);
 		COMBINE_DATA((u32 *)&m_fbram[addr]);
+		gpu_mark(addr, 4);
 	}
 	else
 		logerror("%s:write_lfb Out of bounds (%X) = %08X & %08X\n", machine().describe_context(), addr, data, mem_mask);
@@ -1083,6 +1084,7 @@ void voodoo_banshee_device::internal_texture_w(offs_t offset, u32 data)
 
 	// wait for any outstanding work to finish
 	m_renderer->wait("internal_texture_w");
+	gpu_mark(u32(dest - m_fbram), 4);
 
 	// write the four bytes in little-endian order
 	u32 bytes_per_texel = (texmode.format() < 8) ? 1 : 2;
@@ -1148,6 +1150,7 @@ void voodoo_banshee_device::internal_lfb_direct_w(offs_t offset, u32 data, u32 m
 
 	// wait for any outstanding work to finish
 	m_renderer->wait("internal_lfb_direct_w");
+	gpu_mark(u32((u8 *)dest - m_fbram), 4);
 
 	// write to the RGB buffer
 	if (ACCESSING_BITS_0_15 && dest < end)
@@ -1587,6 +1590,7 @@ void voodoo_banshee_device::execute_blit(u32 data)
 				logerror("   blit_2d:host_to_screen: %08x -> %08x, %d, %d\n", data, addr, m_blt_dst_x, m_blt_dst_y);
 
 			m_renderer->wait("execute_blit(3)");
+			gpu_mark(addr, 4);
 
 			switch (m_blt_dst_bpp)
 			{
@@ -1736,14 +1740,20 @@ void voodoo_banshee_device::screen_to_screen_blit(u32 srcx, u32 srcy)
 	};
 	s64 const fbsize = s64(m_fbmask) + 1;
 
+	// recomp: the GPU renderer copies a source it drew itself (the rasterizer too while capturing,
+	// without marking the destination as written by the CPU)
+	bool const gpu = m_gpu != nullptr && bpp == 2 && rop == 0xcc && gpu_blit(srcbase, srcstride, sx, sy, dstbase, dststride, x0, y0, x1 - x0, y1 - y0);
+
 	// rows (and bytes) in the direction the command gives, as the hardware: overlapping
 	// rectangles copy right without a temporary buffer
-	for (s32 i = 0; i < y1 - y0 && span > 0; i++)
+	for (s32 i = 0; i < y1 - y0 && span > 0 && (!gpu || gpu_shadow()); i++)
 	{
 		s32 const row = dy > 0 ? i : y1 - y0 - 1 - i, py = sy + row;
 		s64 const da = s64(dstbase) + s64(y0 + row) * dststride + s64(x0) * bpp;
 		if (da < 0 || da + span > fbsize) continue;
 		u8 *const d = &m_fbram[da];
+		if (!gpu)
+			gpu_mark(u32(da), u32(span));
 		if (hires && py >= 0 && py * n < hrows)
 		{
 			u16 const *const sr = &hires[size_t(py) * n * hrow];

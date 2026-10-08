@@ -58,12 +58,13 @@ menus.
 | ------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **Starting a game** | Insert coins, press START | START GAME from the menu                                                                                 |
 | **Main screen**     | Attract mode              | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                              |
-| **Options**         | None                      | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, fps counter |
+| **Options**         | None                      | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, renderer, fps counter |
 | **Pause**           | None                      | Esc: RESUME or MAIN MENU (not in multiplayer)                                                            |
 | **Ranking name**    | Chosen with the wheel     | Typed on the keyboard                                                                                    |
 | **Multiplayer**     | Linked cabinets only      | MULTIPLAYER: up to 4 players over the Internet, with a session code                                       |
 | **Resolution**      | 512×384, as the original  | 512×384 or 1024×768 (1X or 2X)                                                                           |
 | **Aspect ratio**    | 4:3, as the original      | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                              |
+| **Graphics**        | Drawn by the CPU          | Drawn by the GPU (OpenGL 3.3), or by the CPU as in classic                                               |
 | **TEST MODE**       | F2                        | None (TEST, SERVICE and COIN are ignored)                                                                |
 | **Save file**       | `td2_nvram.bin`           | `td2_enhanced_nvram.bin`, separate from the classic one                                                  |
 
@@ -243,8 +244,13 @@ The environment variables for debugging are described in
     Drive 2 JAA and AAA also offer Japanese).
   - **Sound:** attract sound, music in game, music and effects volume.
   - **Display:** window or fullscreen (F11 also switches it), the rendering resolution, and an
-    fps counter. 2X renders the 3D scenes and the HUD at 1024×768. It needs about twice the CPU
-    time, so be sure to check the fps counter on slower machines.
+    fps counter. 2X renders the 3D scenes and the HUD at 1024×768. With the software renderer it
+    needs about twice the CPU time, so be sure to check the fps counter on slower machines.
+  - **Renderer:** HARDWARE (the default) draws the 3D graphics on the GPU, with OpenGL 3.3, on the
+    dedicated GPU of a laptop that has two: much less CPU time, and 2X costs the same as 1X.
+    SOFTWARE draws them on the CPU, as the classic mode, pixel for pixel as the original
+    hardware. The pictures are the same, except translucent surfaces, whose colours can differ
+    slightly. Changing it restarts the game; a computer without OpenGL 3.3 stays on SOFTWARE.
   - **Aspect ratio:** 4:3 (the original), 16:10, 16:9 or 21:9. A wider format shows more of the
     3D scene on the left and right, with the same vertical field of view; the window widens to
     match. The HUD and the 2D screens keep their 4:3 layout in the centre, and a few 2D effects

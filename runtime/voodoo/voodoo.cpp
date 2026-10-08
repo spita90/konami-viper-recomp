@@ -118,6 +118,8 @@ TODO:
 #include "emu.h"
 #include "voodoo.h"
 
+extern "C" void rt_log(const char *fmt, ...);
+
 #include "input.h" // for video debug keys
 
 #include "endianness.h"
@@ -1614,6 +1616,17 @@ void voodoo_1_device::internal_lfb_w(offs_t offset, u32 data, u32 mem_mask)
 	u16 *depth = aux_buffer();
 	u16 *end = ram_end();
 
+	// recomp: the GPU renderer draws triangles and fills only, not these pixels
+	if (m_gpu != nullptr)
+	{
+		static bool logged;
+		if (!logged)
+		{
+			logged = true;
+			rt_log("voodoo: GPU renderer: LFB pixel writes into a colour buffer are not drawn\n");
+		}
+	}
+
 	// simple case: no pipeline
 	auto const fbzmode = m_reg.fbz_mode();
 	if (!lfbmode.enable_pixel_pipeline())
@@ -2040,6 +2053,16 @@ u32 voodoo_1_device::reg_vretrace_r(u32 chipmask, u32 regnum)
 
 u32 voodoo_1_device::reg_stats_r(u32 chipmask, u32 regnum)
 {
+	// recomp: the GPU renderer does not count pixels (logged once, to know whether a game needs it)
+	if (m_gpu != nullptr)
+	{
+		static bool logged;
+		if (!logged)
+		{
+			logged = true;
+			rt_log("voodoo: GPU renderer: the game reads a pixel counter (%s), not counted\n", m_regtable[regnum].name());
+		}
+	}
 	update_statistics(true);
 	return m_reg.read(regnum);
 }
@@ -2324,6 +2347,12 @@ u32 voodoo_1_device::reg_fastfill_w(u32 chipmask, u32 regnum, u32 data)
 	poly.rowpixels = m_renderer->rowpixels();
 	poly.yorigin = m_renderer->yorigin();
 	poly.bufwidth = poly.bufheight = 0;
+	if (m_gpu != nullptr)
+	{
+		u32 const pixels = gpu_fastfill(poly);  // recomp: the GPU renderer fills it
+		if (!gpu_shadow())
+			return pixels / 2;
+	}
 	hires_scale_poly(poly, nullptr);
 
 	// 2 pixels per clock (native pixels: a scaled target keeps the native timing)
@@ -3283,21 +3312,27 @@ s32 voodoo_1_device::triangle()
 	vert[2].x = float(m_reg.cx()) * (1.0f / 16.0f);
 	vert[2].y = float(m_reg.cy()) * (1.0f / 16.0f);
 
-	// recomp: in widescreen, a quad of Thrill Drive 2's motion blur is drawn by blur_quad over the
-	// whole picture (it then needs no rasterizing)
-	if (m_wide && poly.tex0 != nullptr && !m_blur_tex.empty())
-		if (u16 *target = hires_target(poly.destbase))
-			if (blur_quad(poly, vert, target))
-				return TRIANGLE_SETUP_CLOCKS + 256 * 128;
+	s32 pixels = 0;
+	if (m_gpu != nullptr)
+		pixels = gpu_triangle(poly, vert);      // recomp: the GPU renderer draws it
+	if (m_gpu == nullptr || gpu_shadow())      // (both while capturing, RT_GPU_CAPTURE)
+	{
+		// recomp: in widescreen, a quad of Thrill Drive 2's motion blur is drawn by blur_quad over the
+		// whole picture (it then needs no rasterizing)
+		if (m_wide && poly.tex0 != nullptr && !m_blur_tex.empty())
+			if (u16 *target = hires_target(poly.destbase))
+				if (blur_quad(poly, vert, target))
+					return TRIANGLE_SETUP_CLOCKS + 256 * 128;
 
-	// recomp: a displayed colour buffer may be rendered at a higher resolution
-	hires_scale_poly(poly, vert);
+		// recomp: a displayed colour buffer may be rendered at a higher resolution
+		hires_scale_poly(poly, vert);
 
-	// enqueue a triangle; a scaled target draws N^2 more pixels, but the emulated timing must
-	// stay that of the native triangle
-	s32 pixels = m_renderer->enqueue_triangle(poly, vert);
-	if (poly.bufwidth)
-		pixels = hires_native_pixels(pixels);
+		// enqueue a triangle; a scaled target draws N^2 more pixels, but the emulated timing must
+		// stay that of the native triangle
+		pixels = m_renderer->enqueue_triangle(poly, vert);
+		if (poly.bufwidth)
+			pixels = hires_native_pixels(pixels);
+	}
 
 	// update stats
 	m_reg.add(voodoo_regs::reg_fbiTrianglesOut, 1);

@@ -20,6 +20,9 @@
 #endif
 #ifdef _WIN32
 #include <windows.h>
+/* laptops with two GPUs: run OpenGL (the GPU renderer) on the dedicated one */
+__declspec(dllexport) unsigned long NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 #endif
 
 uint8_t *g_ram;
@@ -143,6 +146,7 @@ void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     static int fps_stats = -1;
     static uint64_t last_hash, uniq, last_sec;
     if (fps_stats < 0) fps_stats = getenv("RT_FPS_STATS") != NULL;
+    if (!buf) return;                               /* GPU renderer: the picture is on the GPU */
     if (fps_stats) {
         uint64_t hsh = 1469598103934665603ull;
         for (int i = 0; i < w * h; i += 7) hsh = (hsh ^ buf[i]) * 1099511628211ull;
@@ -401,6 +405,8 @@ int main(int argc, char **argv) {
     atexit(net_shutdown);
     enh_set_headless(headless);
     enh_init(work, settings);
+    if (!headless && enh_want_gpu()) voodoo_set_gpu(1);  /* the frontend falls back if it cannot */
+    if (headless && getenv("RT_GPU_BENCH")) voodoo_set_gpu(1);   /* benchmark: GPU without a window */
     if (!headless && !file_exists(nvsave)) {
         run_first_time_calibration(g_exe, work, nvram, nvsave);
         if (g_enhanced) run_enhanced_setup(g_exe, work, nvram, nvsave);
@@ -447,6 +453,11 @@ int main(int argc, char **argv) {
     c->msr = 0x2070;
     rt_check(c, 0x10);          /* arms the first time slice */
     rt_start(0x10);
+    if (headless && voodoo_gpu_active()) {
+        uint32_t vram_size = 0;
+        voodoo_vram(&vram_size);
+        gpu_gl_run_headless(vram_size);
+    }
     if (headless) dump_frames_loop();   /* guest runs on fibers; rt_fatal() exits the process */
     if (frontend_run(scale, scale_explicit) == 2) {      /* enhanced mode: new game settings, reboot the game */
         hw_shutdown();

@@ -119,6 +119,14 @@ class viper_voodoo : public voodoo_3_device
 {
 public:
 	explicit viper_voodoo(u32 clock) : voodoo_3_device(machine_config(), "voodoo", nullptr, clock) {}
+
+	// recomp: the display's lookup per 8-bit channel value, as update() applies it (GPU renderer)
+	void gpu_clut(u32 *out) const
+	{
+		u32 const config = m_io_regs.read(voodoo::banshee_io_regs::vidProcCfg);
+		for (int i = 0; i < 256; i++)
+			out[i] = BIT(config, 11) ? u32(rgb_t(i, i, i)) : u32(m_clut[256 * BIT(config, 13) + i]);
+	}
 };
 
 std::unique_ptr<viper_voodoo> s_dev;
@@ -136,6 +144,30 @@ void publish_frame()
 	if (!logged++) rt_log("voodoo: first vblank, visible area %d,%d-%d,%d\n", vis.min_x, vis.min_y, vis.max_x, vis.max_y);
 	if (w <= 0 || h <= 0 || w > 2048 || h > 2048)
 		return;
+
+	// recomp: GPU renderer (switched on or off here, between two frames): the frontend draws the
+	// picture; the frame carries only its size
+	if (voodoo_1_device::gpu_wanted() != s_dev->gpu_active())
+		s_dev->gpu_enable(voodoo_1_device::gpu_wanted());
+	if (s_dev->gpu_active())
+	{
+		u32 clut[256];
+		s_dev->gpu_clut(clut);
+		s_dev->gpu_frame(vis, clut);
+	}
+	if (s_dev->gpu_active() && !voodoo_1_device::gpu_shadow())
+	{
+		int const n = s_dev->render_scale(), m = s_dev->wide_margin();
+		{
+			std::lock_guard<std::mutex> lock(s_frame_lock);
+			s_frame.clear();
+			s_frame_w = (w + 2 * m) * n;
+			s_frame_h = h * n;
+			s_frame_count++;
+		}
+		rt_frame_published(s_frame_count, nullptr, s_frame_w, s_frame_h);
+		return;
+	}
 	if (s_bitmap.width() < vis.max_x + 1 || s_bitmap.height() < vis.max_y + 1)
 		s_bitmap.allocate(vis.max_x + 1, vis.max_y + 1);
 	s_dev->update(s_bitmap, vis);
@@ -219,6 +251,8 @@ void voodoo_init(void)
 	s_dev->pciint_callback().set([](int state) { if (state) epic_raise(4); });
 	s_dev->start();
 	s_dev->reset();
+	if (voodoo_1_device::gpu_wanted())
+		s_dev->gpu_enable(true);
 }
 
 static u64 s_wcount[64];          // per 512KB region of BAR0
@@ -250,7 +284,7 @@ uint64_t voodoo_get_frame(uint32_t *dst, int max_pixels, int *w, int *h)
 	std::lock_guard<std::mutex> lock(s_frame_lock);
 	*w = s_frame_w;
 	*h = s_frame_h;
-	if (dst && s_frame_w * s_frame_h <= max_pixels)
+	if (dst && s_frame.size() <= size_t(max_pixels))
 		memcpy(dst, s_frame.data(), s_frame.size() * 4);
 	return s_frame_count;
 }

@@ -79,6 +79,8 @@ void enh_code_paste(const char *text);                 /* Ctrl/Cmd+V: replaces w
 int enh_start_held(void);                              /* START GAME: hold START for the game */
 int enh_quit_requested(void);
 void enh_draw_overlay(uint32_t *fb, int w, int h);     /* menu over a 0xAARRGGBB frame */
+int enh_draw_overlay_layer(uint32_t *fb, int w, int h); /* alone, premultiplied; 0: nothing drawn */
+int enh_want_gpu(void);                                 /* enhanced mode, RENDERER = HARDWARE */
 int enh_turbo(void);                                   /* boot/apply: run unpaced, muted */
 int enh_restart_requested(void);                       /* new settings written: restart */
 void enh_set_headless(int on);
@@ -108,6 +110,10 @@ void voodoo_lfb_write(uint32_t off, uint32_t v, uint32_t mask);
 uint32_t voodoo_io_read(uint32_t off);
 void voodoo_io_write(uint32_t off, uint32_t v, uint32_t mask);
 uint64_t voodoo_get_frame(uint32_t *dst, int max_pixels, int *w, int *h);
+const uint8_t *voodoo_vram(uint32_t *size);
+void voodoo_set_gpu(int on);                           /* GPU renderer (voodoo_gpu.h, gpu_gl.cpp) */
+int voodoo_gpu_active(void);
+void gpu_gl_run_headless(uint32_t vram_size);          /* RT_GPU_BENCH=1 --headless: never returns */
 /* network link (net.c): the LANC ring over UDP */
 extern int g_net_id;                                   /* NETWORK ID of this node, 0 = no link */
 int net_host(int port, int buffer);

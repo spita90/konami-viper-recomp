@@ -362,8 +362,23 @@ public:
 		return m_ram + ((m_lodoffset[lod] + ((scale * offs) & ~3)) & m_mask);
 	}
 
+	// recomp: for the GPU renderer: a new value at every recompute, the lookup, the vgpu::TX_* words
+	u32 gen() const { return m_gen; }
+	rgb_t const *lookup() const { return m_lookup; }
+	void gpu_export(u32 *words) const
+	{
+		words[1] = m_wmask | (m_hmask << 8) | (u32(m_lodmask) << 16) | (u32(m_detailscale) << 28);
+		words[2] = u16(m_lodmin) | (u32(u16(m_lodmax)) << 16);
+		words[3] = u32(s32(m_lodbias));
+		words[4] = u32(m_detailmax);
+		words[5] = u32(m_detailbias);
+		for (int lod = 0; lod < 9; lod++)
+			words[6 + lod] = m_lodoffset[lod];
+	}
+
 private:
 	// internal state
+	u32 m_gen = 0;              // recomp: see gen()
 	rgb_t const *m_lookup;      // currently selected lookup
 	u8 *m_ram;                  // pointer to base of TMU RAM
 	u8 m_wmask;                 // mask for the current texture width
@@ -512,6 +527,11 @@ public:
 	s32 yorigin() const { return m_yorigin; }
 	u32 rowpixels() const { return m_rowpixels; }
 	u16 tmu_config() const { return m_tmu_config; }
+	// recomp: for the GPU renderer
+	u8 const *fogblend() const { return m_fogblend; }
+	u8 const *fogdelta() const { return m_fogdelta; }
+	u8 fogdelta_mask() const { return m_fogdelta_mask; }
+	u8 bilinear_mask() const { return m_bilinear_mask; }
 	std::vector<thread_stats_block> &thread_stats() { return m_thread_stats; }
 
 	// simple setters
