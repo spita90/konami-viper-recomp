@@ -768,6 +768,7 @@ struct executor
 	uint32_t disp_color = 0, disp_clut = 0;
 	int disp_x0 = 0, disp_y0 = 0, disp_w = 0, disp_h = 0;
 	std::vector<vgpu::frame_list> lists;
+	char name[256] = "";            // the GPU chip and the OpenGL version, for the startup line
 } X;
 
 GLuint new_texture(GLenum internal, int w, int h, GLenum format, GLenum type, GLint filter)
@@ -1052,6 +1053,7 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	}
 	rt_log("gpu: %s, %s, OpenGL %s\n", (const char *)G.GetString(GL_VENDOR), (const char *)G.GetString(GL_RENDERER),
 		(const char *)G.GetString(GL_VERSION));
+	snprintf(X.name, sizeof X.name, "%s (OpenGL %s)", (const char *)G.GetString(GL_RENDERER), (const char *)G.GetString(GL_VERSION));
 	X.draw_prog = link(k_draw_vs, k_draw_fs);
 	X.display_prog = link(k_quad_vs, k_display_fs);
 	X.overlay_prog = link(k_quad_vs, k_overlay_fs);
@@ -1290,6 +1292,12 @@ int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h)
 	*w = pw;
 	*h = ph;
 	return 1;
+}
+
+// the GPU chip the context runs on, and the OpenGL version
+const char *gpu_gl_name(void)
+{
+	return X.name;
 }
 
 void gpu_gl_shutdown(void)

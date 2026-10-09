@@ -41,6 +41,7 @@ int g_audio_gain = 16;                    /* samples peak ~1.5% FS; the cabinet 
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
 void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest);
 void gpu_gl_shutdown(void);
+const char *gpu_gl_name(void);
 
 static int16_t sat16(int64_t v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
 static int g_frontend_active;
@@ -310,14 +311,18 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_SetHint("SDL_FORCE_RAISEWINDOW", "1");
         SDL_RaiseWindow(win);
     }
+    int gpu_failed = 0;
     if (gpu) {
         uint32_t vram_size = 0;
         if (!voodoo_vram(&vram_size) || !gpu_gl_init(win, vram_size)) {
-            rt_log("gpu: not available, back to the software renderer\n");
             voodoo_set_gpu(0);
             gpu = 0;
+            gpu_failed = 1;
         }
     }
+    /* which chip draws the 3D graphics (also after a RENDERER change, which restarts the game) */
+    if (gpu) rt_log("renderer: hardware, %s\n", gpu_gl_name());
+    else rt_log("renderer: software (CPU)%s\n", gpu_failed ? ", the GPU is not available" : "");
     SDL_Renderer *ren = NULL;
     SDL_Texture *tex = NULL;
     if (!gpu) {

@@ -21,6 +21,8 @@ version can change the build, the profiles or the command-line options.
   - GTI Club 2, 90 s of attract on an Apple M4 Pro: 27% less time at 1X and 39% at 2X, with 63%
     and 78% less CPU time; 2X costs the same as 1X.
   - On Windows laptops with two GPUs it runs on the dedicated one.
+  - At startup the terminal shows which chip draws the graphics (`renderer: hardware, <GPU>` or
+    `renderer: software (CPU)`), also after changing RENDERER.
 - Development tools for it: `RT_GPU_CAPTURE` with `tools/gpu_replay.cpp` and
   `tools/gpu_compare.py` (GPU frames against the software ones of the same run), `RT_GPU_BENCH`
   (headless benchmark on the GPU), `tools/ppm2png.py`.

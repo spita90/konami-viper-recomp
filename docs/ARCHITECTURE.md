@@ -1014,7 +1014,8 @@ Europe, the rear-view mirror).
 (DISPLAY → RENDERER: HARDWARE). `renderer = 1` (SOFTWARE) keeps the software rasterizer, whose
 frames stay bit-identical. The classic mode always uses the software rasterizer. If the window
 cannot get an OpenGL 3.3 context, or the shaders do not build, the frontend switches the device
-back to software (`voodoo_set_gpu(0)`) and carries on. Changing the option restarts the game
+back to software (`voodoo_set_gpu(0)`) and carries on. The log says which at startup:
+`renderer: hardware, <GL_RENDERER> (OpenGL <version>)` or `renderer: software (CPU)`. Changing the option restarts the game
 (the window is of another kind). On Windows the executable exports `NvOptimusEnablement` and
 `AmdPowerXpressRequestHighPerformance`, so laptops with two GPUs run it on the dedicated one.
 
