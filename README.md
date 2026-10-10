@@ -17,12 +17,12 @@ I/O, CF card and timekeeper. This is not an emulator.
 
 ## Two ways to play
 
-Every game can run in two modes, from the same executable.
+Every game can run in two modes, from the same executable: enhanced, the default, and classic.
 
 ### Classic: the arcade cabinet
 
 ```sh
-./td2
+./td2 --classic
 ```
 
 The faithful arcade experience. The game behaves as on the original cabinet:
@@ -37,7 +37,7 @@ you, as an operator would.
 ### Enhanced: like a PC game
 
 ```sh
-./td2 --enhanced
+./td2
 ```
 
 The same game, set up like a PC game: menus, options (even graphic improvement ones) and pause instead of coins and operator
@@ -126,11 +126,11 @@ This takes about a minute. It creates `./td2` (the executable for each game is i
 **4. Play.**
 
 ```sh
-./td2              # classic
-./td2 --enhanced   # enhanced
+./td2              # enhanced
+./td2 --classic    # classic
 ```
 
-You can also start the game by double-clicking the executable, it will start in classic mode.
+You can also start the game by double-clicking the executable, it will start in enhanced mode.
 
 **On first launch** the game calibrates its controls automatically, before the
 window opens. This takes a few seconds; for GTI Club 2 JAB and Thrill Drive 2 JAA and AAA it
@@ -224,7 +224,7 @@ calibration, delete that file.
 **Command-line options:**
 
 ```
-./td2 --enhanced         enhanced mode
+./td2 --classic          classic mode (the default is the enhanced mode)
 ./td2 --scale 3          window scale (default 2, or the size of the last run)
 ./td2 --volume 8         audio gain (default 16)
 ./td2 --headless --seconds 30        no window/audio, runs as fast as possible (testing)

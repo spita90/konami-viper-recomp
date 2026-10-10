@@ -1,6 +1,6 @@
 /*
- * Enhanced ("conversion") mode: optional additions on top of the faithful port, enabled with
- * --enhanced. The original mode is never affected: everything here is gated on g_enhanced, and
+ * Enhanced ("conversion") mode: additions on top of the faithful port, the default mode (--classic
+ * turns it off). The original mode is never affected: everything here is gated on g_enhanced, and
  * the enhanced mode keeps its own NVRAM (<binary>_enhanced_nvram.bin).
  *
  * What the game data needs (addresses, scripts) comes from the "enhanced" section of

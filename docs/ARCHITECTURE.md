@@ -463,10 +463,13 @@ entered.
 These findings come from reading the code only. They have not been tested in the runtime or on
 a real cabinet.
 
-## 5a. Enhanced mode (`--enhanced`, `runtime/enhanced.c`)
+## 5a. Enhanced mode (default, `runtime/enhanced.c`)
 
-An optional layer on top of the faithful port, in development. Everything is gated on
-`g_enhanced`, and the default mode is unchanged.
+A layer on top of the faithful port, and the default mode: `--classic` runs the
+classic mode, the cabinet as it was (`--enhanced` is still accepted, and does nothing). A profile
+without an `enhanced` section starts in classic mode. Everything is gated on `g_enhanced`, so the
+classic mode is unchanged. Headless runs follow the same default: tests of the classic mode
+(bit-identical frames, linked test nodes) pass `--classic`.
 - **NVRAM:** the mode keeps its own NVRAM, `<binary>_enhanced_nvram.bin`.
 - **First launch:** when that file is missing, the calibration pass runs, followed by the
   profile's `setup` pass. `run_scripted_pass()` chains the passes: each one loads the NVRAM
@@ -1235,7 +1238,8 @@ make -j      GAME=thrild2       # ./td2   (GAME defaults to thrild2)
 make -j WIN=1 GAME=thrild2      # td2.exe, Windows x64 cross-build (section 6)
 make distclean GAME=thrild2     # removes work/, generated/, build/ of that game and its saved NVRAM
 python3 recomp/coverage.py thrild2 [module]   # coverage report
-./td2                           # play (SDL window)
+./td2                           # play (SDL window), enhanced mode
+./td2 --classic                 # play, classic mode
 ./td2 --headless --seconds 5    # headless run with log (testing)
 RT_INPUT="12:3=fb,12.2:3=ff" ./td2 --headless ...   # scripted input (s:port=hex)
 make EXTRA=-DRT_TRACE           # ring buffer of the last executed blocks, included in dumps
@@ -1247,7 +1251,7 @@ RT_VOODOO_TEXLOG=1 ./td2              # log each new texture setup (format, LODs
 make EXTRA=-DRT_RASTER_STATS          # log the pixels drawn per rasterizer mode combination
 RT_VOODOO_VRAMDUMP=vram.bin:1300 ./td2 --headless ...   # dump the whole VRAM at frame 1300
 RT_CF_LOG=1 ./td2 --headless ...      # log each CF read command (LBA, sectors): which game files load
-./gticlub2 --enhanced --net-host      # link play: host a session (the code is in the log and the lobby)
-./gticlub2 --enhanced --net-join "XXX XXXX"   # link play: join it with its code
-./gticlub2 --headless --realtime --net-id 2 --net-peer 127.0.0.1:24700   # a linked test node, ID 2
+./gticlub2 --net-host                 # link play: host a session (the code is in the log and the lobby)
+./gticlub2 --net-join "XXX XXXX"      # link play: join it with its code
+./gticlub2 --classic --headless --realtime --net-id 2 --net-peer 127.0.0.1:24700   # a linked test node, ID 2
 ```

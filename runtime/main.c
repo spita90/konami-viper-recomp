@@ -332,9 +332,10 @@ static void usage(void) {
             "  --headless      no window/audio (tests); runs as fast as possible\n"
             "  --scale N       window scale (default 2, or the size of the last run)\n"
             "  --volume N      audio gain (default 16)\n"
-            "  --nvram-save F  persistent NVRAM file (default " GAME_NVRAM_SAVE ")\n"
-            "  --enhanced      enhanced mode (free play, no TEST MODE; own NVRAM " GAME_ENH_NVRAM_SAVE ")\n"
-            "  --settings F    port settings (default " GAME_SETTINGS ", enhanced " GAME_ENH_SETTINGS ")\n"
+            "  --nvram-save F  persistent NVRAM file (default: the mode's, see below)\n"
+            "  --classic       classic mode, as the cabinet (coins, TEST MODE; NVRAM " GAME_NVRAM_SAVE ")\n"
+            "  --enhanced      enhanced mode, the default (free play, menus; NVRAM " GAME_ENH_NVRAM_SAVE ")\n"
+            "  --settings F    port settings (default " GAME_ENH_SETTINGS ", classic " GAME_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
             "  --net-host      link play: host a session (NETWORK ID 1) at --net-port\n"
@@ -358,7 +359,7 @@ int main(int argc, char **argv) {
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
     int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 2;
     const char *net_peer = NULL, *net_join_to = NULL;
-    int net_host_flag = 0;
+    int net_host_flag = 0, mode = 0;          /* mode: 0 default, 1 --enhanced, -1 --classic */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : NULL;
@@ -377,7 +378,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--frames") && v) { g_frames_dir = v; i++; }
         else if (!strcmp(a, "--frame-every") && v) { g_frame_every = atoi(v); i++; }
         else if (!strcmp(a, "-v")) g_verbose = 1;
-        else if (!strcmp(a, "--enhanced")) g_enhanced = 1;
+        else if (!strcmp(a, "--enhanced")) mode = 1;
+        else if (!strcmp(a, "--classic")) mode = -1;
         else if (!strcmp(a, "--settings") && v) { settings = v; settings_explicit = 1; i++; }
         else if (!strcmp(a, "--net-id") && v) { net_id = atoi(v); i++; }
         else if (!strcmp(a, "--net-host")) net_host_flag = 1;
@@ -388,14 +390,16 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--realtime")) { extern int g_realtime; g_realtime = 1; }
         else usage();
     }
+    /* the enhanced mode is the default where the profile has one; --classic is the cabinet */
+    g_enhanced = mode >= 0 && GAME_HAS_ENHANCED;
+    if (mode > 0 && !GAME_HAS_ENHANCED) { fprintf(stderr, "the enhanced mode is not available for " GAME_TITLE " yet\n"); return 2; }
     if (g_enhanced) {
-        if (!GAME_HAS_ENHANCED) { fprintf(stderr, "the enhanced mode is not available for " GAME_TITLE " yet\n"); return 2; }
         if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
         if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
     }
     if (net_id < 0 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
     net_set_port(net_port);
-    if (net_join_to && !g_enhanced) { fprintf(stderr, "--net-join wants --enhanced (the NETWORK ID is taken live there)\n"); return 2; }
+    if (net_join_to && !g_enhanced) { fprintf(stderr, "--net-join wants the enhanced mode, not --classic (the NETWORK ID is taken live there)\n"); return 2; }
     int net_rc = 0;
     if (net_host_flag || (net_id == 1 && !net_peer)) net_rc = net_host(net_port, net_buffer);
     else if (net_join_to) net_rc = net_join(net_join_to, 0, 0, 0, net_buffer);

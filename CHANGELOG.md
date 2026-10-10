@@ -7,6 +7,15 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Changed
+
+- **The enhanced mode is now the default:** the game starts in enhanced mode, also when the
+  executable is double-clicked; `--classic` starts the classic mode, the cabinet as it was.
+  `--enhanced` is still accepted. The two modes keep their saves apart as before
+  (`<executable>_enhanced_nvram.bin` and `<executable>_nvram.bin`): who played in classic mode
+  until now goes through the enhanced mode's first-launch setup once, and finds the classic
+  saves untouched with `--classic`.
+
 ## [0.11.1] - 2026-10-10
 
 ### Fixed
