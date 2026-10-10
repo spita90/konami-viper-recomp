@@ -10,14 +10,29 @@ I/O, CF card and timekeeper. This is not an emulator.
 > **No game files are included.** You build the ports from your own dumps of the game and of
 > the board BIOS (see [Required files](#required-files)).
 
-<p align="center">
-  <img src="docs/images/classic-thrilldrive2.png" width="49%" alt="Thrill Drive 2 racing across a bridge in London">
-  <img src="docs/images/classic-gticlub2.png" width="49%" alt="GTI Club 2 attract mode in an Italian coastal town">
-</p>
-
 ## Two ways to play
 
 Every game can run in two modes, from the same executable: enhanced, the default, and classic.
+
+### Enhanced: like a PC game
+
+```sh
+./td2
+```
+
+The game, set up like a PC game: menus, options (even graphic improvement ones) and pause instead of coins and operator
+menus.
+
+<p align="center">
+  <img src="docs/images/enhanced-td2-menu.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: attract menu with START GAME, OPTIONS, CREDITS, QUIT">
+  <img src="docs/images/enhanced-td2-options.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: DISPLAY options with window mode, 2X resolution, 16:9 aspect ratio and fps counter">
+  <img src="docs/images/enhanced-td2-pause.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: pause menu during a race in London">
+  <br>
+  <img src="docs/images/enhanced-gticlub2-menu.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: attract menu over a demo race">
+  <img src="docs/images/enhanced-gticlub2-options.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: DISPLAY options">
+  <img src="docs/images/enhanced-gticlub2-pause.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: pause menu during a race">
+</p>
+<p align="center"><sub>Thrill Drive 2 (top) and GTI Club 2 (bottom) in enhanced mode, 2X resolution, 16:9.</sub></p>
 
 ### Classic: the arcade cabinet
 
@@ -34,39 +49,24 @@ The faithful arcade experience. The game behaves as on the original cabinet:
 On first launch, the program calibrates the steering wheel and pedals for
 you, as an operator would.
 
-### Enhanced: like a PC game
-
-```sh
-./td2
-```
-
-The same game, set up like a PC game: menus, options (even graphic improvement ones) and pause instead of coins and operator
-menus.
-
 <p align="center">
-  <img src="docs/images/enhanced-td2-menu.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: attract menu with START GAME, OPTIONS, CREDITS, QUIT">
-  <img src="docs/images/enhanced-td2-options.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: DISPLAY options with window mode, 2X resolution, 16:9 aspect ratio and fps counter">
-  <img src="docs/images/enhanced-td2-pause.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: pause menu during a race in London">
-  <br>
-  <img src="docs/images/enhanced-gticlub2-menu.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: attract menu over a demo race">
-  <img src="docs/images/enhanced-gticlub2-options.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: DISPLAY options">
-  <img src="docs/images/enhanced-gticlub2-pause.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: pause menu during a race">
+  <img src="docs/images/classic-thrilldrive2.png" width="49%" alt="Thrill Drive 2 racing across a bridge in London">
+  <img src="docs/images/classic-gticlub2.png" width="49%" alt="GTI Club 2 attract mode in an Italian coastal town">
 </p>
-<p align="center"><sub>Thrill Drive 2 (top) and GTI Club 2 (bottom) in enhanced mode, 2X resolution, 16:9.</sub></p>
 
-|                     | Classic                   | Enhanced                                                                                                 |
-| ------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| **Starting a game** | Insert coins, press START | START GAME from the menu                                                                                 |
-| **Main screen**     | Attract mode              | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                              |
-| **Options**         | None                      | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, renderer, fps counter |
-| **Pause**           | None                      | Esc: RESUME or MAIN MENU (not in multiplayer)                                                            |
-| **Ranking name**    | Chosen with the wheel     | Typed on the keyboard                                                                                    |
-| **Multiplayer**     | Linked cabinets only      | MULTIPLAYER: up to 4 players over the Internet, with a session code                                       |
-| **Resolution**      | 512×384, as the original  | 512×384 or 1024×768 (1X or 2X)                                                                           |
-| **Aspect ratio**    | 4:3, as the original      | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                              |
-| **Graphics**        | Drawn by the CPU          | Drawn by the GPU (OpenGL 3.3), or by the CPU as in classic                                               |
-| **TEST MODE**       | F2                        | None (TEST, SERVICE and COIN are ignored)                                                                |
-| **Save file**       | `td2_nvram.bin`           | `td2_enhanced_nvram.bin`, separate from the classic one                                                  |
+|                     | Enhanced                                                                                                           | Classic                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| **Starting a game** | START GAME from the menu                                                                                           | Insert coins, press START |
+| **Main screen**     | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                                        | Attract mode              |
+| **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, renderer, fps counter | None                      |
+| **Pause**           | Esc: RESUME or MAIN MENU (not in multiplayer)                                                                      | None                      |
+| **Ranking name**    | Typed on the keyboard                                                                                              | Chosen with the wheel     |
+| **Multiplayer**     | MULTIPLAYER: up to 4 players over the Internet, with a session code                                                | Linked cabinets only      |
+| **Resolution**      | 512×384 or 1024×768 (1X or 2X)                                                                                     | 512×384, as the original  |
+| **Aspect ratio**    | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                                        | 4:3, as the original      |
+| **Graphics**        | Drawn by the GPU (OpenGL 3.3), or by the CPU as in classic                                                         | Drawn by the CPU          |
+| **TEST MODE**       | None (TEST, SERVICE and COIN are ignored)                                                                          | F2                        |
+| **Save file**       | `td2_enhanced_nvram.bin`, separate from the classic one                                                            | `td2_nvram.bin`           |
 
 More about the enhanced mode in [Enhanced mode in detail](#enhanced-mode-in-detail).
 
@@ -145,12 +145,12 @@ takes a little longer, because of the force-feedback wheel test.
 | Brake                                                  | ↓ or S                                        | L2 (or B)            |
 | Handbrake (GTI Club 2 JAB, Thrill Drive 2 JAA and AAA) | Space                                         | X                    |
 | Shift up / down                                        | E / Q                                         | R1 / L1              |
-| Insert coin (classic)                                  | 5                                             | Back                 |
 | Start                                                  | 1                                             | Start                |
-| Test / Service (classic)                               | F2 / 9                                        | —                    |
 | Menus (enhanced)                                       | Arrows or WASD, Enter or 1, Backspace         | D-pad, A or Start, B |
 | Pause (enhanced)                                       | Esc                                           | Guide                |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |
+| Insert coin (classic)                                  | 5                                             | Back                 |
+| Test / Service (classic)                               | F2 / 9                                        | —                    |
 | Fullscreen                                             | F11                                           | —                    |
 | Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
 
