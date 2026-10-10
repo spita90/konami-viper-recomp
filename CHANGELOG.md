@@ -7,6 +7,31 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-10
+
+### Fixed
+
+- **Hardware rendering on older or slower GPUs:** the game no longer runs far ahead of a GPU that
+  cannot keep up, which then showed the frames in bursts while the fps counter still read 30;
+  the game now slows down evenly, and the counter shows it. The shader also does about a quarter
+  less work per pixel (the draw's state in uniforms, the triangle's data read per vertex, the W
+  and depth values only where used): a GeForce 820M laptop went from unplayable to smooth.
+- **Link play, the host gone:** when the host quits or drops during a game, the other players go
+  back to the main menu after about 5 seconds, with a notice that says why (THE HOST CLOSED THE
+  SESSION / NO ANSWER FROM THE HOST), instead of staying in a race where the clock and the
+  traffic stood still.
+- **Link play on macOS, hosting:** a network error opening the port on the router (blocked by
+  security software, for example) made the game vanish without a message (SIGPIPE); now the game
+  carries on and the log says why the port did not open. With NAT-PMP, a router that refuses the
+  default public port (a second host in the same home) is asked for the next ones, as with UPnP.
+
+### Added
+
+- The log says why the window closed (`frontend: …`), and which chip draws the graphics at
+  startup (`renderer: …`, in 0.11.0 too).
+- `tools/gpu_replay.cpp` times the GPU work of each list; `RT_GPU_DEFINES` compiles profiling
+  variants of the shader; `RT_GPU_BENCH` prints the GPU time per vblank.
+
 ## [0.11.0] - 2026-10-09
 
 ### Added

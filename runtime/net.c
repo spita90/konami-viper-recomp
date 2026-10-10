@@ -93,6 +93,7 @@
 #define RACE_OVER_CYCLES 600        /* ~10 s: a ghost in the race is marked as having finished */
 #define GHOST_CYCLES (180 * 60)     /* a ghost is dropped in the attract mode, or after ~3 minutes */
 #define HALT_FRAMES 300             /* ~5 s of frames with no LANC cycle: the game stopped the link */
+#define HOST_GONE_CYCLES 300        /* ~5 s of LANC cycles with no data from the host: it is gone */
 
 enum { ROLE_OFF, ROLE_HOST, ROLE_JOINING, ROLE_MEMBER };
 enum { C_JOIN = 1, C_WELCOME, C_FULL, C_LEAVE, C_CLOSE, C_START, C_FIND, C_HERE };
@@ -111,6 +112,7 @@ static int g_menu_port = NET_DEFAULT_PORT;   /* the port the menu hosts at (--ne
 static uint32_t g_seq, g_token;
 static Addr g_hostaddr;             /* member: the host */
 static int g_host_silent;
+static int g_host_idle;                     /* LANC cycles since the last data from the host (members) */
 static char g_hostname[300];
 
 static struct {                     /* host: the members, by ID */
@@ -370,6 +372,7 @@ static int g_found_local;                    /* a joining node found its host on
 static int g_halted;                         /* the game stopped its link (NETWORK ERROR) */
 
 static void session_reset(void) {
+    g_host_idle = 0;
     g_over = g_welcomed = g_host_silent = g_start_signal = g_hot_id = g_found_local = g_halted = 0;
     g_start_until = 0;
     memset(g_mem, 0, sizeof g_mem);
@@ -694,7 +697,13 @@ void net_cycle(uint8_t *ram) {
         } else send_to(&g_hostaddr, pkt, 12 + len);
     }
     send_due();
+    if (g_role == ROLE_MEMBER && g_welcomed && !g_over) g_host_idle++;
     receive(ram);
+    /* the host is the one that runs the race (the clock, the traffic): a member that gets nothing
+     * from it for ~5 s while its own link runs ends the session, and its game leaves the race
+     * (enhanced.c); a shorter drop is concealed as for any node */
+    if (g_role == ROLE_MEMBER && !g_over && g_host_idle > HOST_GONE_CYCLES)
+        end_session_r("the host is gone", NET_RES_NOANSWER);
     if (GAME_NET_ERROR_MODE >= 0 && GAME_NET_GHOST_FLAGS != 0 && g_net_id && !g_halted) {   /* our own packet: in error? */
         const uint8_t *own = ram + (g_net_id - 1) * SLOT;
         if (!memcmp(own, "NWK", 3) && (int)(get32(own + GAME_NET_GHOST_FLAGS) >> GAME_NET_GHOST_MODE_SHIFT & 15) == GAME_NET_ERROR_MODE) {
@@ -728,6 +737,7 @@ void net_cycle(uint8_t *ram) {
         if (!fresh && !nd->have_last) continue;
         int nwk = !memcmp(nd->last, "NWK", 3);
         if (fresh) {
+            if (id == 1) g_host_idle = 0;
             if (nd->lost) rt_log("net: NETWORK ID %d is back\n", id);
             nd->lost = 0;
             nd->idle = 0;

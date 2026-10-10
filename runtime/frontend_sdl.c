@@ -370,7 +370,7 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             switch (ev.type) {
-            case SDL_QUIT: running = 0; break;
+            case SDL_QUIT: running = 0; rt_log("frontend: the window was closed\n"); break;
             case SDL_WINDOWEVENT:
                 if (ev.window.event == SDL_WINDOWEVENT_MOVED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     window_dirty = 1;
@@ -391,7 +391,7 @@ int frontend_run(int scale, int scale_explicit) {
                 } else if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     if (!ev.key.repeat) enh_menu_action(menu_key(ev.key.keysym.sym));
                 } else if (ev.key.keysym.sym == SDLK_ESCAPE) {
-                    if (!ev.key.repeat && !enh_escape()) running = 0;   /* enhanced: pause / back */
+                    if (!ev.key.repeat && !enh_escape()) { running = 0; rt_log("frontend: Esc, quit\n"); }   /* enhanced: pause / back */
                 }
                 else if (ev.key.keysym.sym == SDLK_F11) {
                     Uint32 fs = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -432,7 +432,7 @@ int frontend_run(int scale, int scale_explicit) {
             case SDL_CONTROLLERBUTTONDOWN:
                 if ((enh_menu_active() || enh_paused()) && menu_button(ev.cbutton.button) >= 0) enh_menu_action(menu_button(ev.cbutton.button));
                 else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
-                    if (!enh_escape()) running = 0;  /* Home: pause/back in play, quit from main menu. */
+                    if (!enh_escape()) { running = 0; rt_log("frontend: Guide button, quit\n"); }  /* Home: pause/back in play, quit from main menu. */
                 }
                 else if (enh_name_entry_active() && !enh_paused() && (ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
                                                                        ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
@@ -450,8 +450,8 @@ int frontend_run(int scale, int scale_explicit) {
         apply_inputs((double)(now - last_tick) / g_pace_freq);
         last_tick = now;
         if ((double)(now - last_save) / g_pace_freq > 60.0) { nvram_save(); last_save = now; }
-        if (enh_quit_requested()) running = 0;
-        if (enh_restart_requested()) { running = 0; restart = 1; }
+        if (enh_quit_requested()) { running = 0; rt_log("frontend: QUIT from the menu\n"); }
+        if (enh_restart_requested()) { running = 0; restart = 1; rt_log("frontend: restart\n"); }
 
         int w, h;
         uint64_t cnt = voodoo_get_frame(NULL, 0, &w, &h);

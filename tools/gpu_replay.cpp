@@ -28,6 +28,7 @@ extern "C" void voodoo_set_gpu(int) {}
 extern "C" int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
 extern "C" void gpu_gl_debug_load(const uint32_t *vram, const uint32_t *luts, int rows);
 extern "C" void gpu_gl_debug_execute(void *list);
+extern "C" double gpu_gl_debug_execute_timed(void *list);
 extern "C" int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h);
 
 template<typename T> static bool read_vec(FILE *f, std::vector<T> &v, uint32_t words)
@@ -70,6 +71,8 @@ int main(int argc, char **argv)
 	gpu_gl_debug_load(vram.data(), luts.data(), int(header[2]));
 
 	std::vector<uint32_t> pix(2048 * 2048);
+	double total_ms = 0;
+	int lists = 0;
 	for (int frame = atoi(argv[2]); ; frame++)
 	{
 		uint32_t counts[5];
@@ -90,7 +93,9 @@ int main(int argc, char **argv)
 				if (c.type == vgpu::CMD_TARGET || c.type == vgpu::CMD_DISPLAY || c.type == vgpu::CMD_SCALE)
 					printf("  cmd %u: %08x %08x %08x %08x %08x\n", c.type, c.a, c.b, c.c, c.d, c.e);
 		}
-		gpu_gl_debug_execute(&l);
+		double const ms = gpu_gl_debug_execute_timed(&l);
+		total_ms += ms;
+		lists++;
 		int w, h;
 		if (!gpu_gl_debug_read(pix.data(), int(pix.size()), &w, &h))
 			continue;
@@ -106,6 +111,8 @@ int main(int argc, char **argv)
 		fclose(o);
 		printf("frame %d: %zu triangles, %zu states\n", frame, l.tris.size() / vgpu::TRI_WORDS, l.states.size() / vgpu::STATE_WORDS);
 	}
+	if (lists)
+		printf("GPU time: %.3f ms per list on average (%d lists)\n", total_ms / lists, lists);
 	SDL_Quit();
 	return 0;
 }

@@ -426,6 +426,11 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, on_sigint);
     signal(SIGTERM, on_sigint);
+#ifndef _WIN32
+    /* a write to a TCP connection the other side closed (UPnP on the router, link play) must
+     * be an error the caller handles, not a silent end of the process */
+    signal(SIGPIPE, SIG_IGN);
+#endif
     if (wav) wav_open(wav);
     for (size_t i = 0; i < sizeof k_modules / sizeof k_modules[0]; i++) rt_register_module(k_modules[i]);
     rt_log("kernel: %zu bytes at 0x00000000\n", n);
@@ -453,7 +458,7 @@ int main(int argc, char **argv) {
     c->msr = 0x2070;
     rt_check(c, 0x10);          /* arms the first time slice */
     rt_start(0x10);
-    if (headless && voodoo_gpu_active()) {
+    if (headless && voodoo_gpu_active() && getenv("RT_GPU_BENCH")) {
         uint32_t vram_size = 0;
         voodoo_vram(&vram_size);
         gpu_gl_run_headless(vram_size);

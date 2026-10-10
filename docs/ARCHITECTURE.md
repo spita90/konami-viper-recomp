@@ -686,7 +686,10 @@ An optional layer on top of the faithful port, in development. Everything is gat
   buffer) gets a render target N× wider and taller in host memory, with its own depth buffer.
   TD2's off-screen targets, which it uses as textures (the rear-view mirror), are never displayed
   and stay in VRAM at the native resolution; they keep working.
-- **Drawing.** Triangles and fast fills aimed at a scaled target (`hires_scale_poly`) get their
+- **Drawing.** Each draw call carries one state record, in uniforms; the vertex shader reads the
+triangle record and hands it to the fragment shader as flat varyings (reading both per pixel cost
+a quarter of the GPU time). The W iterator and the depth value are computed only where the draw's
+modes use them. Triangles and fast fills aimed at a scaled target (`hires_scale_poly`) get their
   vertices, start position (`ax`, `ay`, now 32-bit) and clip rectangle scaled by N, and every
   per-pixel gradient (colour, Z, W, S, T) divided by N.
   - The start values move by −(N−1)/2N native pixel, so the N sub-pixels are centred on the
@@ -997,7 +1000,13 @@ window).
   live from a named pipe.
 - Results: 2, 3 and 4 linked players in both games (the CPU cars fill the rest: Thrill Drive 2
   races 4 cars, GTI Club 2 6). No link lost with 100 ms ± 50 ms and 1% loss. A node killed, the
-  host killed, 2 s and 10 s outages, a frozen process: no NETWORK ERROR, the races go on. 16 lobby
+  host killed, 2 s and 10 s outages, a frozen process: no NETWORK ERROR, the races go on.
+- The host runs the race (the clock, the traffic): a member that gets no data from it for ~5 s
+  (`HOST_GONE_CYCLES`) while its own link runs ends the session, and the enhanced mode takes its
+  game out of the race back to the attract mode (the MAIN MENU route of the pause) instead of
+  leaving it frozen; a shorter drop is concealed as for any node. Back in the attract mode, the
+  menu shows why for about 5 s (THE HOST CLOSED THE SESSION, or NO ANSWER FROM THE HOST); before,
+  the reason was only on the MULTIPLAYER page. 16 lobby
   sessions with random join times, start times and 40 ± 30 ms with 3% loss: every race started
   with exactly the players that were ready.
 - A real test at home: NAT-PMP opened the port in 0.2 s; the joining node found the host on the
@@ -1038,7 +1047,9 @@ are loaded through `SDL_GL_GetProcAddress`, so nothing new is linked.
 - 256-entry tables (texel lookups, NCC and palettes as the TMU last computed them, the fog table,
   the display CLUT) go to rows of a lookup texture, shared and deduplicated by content.
 - At each vblank `gpu_frame` adds the displayed buffer and hands the list to the frontend; the
-  guest waits only if 128 MB of lists are pending (a fast boot runs many vblanks per window frame).
+  guest waits while 2 lists are pending, so a GPU slower than the game slows it down evenly (and
+  the fps counter, which counts the game's buffer swaps, shows it) instead of showing frames in
+  bursts; during a fast boot (many vblanks per window frame) up to 128 MB may be pending.
   The rasterizer's object pools, normally reset when its queue drains, are reset there.
 
 **Drawing.**
@@ -1062,7 +1073,10 @@ headless; first ≥ 2) makes the device record and rasterize: the lists of those
 file after the VRAM and lookup rows they start from. `tools/gpu_replay.cpp` (build line in the file)
 draws them in a hidden window and writes `gpu_NNNNNN.ppm`; `tools/gpu_compare.py` compares them with
 the software frames of the same run (`--frames DIR`) and writes software | GPU | difference images
-(`tools/ppm2png.py` converts them). GTI Club 2's attract at 1X: 4.6% of the pixels differ, by at most
+(`tools/ppm2png.py` converts them). The replay also times the GPU work of each list (timer
+queries), and `RT_GPU_DEFINES="DBG_NOTEX DBG_FLAT"` compiles profiling variants of the shader:
+TD2 at 2X 16:9 on an M4 Pro, about 2 ms per list, of which textures 0.65 ms and the rest of the
+pixel pipeline 0.9 ms. `RT_GPU_BENCH` prints the GPU time per vblank at exit. GTI Club 2's attract at 1X: 4.6% of the pixels differ, by at most
 24 and only on translucent ones (shadows, the filtered edges of sprites); opaque pixels are exact.
 - A TMU whose combine equation is the identity has its equation bits cleared in the normalized mode
   and a flag in `rasterizer_params::generic()` (`GENERIC_TEX0/1_IDENTITY`); the state carries those

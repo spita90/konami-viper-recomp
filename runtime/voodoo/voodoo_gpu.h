@@ -81,7 +81,7 @@ enum cmd_type : uint32_t
 {
 	CMD_SCALE,                      // a = N, b = margin M, c = display width (native)
 	CMD_TARGET,                     // a = colour buffer offset, b = aux offset (~0: none), c = row pixels
-	CMD_DRAW,                       // a = first triangle, b = count, c = GL key
+	CMD_DRAW,                       // a = first vertex, b = vertices, c = GL key, d = state record
 	CMD_VRAM,                       // a = first page, b = pages, c = blob offset
 	CMD_LUT,                        // a = row, b = blob offset (256 words)
 	CMD_DISPLAY,                    // a = buffer offset, b = x0, c = y0 (native, may be < 0), d = w | h << 16, e = CLUT row

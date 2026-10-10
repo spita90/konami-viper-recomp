@@ -780,6 +780,11 @@ static volatile uint64_t g_starting_frame;
 static volatile int g_apply;               /* 1: write the staged options, 2: written, restart */
 static volatile int g_paused, g_pause_cursor;
 static volatile int g_returning;           /* MAIN MENU from the pause: back to the attract */
+/* link play: why the session ended, when the player did not leave it (host closed or gone),
+ * shown over the menu for a few seconds once the game is back in the attract mode */
+#define NOTICE_FRAMES 300
+static volatile int g_notice, g_notice_frames;
+static int g_notice_taken;
 static uint64_t g_return_t0;
 static volatile int g_booted;              /* the attract hook has run once since the start */
 static int g_headless;
@@ -1080,6 +1085,7 @@ static void menu_tick(void) {
  * state that waits for an attendant; the drop concealment of net.c is there so that it does not
  * happen), restarted with ID 1 and out of the session. */
 static void net_tick(void) {
+    if (g_notice_frames > 0 && !enh_turbo() && !g_returning) g_notice_frames--;   /* counted once shown */
     net_requests(2);
     if (!net_active() || g_apply || g_returning) return;
     if (net_start_signal() && enh_lobby_ready()) {    /* the host started: join its race */
@@ -1094,7 +1100,24 @@ static void net_tick(void) {
         g_apply = 2;
         return;
     }
-    if (!net_session_over()) return;
+    if (!net_session_over()) { g_notice_taken = 0; return; }
+    if (!g_notice_taken) {
+        g_notice_taken = 1;
+        NetStatus st;
+        net_status(&st);
+        if (st.role == NET_MEMBER && (st.result == NET_RES_CLOSED || st.result == NET_RES_NOANSWER)) {
+            g_notice = st.result == NET_RES_CLOSED ? T_CLOSED : T_NO_ANSWER;
+            g_notice_frames = NOTICE_FRAMES;
+        }
+    }
+    /* a member whose host is gone (or closed the session) in the middle of a game: the race
+     * cannot go on without the host, so the game goes back to the attract mode, as MAIN MENU */
+    if (g_net_id > 1 && !g_attract) {
+        rt_log("enhanced: the session ended during a game, back to the attract mode\n");
+        if (GAME_ENH_TEST_GAME_MODE >= 0) { g_returning = 1; g_return_t0 = 0; g_paused = 0; }
+        else g_apply = 2;
+        return;
+    }
     if (g_net_id <= 1) { net_off(); rt_log("enhanced: link play over\n"); return; }
     if (!net_hot_target()) net_hot_request(1);   /* back to ID 1, live, in the attract mode */
 }
@@ -1122,6 +1145,11 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
             draw_centered(fb, w, h, z, h / 2 - 10 + i * step, T(items[i]), i == g_pause_cursor ? 0xffd800 : 0xffffff);
     }
     if (enh_menu_active()) draw_menu(fb, w, h);
+    if (g_notice_frames > 0 && !g_returning && g_font) {      /* the session ended: say why */
+        int const z = FONT_MEDIUM, y = 34;
+        dim_rect(fb, w, h, 0, y - 8, w, y + font_height(z) + 8, 200);
+        draw_centered(fb, w, h, z, y, T(g_notice), 0xff7070);
+    }
     if (g_set.show_fps && g_font) {                 /* on top of everything, also in play */
         char buf[16];
         snprintf(buf, sizeof buf, "%d FPS", g_fps);

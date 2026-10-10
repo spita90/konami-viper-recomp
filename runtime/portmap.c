@@ -20,6 +20,7 @@
 #include "runtime.h"
 #include <pthread.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <string.h>
 #ifdef _WIN32
 #include <winsock2.h>
@@ -73,18 +74,40 @@ static int natpmp_wait(natpmp_t *n, natpmpresp_t *r) {
     }
 }
 
-/* local port `port` to public port *ext (a wish; the router may give another, kept in *ext) */
+/* local port `port` to public port *ext (a wish; the router may give another, kept in *ext). A
+ * new mapping (pub given) the router refuses goes on with the next public ports, as for UPnP:
+ * some routers refuse a port another device of the home holds (a second host) instead of
+ * offering another one */
 static int natpmp_map(int port, int *ext, uint32_t lifetime, char *pub, size_t publen) {
     natpmp_t n;
     natpmpresp_t r;
     if (initnatpmp(&n, 0, 0) < 0) return -1;
     int ok = -1;
-    if (pub && sendpublicaddressrequest(&n) >= 0 && natpmp_wait(&n, &r) == 0)
-        snprintf(pub, publen, "%s", inet_ntoa(r.pnu.publicaddress.addr));
-    if ((!pub || pub[0]) && sendnewportmappingrequest(&n, NATPMP_PROTOCOL_UDP, (uint16_t)port, (uint16_t)*ext, lifetime) >= 0
-        && natpmp_wait(&n, &r) == 0) {
-        ok = 0;
-        if (lifetime) *ext = r.pnu.newportmapping.mappedpublicport;
+    if (pub) {
+        errno = 0;
+        int rc = sendpublicaddressrequest(&n) < 0 ? -1 : natpmp_wait(&n, &r);
+        if (rc == 0) snprintf(pub, publen, "%s", inet_ntoa(r.pnu.publicaddress.addr));
+        else {
+            struct in_addr gw = { n.gateway };
+            int const e = errno;
+            rt_log("net: NAT-PMP: no answer from the router at %s (%d%s%s)\n", inet_ntoa(gw), rc, e ? ", " : "", e ? strerror(e) : "");
+#ifdef __APPLE__
+            if (rc == -1 && (e == EPIPE || e == EHOSTUNREACH || e == EPERM || e == ENETUNREACH))
+                rt_log("net: macOS may be blocking the local network for the app that started the game: System Settings, "
+                       "Privacy & Security, Local Network\n");
+#endif
+        }
+    }
+    for (int want = *ext; (!pub || pub[0]) && want <= LAST_PORT; want++) {
+        if (sendnewportmappingrequest(&n, NATPMP_PROTOCOL_UDP, (uint16_t)port, (uint16_t)want, lifetime) < 0) break;
+        int rc = natpmp_wait(&n, &r);
+        if (rc == 0) {
+            ok = 0;
+            if (lifetime) *ext = r.pnu.newportmapping.mappedpublicport;
+            break;
+        }
+        if (pub && want == *ext) rt_log("net: NAT-PMP: the router refused public port %d (error %d)\n", want, rc);
+        if (!pub || !lifetime || rc == NATPMP_ERR_NOGATEWAYSUPPORT) break;   /* a renewal, a removal, no answer */
     }
     closenatpmp(&n);
     return ok;

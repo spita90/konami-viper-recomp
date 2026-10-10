@@ -708,7 +708,7 @@ protected:
 	void gpu_scale();
 	void gpu_target(u16 const *dest, u16 const *depth);
 	u32 gpu_state_index(u32 const *words);
-	void gpu_draw(u32 nverts, u32 key);
+	void gpu_draw(u32 nverts, u32 key, u32 state);
 	void gpu_texture(int which, voodoo::rasterizer_texture const &tex, u32 *words);
 	void gpu_common_state(voodoo::poly_data const &poly, u32 *st);
 	void gpu_drawn(s32 x0, s32 y0, s32 x1, s32 y1);

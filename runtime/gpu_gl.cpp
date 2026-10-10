@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +44,10 @@ namespace {
 	X(void, DrawArrays, (GLenum, GLint, GLsizei)) \
 	X(void, PixelStorei, (GLenum, GLint)) \
 	X(void, Finish, (void)) \
+	X(void, GenQueries, (GLsizei, GLuint *)) \
+	X(void, BeginQuery, (GLenum, GLuint)) \
+	X(void, EndQuery, (GLenum)) \
+	X(void, GetQueryObjectui64v, (GLuint, GLenum, GLuint64 *)) \
 	X(void, ReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *)) \
 	X(void, GenTextures, (GLsizei, GLuint *)) \
 	X(void, DeleteTextures, (GLsizei, const GLuint *)) \
@@ -81,6 +86,7 @@ namespace {
 	X(void, Uniform1i, (GLint, GLint)) \
 	X(void, Uniform1ui, (GLint, GLuint)) \
 	X(void, Uniform1uiv, (GLint, GLsizei, const GLuint *)) \
+	X(void, Uniform4uiv, (GLint, GLsizei, const GLuint *)) \
 	X(void, Uniform1f, (GLint, GLfloat)) \
 	X(void, Uniform2f, (GLint, GLfloat, GLfloat)) \
 	X(void, Uniform4f, (GLint, GLfloat, GLfloat, GLfloat, GLfloat))
@@ -103,14 +109,18 @@ bool load_gl()
 }
 
 // ------------------------------------------------------------------ shaders
+// the triangle record is read per vertex, not per pixel, and handed on flat
 const char *const k_draw_vs = R"(#version 330 core
 layout(location = 0) in vec2 a_pos;
 layout(location = 1) in uint a_tri;
 uniform vec2 u_size;
-flat out uint v_tri;
+uniform usampler2D u_tri;       // triangle records
+flat out uvec4 v_T[12];
 void main()
 {
-	v_tri = a_tri;
+	int base = int(a_tri) * 12;
+	for (int i = 0; i < 12; i++)
+		v_T[i] = texelFetch(u_tri, ivec2((base + i) & 1023, (base + i) >> 10), 0);
 	gl_Position = vec4(a_pos / u_size * 2.0 - 1.0, 0.0, 1.0);
 }
 )";
@@ -119,12 +129,11 @@ void main()
 const char *const k_draw_fs = R"(#version 330 core
 uniform usampler2D u_vram;      // the VRAM, 1024 words per row
 uniform usampler2D u_lut;       // 256-entry tables
-uniform usampler2D u_tri;       // triangle records
-uniform usampler2D u_state;     // state records
+uniform uvec4 u_S[16];          // the state record of this draw
 uniform sampler2D u_blur;       // widescreen motion blur: the last snapshot (TF_BLUR)
 uniform int u_scale, u_margin, u_dispw;
 uniform uint u_vram_mask;
-flat in uint v_tri;
+flat in uvec4 v_T[12];          // the triangle record
 layout(location = 0, index = 0) out vec4 o_color;
 layout(location = 0, index = 1) out vec4 o_prefog;
 
@@ -139,13 +148,11 @@ const int S_FBZCP = 0, S_FBZMODE = 1, S_ALPHAMODE = 2, S_FOGMODE = 3, S_TEXMODE0
 const uint GENERIC_TEX0_IDENTITY = 4u, GENERIC_TEX1_IDENTITY = 8u;   // the combine is skipped
 const int TX_LUT = 0, TX_MASKS = 1, TX_LOD = 2, TX_LODBIAS = 3, TX_DETAILMAX = 4, TX_DETAILBIAS = 5, TX_OFFSET = 6;
 
-uvec4 T[12];
-uvec4 S[16];
-uint tw(int i) { return T[i >> 2][i & 3]; }
-int ti(int i) { return int(T[i >> 2][i & 3]); }
-float tf(int i) { return uintBitsToFloat(T[i >> 2][i & 3]); }
+uint tw(int i) { return v_T[i >> 2][i & 3]; }
+int ti(int i) { return int(v_T[i >> 2][i & 3]); }
+float tf(int i) { return uintBitsToFloat(v_T[i >> 2][i & 3]); }
 uvec2 t64(int i) { return uvec2(tw(i), tw(i + 1)); }
-uint sw(int i) { return S[i >> 2][i & 3]; }
+uint sw(int i) { return u_S[i >> 2][i & 3]; }
 uint bf(uint v, int pos, int n) { return (v >> uint(pos)) & ((1u << uint(n)) - 1u); }
 bool bit(uint v, int pos) { return ((v >> uint(pos)) & 1u) != 0u; }
 int sext16(uint v) { return int(v << 16) >> 16; }
@@ -415,13 +422,9 @@ int frac_term(vec2 f, int ddx, int ddy)
 
 void main()
 {
-	int base = int(v_tri) * 12;
-	for (int i = 0; i < 12; i++)
-		T[i] = texelFetch(u_tri, ivec2((base + i) & 1023, (base + i) >> 10), 0);
-	int sbase = int(tw(T_STATE)) * 16;
-	for (int i = 0; i < 16; i++)
-		S[i] = texelFetch(u_state, ivec2((sbase + i) & 1023, (sbase + i) >> 10), 0);
-
+#ifdef DBG_FLAT
+	o_color = vec4(float(tw(T_START)) * 1e-9, 0.5, 0.5, 1.0); o_prefog = vec4(0.0); gl_FragDepth = 0.5; return;
+#endif
 	ivec2 p = ivec2(gl_FragCoord.xy);      // render target pixel: x, row
 	int N = u_scale, M = u_margin;
 	uint fbz = sw(S_FBZMODE), flags = tw(T_FLAGS);
@@ -480,20 +483,32 @@ void main()
 	int it[5];
 	for (int i = 0; i < 5; i++)
 		it[i] = ti(T_START + i) + dy * ti(T_DY + i) + dx * ti(T_DX + i) + frac_term(fr, ti(T_DX + i), ti(T_DY + i));
-	uvec2 w = add64(add64(t64(T_STARTW), mul64(t64(T_DWDY), dy)), mul64(t64(T_DWDX), dx));
-	if (fr != vec2(0.0))
-		w = add64(w, from_float64(fr.x * to_float64(t64(T_DWDX)) + fr.y * to_float64(t64(T_DWDY))));
-	uvec2 iterw = uvec2(w.x << 16, (w.y << 16) | (w.x >> 16));
+	// W (64-bit) only where this draw's modes read it: W buffer, fog table or iterated W, W alpha;
+	// the depth value only where it is tested or written (uniform branches: one path per draw)
+	uint cp = sw(S_FBZCP), fm0 = sw(S_FOGMODE);
+	bool fog_w = bit(fm0, 0) && !bit(fm0, 5) && (bf(fm0, 3, 2) == 0u || bf(fm0, 3, 2) == 3u);
+	bool need_w = bit(fbz, 3) || fog_w || bf(cp, 5, 2) == 3u;
+	uvec2 iterw = uvec2(0u);
+	int wf = 0;
+	if (need_w)
+	{
+		uvec2 w = add64(add64(t64(T_STARTW), mul64(t64(T_DWDY), dy)), mul64(t64(T_DWDX), dx));
+		if (fr != vec2(0.0))
+			w = add64(w, from_float64(fr.x * to_float64(t64(T_DWDX)) + fr.y * to_float64(t64(T_DWDY))));
+		iterw = uvec2(w.x << 16, (w.y << 16) | (w.x >> 16));
+		wf = wfloat(iterw);
+	}
 	int iterz = it[4];
-	uint cp = sw(S_FBZCP);
-	int wf = wfloat(iterw);
-	int depthval = depth_value(fbz, cp, wf, iterz);
+	int depthval = (bit(fbz, 4) || bit(fbz, 10)) ? depth_value(fbz, cp, wf, iterz) : 0xffff;
 
 	// textures: TMU1 feeds TMU0
 	ivec4 texel = ivec4(0);
 	int lodscale = int(round(log2(float(N)) * 256.0));
 	vec2 d = vec2(float(dx) + fr.x, float(dy) + fr.y);
 	uint tm1 = sw(S_TEXMODE1), tm0 = sw(S_TEXMODE0);
+#ifdef DBG_NOTEX
+	tm1 = tm0 = 0xffffffffu; texel = ivec4(160, 160, 160, 255);
+#endif
 	if (tm1 != 0xffffffffu)
 	{
 		vec3 st = vec3(tf(T_TEX1), tf(T_TEX1 + 1), tf(T_TEX1 + 2)) + d.x * vec3(tf(T_TEX1 + 3), tf(T_TEX1 + 4), tf(T_TEX1 + 5))
@@ -699,6 +714,18 @@ void main() { o_color = texture(u_overlay, v_uv); }
 
 GLuint compile(GLenum type, const char *src)
 {
+	// RT_GPU_DEFINES="A B" (profiling): #define A, B after the #version line
+	std::string text(src);
+	if (const char *d = getenv("RT_GPU_DEFINES"))
+	{
+		std::string defs, word;
+		for (const char *c = d; ; c++)
+			if (*c == ' ' || !*c) { if (!word.empty()) defs += "#define " + word + "\n"; word.clear(); if (!*c) break; }
+			else word += *c;
+		size_t const eol = text.find('\n');
+		text.insert(eol + 1, defs);
+	}
+	src = text.c_str();
 	GLuint s = G.CreateShader(type);
 	G.ShaderSource(s, 1, &src, nullptr);
 	G.CompileShader(s);
@@ -751,12 +778,13 @@ struct executor
 	SDL_GLContext ctx = nullptr;
 	GLuint draw_prog = 0, display_prog = 0, overlay_prog = 0, copy_prog = 0, vram_fbo = 0;
 	GLint c_rows = -1, c_pages = -1, c_w = -1, c_scale = -1, c_margin = -1;
-	GLint u_size = -1, u_scale = -1, u_margin = -1, u_dispw = -1;
+	GLint u_size = -1, u_scale = -1, u_margin = -1, u_dispw = -1, u_state = -1;
+	uint32_t state = ~0u;           // the state record in the uniforms
 	GLint d_clut = -1, d_src = -1, d_size = -1;
 	GLuint vao = 0, vbo = 0;
-	GLuint vram = 0, lut = 0, tri = 0, state = 0, overlay = 0, blur = 0;
+	GLuint vram = 0, lut = 0, tri = 0, overlay = 0, blur = 0;
 	int blur_w = 0, blur_h = 0;
-	int tri_rows = 0, state_rows = 0, overlay_w = 0, overlay_h = 0;
+	int tri_rows = 0, overlay_w = 0, overlay_h = 0;
 	uint32_t vram_pages = 0;
 	std::unordered_map<uint32_t, target> targets;       // by colour buffer offset
 	std::unordered_map<uint32_t, GLuint> depths;        // by aux buffer offset
@@ -967,7 +995,7 @@ void snapshot(uint32_t color)
 void execute(vgpu::frame_list &l)
 {
 	upload_records(X.tri, X.tri_rows, l.tris, GL_TEXTURE2);
-	upload_records(X.state, X.state_rows, l.states, GL_TEXTURE3);
+	X.state = ~0u;
 	G.BindBuffer(GL_ARRAY_BUFFER, X.vbo);
 	if (!l.verts.empty())
 		G.BufferData(GL_ARRAY_BUFFER, GLsizeiptr(l.verts.size() * sizeof(vgpu::vertex)), l.verts.data(), GL_STREAM_DRAW);
@@ -993,6 +1021,11 @@ void execute(vgpu::frame_list &l)
 			if (X.cur == nullptr)
 				break;
 			apply_key(c.c);
+			if (c.d != X.state)
+			{
+				X.state = c.d;
+				G.Uniform4uiv(X.u_state, vgpu::STATE_WORDS / 4, &l.states[size_t(c.d) * vgpu::STATE_WORDS]);
+			}
 			G.DrawArrays(GL_TRIANGLES, GLint(c.a), GLsizei(c.b));
 			break;
 		case vgpu::CMD_VRAM:
@@ -1071,7 +1104,7 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	G.Uniform1i(G.GetUniformLocation(X.draw_prog, "u_vram"), 0);
 	G.Uniform1i(G.GetUniformLocation(X.draw_prog, "u_lut"), 1);
 	G.Uniform1i(G.GetUniformLocation(X.draw_prog, "u_tri"), 2);
-	G.Uniform1i(G.GetUniformLocation(X.draw_prog, "u_state"), 3);
+	X.u_state = G.GetUniformLocation(X.draw_prog, "u_S");
 	G.Uniform1i(G.GetUniformLocation(X.draw_prog, "u_blur"), 7);
 	G.Uniform1ui(G.GetUniformLocation(X.draw_prog, "u_vram_mask"), vram_size - 1);
 	X.u_size = G.GetUniformLocation(X.draw_prog, "u_size");
@@ -1204,6 +1237,9 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int 
 	SDL_GL_SwapWindow(win);
 }
 
+static double s_bench_ms;
+static uint64_t s_bench_lists;
+
 // RT_GPU_BENCH=1 with --headless (benchmark): the main thread runs the lists in a hidden window,
 // waiting for the GPU after each batch, and never returns (the run ends at --seconds)
 void gpu_gl_run_headless(uint32_t vram_size)
@@ -1222,6 +1258,11 @@ void gpu_gl_run_headless(uint32_t vram_size)
 			SDL_Delay(1000);
 	}
 	SDL_GL_SetSwapInterval(0);
+	atexit([] {
+		if (s_bench_lists)
+			rt_log("gpu: %.2f ms of GPU work per vblank on average (%llu vblanks; a game frame is two)\n",
+				s_bench_ms / double(s_bench_lists), (unsigned long long)s_bench_lists);
+	});
 	for (;;)
 	{
 		if (!voodoo_gpu_take(X.lists))
@@ -1229,10 +1270,13 @@ void gpu_gl_run_headless(uint32_t vram_size)
 			SDL_Delay(1);
 			continue;
 		}
+		uint64_t const t0 = SDL_GetPerformanceCounter();
 		for (auto &l : X.lists)
 			execute(l);
-		voodoo_gpu_recycle(X.lists);
 		G.Finish();
+		s_bench_ms += double(SDL_GetPerformanceCounter() - t0) * 1000.0 / double(SDL_GetPerformanceFrequency());
+		s_bench_lists += X.lists.size();
+		voodoo_gpu_recycle(X.lists);
 	}
 }
 
@@ -1250,6 +1294,20 @@ void gpu_gl_debug_load(const uint32_t *vram, const uint32_t *luts, int rows)
 void gpu_gl_debug_execute(void *list)
 {
 	execute(*static_cast<vgpu::frame_list *>(list));
+}
+
+// the same, timed on the GPU: milliseconds it spent on the list
+double gpu_gl_debug_execute_timed(void *list)
+{
+	static GLuint query;
+	if (!query)
+		G.GenQueries(1, &query);
+	G.BeginQuery(GL_TIME_ELAPSED, query);
+	execute(*static_cast<vgpu::frame_list *>(list));
+	G.EndQuery(GL_TIME_ELAPSED);
+	GLuint64 ns = 0;
+	G.GetQueryObjectui64v(query, GL_QUERY_RESULT, &ns);
+	return double(ns) / 1e6;
 }
 
 // the displayed picture at the render size, through the CLUT, top row first (0xAARRGGBB)

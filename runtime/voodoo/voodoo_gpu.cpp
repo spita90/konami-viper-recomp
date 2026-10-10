@@ -13,18 +13,23 @@
 
 extern "C" void rt_log(const char *fmt, ...);
 extern unsigned long long g_voodoo_swaps;
+extern "C" int enh_turbo(void);
 
 using namespace voodoo;
 
 namespace {
 
-// lists recorded and not executed yet, and executed ones whose buffers can be reused
-std::mutex s_lock;
-std::condition_variable s_cv;
-std::vector<vgpu::frame_list> s_pending, s_free;
+// lists recorded and not executed yet, and executed ones whose buffers can be reused; never
+// destroyed, so the frontend can still take them while the process exits
+std::mutex &s_lock = *new std::mutex;
+std::condition_variable &s_cv = *new std::condition_variable;
+std::vector<vgpu::frame_list> &s_pending = *new std::vector<vgpu::frame_list>, &s_free = *new std::vector<vgpu::frame_list>;
 size_t s_pending_bytes;
 std::atomic<int> s_want{0}, s_active{0};
-// the guest waits for the frontend beyond this much (a fast boot runs many vblanks per frame)
+// the guest waits for the frontend beyond 2 lists, so a GPU slower than the game slows the game
+// down evenly (and the fps counter shows it) instead of piling up frames to show in bursts; a
+// fast boot (many vblanks per window frame) may run ahead up to this much
+constexpr size_t MAX_PENDING_LISTS = 2;
 constexpr size_t MAX_PENDING_BYTES = size_t(128) << 20;
 
 // as voodoo_render.cpp
@@ -407,14 +412,15 @@ u32 voodoo_1_device::gpu_state_index(u32 const *words)
 	return u32(g.list.states.size() / vgpu::STATE_WORDS - 1);
 }
 
-void voodoo_1_device::gpu_draw(u32 nverts, u32 key)
+void voodoo_1_device::gpu_draw(u32 nverts, u32 key, u32 state)
 {
 	auto &cmds = m_gpu->list.cmds;
 	u32 const first = u32(m_gpu->list.verts.size()) - nverts;
-	if (!cmds.empty() && cmds.back().type == vgpu::CMD_DRAW && cmds.back().c == key && cmds.back().a + cmds.back().b == first)
+	if (!cmds.empty() && cmds.back().type == vgpu::CMD_DRAW && cmds.back().c == key && cmds.back().d == state &&
+		cmds.back().a + cmds.back().b == first)
 		cmds.back().b += nverts;
 	else
-		cmds.push_back({ vgpu::CMD_DRAW, first, nverts, key, 0, 0 });
+		cmds.push_back({ vgpu::CMD_DRAW, first, nverts, key, state, 0 });
 }
 
 
@@ -619,7 +625,7 @@ s32 voodoo_1_device::gpu_blur_quad(poly_data const &poly, voodoo_renderer::verte
 	vgpu::vertex const quad[6] = { { fx0, fy0, index }, { fx1, fy0, index }, { fx0, fy1, index },
 	                               { fx1, fy0, index }, { fx1, fy1, index }, { fx0, fy1, index } };
 	g.list.verts.insert(g.list.verts.end(), quad, quad + 6);
-	gpu_draw(6, gl_key(poly.raster.fbzmode().raw(), poly.raster.alphamode().raw(), false));
+	gpu_draw(6, gl_key(poly.raster.fbzmode().raw(), poly.raster.alphamode().raw(), false), t[vgpu::T_STATE]);
 	return 256 * 128;
 }
 
@@ -855,7 +861,7 @@ s32 voodoo_1_device::gpu_triangle(poly_data &poly, voodoo_renderer::vertex_t con
 		}
 		gpu_drawn(x0, y0, x1, y1);
 	}
-	gpu_draw(3, gl_key(fbzmode.raw(), poly.raster.alphamode().raw(), false));
+	gpu_draw(3, gl_key(fbzmode.raw(), poly.raster.alphamode().raw(), false), t[vgpu::T_STATE]);
 	return count_pixels(vert[0], vert[1], vert[2]);
 }
 
@@ -895,7 +901,7 @@ u32 voodoo_1_device::gpu_fastfill(poly_data &poly)
 	vgpu::vertex const quad[6] = { { fx0, fy0, index }, { fx1, fy0, index }, { fx0, fy1, index },
 	                               { fx1, fy0, index }, { fx1, fy1, index }, { fx0, fy1, index } };
 	g.list.verts.insert(g.list.verts.end(), quad, quad + 6);
-	gpu_draw(6, gl_key(fbzmode.raw(), 0, true));
+	gpu_draw(6, gl_key(fbzmode.raw(), 0, true), t[vgpu::T_STATE]);
 	if (fbzmode.rgb_buffer_mask())
 		gpu_drawn(poly.clipleft, y0, poly.clipright, y1);
 	return u32(std::max(poly.clipright - poly.clipleft, 0) * std::max(poly.clipbottom - poly.cliptop, 0));
@@ -942,7 +948,10 @@ void voodoo_1_device::gpu_frame(rectangle const &vis, u32 const *clut)
 	// hand the list over (waiting while the frontend is far behind) and start the next
 	{
 		std::unique_lock<std::mutex> lock(s_lock);
-		s_cv.wait(lock, [] { return s_pending_bytes < MAX_PENDING_BYTES || !s_want.load(); });
+		bool const turbo = enh_turbo() != 0;
+		s_cv.wait(lock, [turbo] {
+			return (s_pending_bytes < MAX_PENDING_BYTES && (turbo || s_pending.size() < MAX_PENDING_LISTS)) || !s_want.load();
+		});
 		if (s_want.load())
 		{
 			s_pending_bytes += g.list.bytes();
