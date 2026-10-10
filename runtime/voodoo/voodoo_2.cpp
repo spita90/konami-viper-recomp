@@ -1292,9 +1292,22 @@ s32 voodoo_2_device::draw_triangle()
 
 s32 voodoo_2_device::setup_and_draw_triangle()
 {
-	auto &sv0 = m_svert[0];
-	auto &sv1 = m_svert[1];
-	auto &sv2 = m_svert[2];
+	// The setup engine works from X/Y in 12.4 fixed point, so snap them to
+	// 1/16 pixel before computing the start values and gradients. Games that
+	// transform the same mesh again for a second pass (GTI Club 2's car shine,
+	// drawn depth-EQUAL over the paint) produce X/Y that differ by ~1e-4
+	// pixel; snapped, both passes rasterize and iterate identically and the
+	// EQUAL test covers the paint. From raw floats the planes differed by a
+	// hair: twinkling dots on showroom and result-screen cars, not seen on
+	// the cabinet.
+	auto sv0 = m_svert[0];
+	auto sv1 = m_svert[1];
+	auto sv2 = m_svert[2];
+	for (auto *sv : { &sv0, &sv1, &sv2 })
+	{
+		sv->x = std::floor(sv->x * 16.0f + 0.5f) * (1.0f / 16.0f);
+		sv->y = std::floor(sv->y * 16.0f + 0.5f) * (1.0f / 16.0f);
+	}
 
 	// compute the divisor, but we only need to know the sign up front
 	// for backface culling
