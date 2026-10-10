@@ -8,6 +8,13 @@ void voodoo_set_wide(int n) {(void)n;}
 void rt_log(const char *s,...) {(void)s;}
 uint8_t *hw_nvram(void) { static uint8_t nv[8192]; return nv; }
 uint64_t rt_now(void) {return 0;}
+/* link play (net.c), reached through the menu: never linked here */
+int net_game_halted(void) {return 0;}
+int net_linked_count(void) {return 0;}
+void net_status(NetStatus *st) {memset(st,0,sizeof *st);}
+void net_request_host(void) {}
+void net_request_stop(void) {}
+void net_request_start(void) {}
 int main(int argc, char **argv) {
  assert(argc==2);
  g_enhanced=1;g_font=(uint8_t*)1;g_booted=1;g_frame=g_attract_frame=100;
