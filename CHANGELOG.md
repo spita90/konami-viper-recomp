@@ -15,6 +15,17 @@ version can change the build, the profiles or the command-line options.
   (`<executable>_enhanced_nvram.bin` and `<executable>_nvram.bin`): who played in classic mode
   until now goes through the enhanced mode's first-launch setup once, and finds the classic
   saves untouched with `--classic`.
+- **Link play, smoother over the Internet:** the other players' cars stutter much less.
+  - Each player sends one packet per game frame instead of two identical ones, and the host sends
+    its own frame and the ones it passes on in a single packet per player: about half the
+    traffic, and a third of the packets with 4 players.
+  - The buffer against the network's delays adapts to the connection, from 1 to 4 frames
+    (35–140 ms); a packet that arrives out of order is no longer thrown away, and a lost one costs
+    one frame instead of two hitches.
+  - The packets are marked as real-time traffic, which most home routers send first over Wi-Fi.
+  - **Not compatible with 0.11.1:** all the players need this version. A player who joins a host
+    with another version is told so (THE HOST HAS ANOTHER VERSION).
+  - `--net-buffer N` now counts game frames (default 1), not packets.
 
 ## [0.11.1] - 2026-10-10
 

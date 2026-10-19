@@ -343,7 +343,7 @@ static void usage(void) {
             "  --net-id N      link play, tests: this node's NETWORK ID (1 = host; 2-4 with --net-peer)\n"
             "  --net-peer H:P  link play, tests: the host of --net-id 2-4\n"
             "  --net-port P    link play: local UDP port (default 24700)\n"
-            "  --net-buffer N  link play: playout buffer in cycles against jitter (default 2)\n"
+            "  --net-buffer N  link play: playout buffer in game frames against jitter, the least (default 1)\n"
             "  --realtime      headless at the speed of the clock (a linked node with no window)\n"
             "  -v              verbose\n", g_argv0);
     exit(2);
@@ -357,7 +357,7 @@ int main(int argc, char **argv) {
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
                *nvsave = beside_exe(GAME_NVRAM_SAVE);
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
-    int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 2;
+    int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 1;
     const char *net_peer = NULL, *net_join_to = NULL;
     int net_host_flag = 0, mode = 0;          /* mode: 0 default, 1 --enhanced, -1 --classic */
     for (int i = 1; i < argc; i++) {

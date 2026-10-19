@@ -8,12 +8,21 @@
  * newest one of each peer, accepting a sequence that repeats for up to 4 frames or jumps by 1-4.
  * So a constant latency is harmless; what must be smoothed is jitter.
  *
- * Each LANC cycle (hw.c) calls net_cycle(): it sends the own slot and fills the peers' slots from
- * a small playout queue per peer (one packet per cycle, as the sender produces them, after the
- * queue has filled to the playout buffer). Polled on the guest thread, non-blocking: no thread.
+ * Each LANC cycle (hw.c) calls net_cycle(), two per game frame. The own slot goes out only when the
+ * game has changed it, so once per game frame (and every 8 cycles unchanged, to say it is alive).
+ * The peers' slots come from a playout queue per peer, one game frame each, taken at each new
+ * game frame of our own (its packet's sequence byte changes): one of theirs per one of ours. The
+ * queue keeps the frames in order of sequence (a datagram overtaken by a later one still fits), a
+ * frame missing from the sequence (lost) is held in its place, and it starts at the playout buffer
+ * (--net-buffer, game frames) and adapts: when the queue runs empty the frame is held and the
+ * buffer grows by one, up to 4 frames (~140 ms); after ~10 s with no such hold and a frame to
+ * spare all along it shrinks by one. Frames beyond the buffer plus one are dropped (the queue
+ * caught up after a burst, or the sender's clock runs faster). Polled on the guest thread,
+ * non-blocking: no thread.
  *
  * A star: the host is NETWORK ID 1 and hands out IDs 2-4; the others talk to the host only, and
- * the host relays each packet to its other members, so only the host needs a reachable port.
+ * the host relays each frame to its other members, so only the host needs a reachable port. What
+ * goes to a member in one cycle (the host's frame, the frames it relays) travels in one datagram.
  *  - JOIN (token 0): a node asks for a free ID; the host reserves one and answers WELCOME (ID,
  *    token) or FULL. The node takes that ID live, in the attract mode, the way the game's own
  *    TEST MODE item does (profile network.hot, enhanced.c): no restart, joining or leaving.
@@ -48,9 +57,13 @@
  * restart left in link play. RT_NET_NOCONCEAL=1 (tests)
  * turns the concealment off: a node is dropped as soon as its packets stop.
  *
- * Datagrams: data "VPL1", sender ID, flags (bit 0: the game is in the attract mode, ready for a
- * START from the lobby), 16-bit length, 32-bit sequence, then the slot with zero
- * runs coded as 0x00 count (1-255); control "VPLC", type, ID, 0, 0, 32-bit token. Big-endian.
+ * Datagrams: data "VPL2", then frames, each: sender ID, flags (bit 0: the game is in the attract
+ * mode, ready for a START from the lobby), 16-bit length, 32-bit sequence (one per frame; a frame
+ * sent again keeps it), then the slot with zero runs coded as 0x00 count (1-255); a datagram stays
+ * within 1200 bytes, unless one frame alone is longer. Control "VPLC", type, ID, protocol version
+ * (NET_PROTO), 0, 32-bit token: a node of another version is not let in (the joining node is told
+ * when the host is the other one). Big-endian. Marked as interactive voice (DSCP EF; on macOS the
+ * service type), which the Wi-Fi of most home routers sends first.
  *
  * Tests: RT_NET_DELAY="ms,jitter_ms,loss%" holds the outgoing datagrams for ms plus a uniform
  * 0..jitter_ms (so they can also arrive out of order) and drops loss% of them;
@@ -84,11 +97,19 @@
 #define SLOT 0x400
 #define NODES 4
 #define QUEUE 16
+#define NET_PROTO 2                 /* the datagrams' version (control byte 6): 2 = frames ("VPL2") */
+#define DGRAM 1200                  /* frames go together in a datagram up to this size (no IP fragments) */
+#define DGRAM_MAX (4 + 8 + 2 * SLOT)            /* the longest datagram: one frame alone */
 #define SILENT_CYCLES 1800          /* ~30 s without packets: a member or the host is gone (a LEAVE is at once) */
 #define RESERVE_CYCLES 3600         /* ~60 s for a welcomed node to restart and come back */
 #define JOIN_EVERY 30               /* JOIN repeated every ~0.5 s until WELCOME */
 #define JOIN_TIMEOUT 600            /* ~10 s without any answer to a first JOIN: no host there */
-#define CONCEAL_EVERY 4             /* no new packet for 4 cycles (2 game frames): advance the sequence */
+#define CONCEAL_EVERY 2             /* no new frame for 2 game frames: advance the sequence */
+#define TICK_CYCLES 4               /* our own frame unchanged for 4 cycles (2 game frames): take theirs anyway */
+#define KEEPALIVE_CYCLES 8          /* an unchanged slot is sent again every 8 cycles */
+#define BUFFER_MAX 4                /* the playout buffer grows up to 4 game frames (~140 ms) */
+#define MISSING_MAX 2               /* up to 2 frames missing in the sequence are held in their place */
+#define CALM_FRAMES 300             /* ~10 s of game frames with no frame held and one to spare: shorter by one */
 #define LOST_CYCLES 150             /* ~2.5 s without packets: the node is lost (a ghost, or dropped) */
 #define RACE_OVER_CYCLES 600        /* ~10 s: a ghost in the race is marked as having finished */
 #define GHOST_CYCLES (180 * 60)     /* a ghost is dropped in the attract mode, or after ~3 minutes */
@@ -102,7 +123,7 @@ enum { M_FREE, M_RESERVED, M_ACTIVE };
 typedef struct { struct sockaddr_storage a; socklen_t len; } Addr;
 
 int g_net_id;                       /* NETWORK ID 1-4 of this node, 0 = no link (the game uses 1) */
-static int g_role, g_sock = -1, g_buffer = 2, g_over, g_welcomed, g_cycles, g_port;
+static int g_role, g_sock = -1, g_buffer = 1, g_over, g_welcomed, g_cycles, g_port;
 static int g_start_signal;                   /* START received (member) */
 static int g_hot_id;                         /* the NETWORK ID to take live (network.hot), 0 none */
 static double g_start_time = -100;           /* when (wall clock: the host's joining period is) */
@@ -122,18 +143,26 @@ static struct {                     /* host: the members, by ID */
 } g_mem[NODES + 1];
 
 typedef struct {                    /* received slots of a node, by ID */
-    uint8_t q[QUEUE][SLOT];         /* playout queue */
+    uint8_t q[QUEUE][SLOT];         /* playout queue, one game frame each, in order of sequence */
+    uint32_t qseq[QUEUE];
     int head, count, primed, idle, seen;
-    uint32_t last_seq;
+    int target, calm, spare;        /* the playout buffer now (frames); frames taken since the last one held,
+                                       or the last change; the fewest left in the queue after one taken then */
+    uint32_t played;                /* the sequence of the last frame taken from the queue (or dropped) */
     uint8_t last[SLOT];             /* the slot given to the game last, and its own sequence byte */
     int have_last, stale, lost;
     uint8_t real_seq, out_seq;      /* the game's sequence in the packets, and the one we present */
 } Node;
 static Node g_node[NODES + 1];
 
+static uint8_t g_sent[SLOT];        /* our slot as last sent */
+static int g_sent_ready, g_since_send, g_tick_seq = -1, g_since_tick;
+static uint8_t g_out[NODES + 1][DGRAM_MAX];     /* the datagram being filled, by destination ID */
+static int g_outlen[NODES + 1];
+
 /* ------------------------------------------------------------------ sending (RT_NET_DELAY) */
 #define DELAYQ 512
-static struct { double due; Addr to; int len; uint8_t data[12 + 2 * SLOT]; } g_dq[DELAYQ];
+static struct { double due; Addr to; int len; uint8_t data[DGRAM_MAX]; } g_dq[DELAYQ];
 static int g_ndq;
 static double g_delay = -1, g_jitter, g_loss;
 static uint32_t g_watch;
@@ -201,7 +230,7 @@ static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (u
 static uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
 
 static void control(const Addr *to, int type, int id, uint32_t token) {
-    uint8_t p[12] = { 'V', 'P', 'L', 'C', (uint8_t)type, (uint8_t)id, 0, 0 };
+    uint8_t p[12] = { 'V', 'P', 'L', 'C', (uint8_t)type, (uint8_t)id, NET_PROTO, 0 };
     put32(p + 8, token);
     send_to(to, p, 12);
 }
@@ -240,13 +269,32 @@ static void node_reset(int id, uint8_t *ram) {
 
 static void node_push(int id, uint32_t seq, const uint8_t *slot) {
     Node *nd = &g_node[id];
-    if (nd->seen && (int32_t)(seq - nd->last_seq) <= 0) return;     /* late or duplicate */
-    if (!nd->seen) rt_log("net: NETWORK ID %d is linked\n", id);
-    nd->seen = 1;
-    nd->last_seq = seq;
     nd->idle = 0;
-    if (nd->count == QUEUE) { nd->head = (nd->head + 1) % QUEUE; nd->count--; }   /* overrun: drop the oldest */
-    memcpy(nd->q[(nd->head + nd->count) % QUEUE], slot, SLOT);
+    if (id == 1) g_host_idle = 0;
+    if (!nd->seen) { rt_log("net: NETWORK ID %d is linked\n", id); nd->seen = 1; nd->played = seq - 1; }
+    if ((int32_t)(seq - nd->played) <= 0) return;          /* too late: a later frame went to the game */
+    int i = nd->count;                                      /* its place: a datagram overtaken by a later one */
+    while (i && (int32_t)(seq - nd->qseq[(nd->head + i - 1) % QUEUE]) < 0) i--;
+    if (i && nd->qseq[(nd->head + i - 1) % QUEUE] == seq) return;   /* duplicate, or sent again unchanged */
+    int t = (nd->head + i - 1) % QUEUE;                    /* (the newest, when i == count) */
+    if (i && i == nd->count && !memcmp(nd->q[t], "NWK", 3) && !memcmp(nd->q[t], slot, 4)) {   /* the same */
+        memcpy(nd->q[t], slot, SLOT);           /* game frame, finished: a cycle sent it half written */
+        nd->qseq[t] = seq;
+        return;
+    }
+    if (nd->count == QUEUE) {                               /* overrun: drop the oldest */
+        if (!i) return;
+        nd->played = nd->qseq[nd->head];
+        nd->head = (nd->head + 1) % QUEUE;
+        nd->count--;
+        i--;
+    }
+    for (int k = nd->count; k > i; k--) {                   /* (out of order only) */
+        memcpy(nd->q[(nd->head + k) % QUEUE], nd->q[(nd->head + k - 1) % QUEUE], SLOT);
+        nd->qseq[(nd->head + k) % QUEUE] = nd->qseq[(nd->head + k - 1) % QUEUE];
+    }
+    memcpy(nd->q[(nd->head + i) % QUEUE], slot, SLOT);
+    nd->qseq[(nd->head + i) % QUEUE] = seq;
     nd->count++;
 }
 
@@ -294,6 +342,13 @@ static int open_socket(int port) {
 #endif
     int on = 1;
     setsockopt(g_sock, SOL_SOCKET, SO_BROADCAST, (const char *)&on, sizeof on);     /* FIND on the local network */
+#ifdef __APPLE__
+    int svc = NET_SERVICE_TYPE_VO;                  /* small frames at a steady rate, late is useless */
+    setsockopt(g_sock, SOL_SOCKET, SO_NET_SERVICE_TYPE, &svc, sizeof svc);
+#else
+    int tos = 0xB8;                                 /* DSCP EF (Windows ignores it without a QoS policy) */
+    setsockopt(g_sock, IPPROTO_IP, IP_TOS, (const char *)&tos, sizeof tos);
+#endif
     return 0;
 }
 
@@ -377,6 +432,8 @@ static void session_reset(void) {
     g_start_until = 0;
     memset(g_mem, 0, sizeof g_mem);
     memset(g_node, 0, sizeof g_node);
+    memset(g_outlen, 0, sizeof g_outlen);
+    g_sent_ready = -1;                              /* the first frame goes out */
 }
 
 /* the host: NETWORK ID 1, at UDP port `port` */
@@ -427,6 +484,7 @@ void net_hot_switched(int id) {
         g_net_id = id;
         g_welcomed = 0;                             /* JOIN with the token: the host makes it active */
         g_host_silent = 0;
+        g_sent_ready = -1;                          /* another slot: the first frame goes out */
         memset(g_node, 0, sizeof g_node);
         rt_log("net: NETWORK ID %d taken\n", id);
     } else if (id == 1) {                           /* left: a single cabinet again */
@@ -544,38 +602,89 @@ static void member_control(int type, int id, uint32_t token) {
     }
 }
 
-static void receive(uint8_t *ram) {
-    uint8_t buf[2048], slot[SLOT];
+/* ------------------------------------------------------------------ sending frames */
+/* a frame (8-byte header and its slot) into the datagram for `to`, sent by out_flush */
+static void out_flush(int to) {
+    if (!g_outlen[to]) return;
+    if (g_role == ROLE_HOST) { if (g_mem[to].state == M_ACTIVE) send_to(&g_mem[to].addr, g_out[to], g_outlen[to]); }
+    else send_to(&g_hostaddr, g_out[to], g_outlen[to]);
+    g_outlen[to] = 0;
+}
+
+static void out_add(int to, const uint8_t *frame, int len) {
+    if (g_outlen[to] && g_outlen[to] + len > DGRAM) out_flush(to);
+    if (!g_outlen[to]) { memcpy(g_out[to], "VPL2", 4); g_outlen[to] = 4; }
+    memcpy(g_out[to] + g_outlen[to], frame, (size_t)len);
+    g_outlen[to] += len;
+}
+
+static void out_flush_all(void) {
+    for (int to = 1; to <= NODES; to++) out_flush(to);
+}
+
+/* our slot, when the game has changed it (once per game frame) or every KEEPALIVE_CYCLES */
+static void send_own(const uint8_t *own) {
+    int ready = enh_lobby_ready() ? 1 : 0;
+    int same = ready == g_sent_ready && !memcmp(own, g_sent, SLOT);
+    if (same && ++g_since_send < KEEPALIVE_CYCLES) return;
+    if (!same) { memcpy(g_sent, own, SLOT); g_sent_ready = ready; g_seq++; }
+    g_since_send = 0;
+    uint8_t f[8 + 2 * SLOT];
+    int len = encode(own, f + 8);
+    f[0] = (uint8_t)g_net_id; f[1] = (uint8_t)ready;
+    f[2] = (uint8_t)(len >> 8); f[3] = (uint8_t)len;
+    put32(f + 4, g_seq);
+    if (g_role != ROLE_HOST) { out_add(1, f, 8 + len); return; }
+    for (int id = 2; id <= NODES; id++)
+        if (g_mem[id].state == M_ACTIVE) out_add(id, f, 8 + len);
+}
+
+/* a control datagram of another version of the port: its link would not work with ours */
+static void other_version(const Addr *from) {
+    if (g_role == ROLE_HOST) {
+        static Addr last;                           /* logged once per node */
+        if (!same_addr(&last, from)) { last = *from; rt_log("net: a node with another version of the port tries to join\n"); }
+    } else if (same_addr(from, &g_hostaddr)) end_session_r("the host runs another version of the port", NET_RES_VERSION);
+}
+
+static void receive(void) {
+    uint8_t buf[DGRAM_MAX + 64], slot[SLOT];
     for (;;) {
         Addr from;
         from.len = sizeof from.a;
         ssize_t n = recvfrom(g_sock, buf, sizeof buf, 0, (struct sockaddr *)&from.a, &from.len);
         if (n < 0) return;                          /* EAGAIN: drained */
         if (n < 12 || outage()) continue;
-        int type = buf[4], id = buf[5];
         if (!memcmp(buf, "VPLC", 4)) {
+            int type = buf[4], id = buf[5];
+            if (buf[6] != NET_PROTO) { other_version(&from); continue; }
             if (type == C_HERE) { found_here(&from, get32(buf + 8)); continue; }
             if (g_role == ROLE_HOST) host_control(&from, type, id, get32(buf + 8));
             else if (same_addr(&from, &g_hostaddr)) { g_host_silent = 0; member_control(type, id, get32(buf + 8)); }
             continue;
         }
-        int len = buf[6] << 8 | buf[7];
-        id = buf[4];                                /* data: the sender's ID */
-        if (memcmp(buf, "VPL1", 4) || id < 1 || id > NODES || id == g_net_id || len != n - 12) continue;
-        if (g_role == ROLE_HOST) {                  /* only from the member holding that ID */
-            if (g_mem[id].state != M_ACTIVE || !same_addr(&g_mem[id].addr, &from)) continue;
-            g_mem[id].silent = 0;
-            g_mem[id].ready = buf[5] & 1;
-            for (int i = 2; i <= NODES; i++)        /* relay */
-                if (i != id && g_mem[i].state == M_ACTIVE) send_to(&g_mem[i].addr, buf, (int)n);
-        } else {
+        if (memcmp(buf, "VPL2", 4)) continue;
+        if (g_role != ROLE_HOST) {                  /* a member: frames from the host only */
             if (!same_addr(&from, &g_hostaddr)) continue;
             g_host_silent = 0;
             if (g_role != ROLE_MEMBER) continue;    /* not in the session yet */
         }
-        if (!decode(buf + 12, len, slot)) node_push(id, get32(buf + 8), slot);
+        for (int o = 4; o + 8 <= n;) {
+            const uint8_t *f = buf + o;
+            int id = f[0], len = f[2] << 8 | f[3];
+            if (o + 8 + len > n) break;
+            o += 8 + len;
+            if (id < 1 || id > NODES || id == g_net_id) continue;
+            if (g_role == ROLE_HOST) {              /* only from the member holding that ID */
+                if (g_mem[id].state != M_ACTIVE || !same_addr(&g_mem[id].addr, &from)) continue;
+                g_mem[id].silent = 0;
+                g_mem[id].ready = f[1] & 1;
+                for (int i = 2; i <= NODES; i++)    /* relay, with what goes to that member this cycle */
+                    if (i != id && g_mem[i].state == M_ACTIVE) out_add(i, f, 8 + len);
+            }
+            if (!decode(f + 8, len, slot)) node_push(id, get32(f + 4), slot);
+        }
     }
-    (void)ram;
 }
 
 /* ------------------------------------------------------------------ timers */
@@ -661,7 +770,8 @@ void net_frame(void) {
     if (g_cycles != last_cycles) { last_cycles = g_cycles; still = 0; return; }
     timers();
     send_due();
-    receive(NULL);
+    receive();
+    out_flush_all();
     if (++still == HALT_FRAMES) {
         g_halted = 1;
         rt_log("net: the game stopped its link (NETWORK ERROR)\n");
@@ -671,6 +781,46 @@ void net_frame(void) {
 int net_game_halted(void) { return g_halted; }
 
 /* ------------------------------------------------------------------ one LANC ring cycle */
+/* a new game frame of our own (its packet's sequence byte changed, or 2 frames without one; a slot
+ * that is no game packet: every 2 cycles): the peers' next frames are due */
+static int own_frame(const uint8_t *own) {
+    if (memcmp(own, "NWK", 3)) {
+        if (++g_since_tick < 2) return 0;
+    } else if (own[3] == g_tick_seq && ++g_since_tick < TICK_CYCLES) return 0;
+    g_tick_seq = own[3];
+    g_since_tick = 0;
+    return 1;
+}
+
+/* a peer's next frame from its playout queue into nd->last: 1 if there was one */
+static int playout(int id, Node *nd) {
+    if (!nd->target) nd->target = g_buffer;
+    if (!nd->primed && nd->count < nd->target) return 0;
+    nd->primed = 1;
+    if (!nd->count) {                               /* not there in time: held, a longer buffer */
+        if (nd->calm && nd->target < (g_buffer > BUFFER_MAX ? g_buffer : BUFFER_MAX))
+            rt_log("net: NETWORK ID %d: playout buffer %d frames\n", id, ++nd->target);
+        nd->calm = nd->spare = 0;
+        return 0;
+    }
+    if (++nd->calm > CALM_FRAMES) {                 /* steady, and a frame to spare all along: shorter */
+        if (nd->spare && nd->target > g_buffer) rt_log("net: NETWORK ID %d: playout buffer %d frames\n", id, --nd->target);
+        nd->calm = 1;
+        nd->spare = QUEUE;
+    }
+    while (nd->count > nd->target + 1) { nd->played = nd->qseq[nd->head]; nd->head = (nd->head + 1) % QUEUE; nd->count--; }   /* catch up */
+    uint32_t missing = nd->qseq[nd->head] - nd->played - 1;
+    if (missing && missing <= MISSING_MAX) {
+        nd->played++;                               /* a frame missing (lost): held in its place, the */
+        return 0;                                   /* queue keeps its depth (a longer gap is skipped) */
+    }
+    memcpy(nd->last, nd->q[nd->head], SLOT);
+    nd->played = nd->qseq[nd->head];
+    nd->head = (nd->head + 1) % QUEUE;
+    if (--nd->count < nd->spare) nd->spare = nd->count;
+    return 1;
+}
+
 void net_cycle(uint8_t *ram) {
     if (g_sock < 0) return;
     g_cycles++;
@@ -684,21 +834,11 @@ void net_cycle(uint8_t *ram) {
                 if ((g_start_mask >> id & 1) && g_mem[id].state == M_ACTIVE && g_mem[id].ready)
                     control(&g_mem[id].addr, C_START, id, 0);
     }
-    if (!g_over && (g_role == ROLE_HOST || (g_role == ROLE_MEMBER && g_welcomed))) {
-        uint8_t pkt[12 + 2 * SLOT];
-        int len = encode(ram + (g_net_id - 1) * SLOT, pkt + 12);
-        memcpy(pkt, "VPL1", 4);
-        pkt[4] = (uint8_t)g_net_id; pkt[5] = (uint8_t)(enh_lobby_ready() ? 1 : 0);
-        pkt[6] = (uint8_t)(len >> 8); pkt[7] = (uint8_t)len;
-        put32(pkt + 8, ++g_seq);
-        if (g_role == ROLE_HOST) {
-            for (int id = 2; id <= NODES; id++)
-                if (g_mem[id].state == M_ACTIVE) send_to(&g_mem[id].addr, pkt, 12 + len);
-        } else send_to(&g_hostaddr, pkt, 12 + len);
-    }
     send_due();
     if (g_role == ROLE_MEMBER && g_welcomed && !g_over) g_host_idle++;
-    receive(ram);
+    receive();                                      /* first: what the host relays goes with its own frame */
+    if (!g_over && (g_role == ROLE_HOST || (g_role == ROLE_MEMBER && g_welcomed))) send_own(ram + (g_net_id - 1) * SLOT);
+    out_flush_all();
     /* the host is the one that runs the race (the clock, the traffic): a member that gets nothing
      * from it for ~5 s while its own link runs ends the session, and its game leaves the race
      * (enhanced.c); a shorter drop is concealed as for any node */
@@ -719,43 +859,30 @@ void net_cycle(uint8_t *ram) {
         last[1] = v1;
     }
     if (g_role != ROLE_MEMBER && g_role != ROLE_HOST) return;
+    int frame = own_frame(ram + (g_net_id - 1) * SLOT);
     for (int id = 1; id <= NODES; id++) {
         if (id == g_net_id) continue;
         Node *nd = &g_node[id];
         if (!nd->seen) continue;
-        int fresh = 0;
-        if (nd->primed || nd->count >= g_buffer) {             /* (the playout buffer filled once) */
-            nd->primed = 1;
-            while (nd->count > g_buffer + 2) { nd->head = (nd->head + 1) % QUEUE; nd->count--; }   /* catch up */
-            if (nd->count) {
-                memcpy(nd->last, nd->q[nd->head], SLOT);
-                nd->head = (nd->head + 1) % QUEUE;
-                nd->count--;
-                fresh = 1;
-            }
-        }
+        int fresh = frame && playout(id, nd);
         if (!fresh && !nd->have_last) continue;
         int nwk = !memcmp(nd->last, "NWK", 3);
         if (fresh) {
-            if (id == 1) g_host_idle = 0;
             if (nd->lost) rt_log("net: NETWORK ID %d is back\n", id);
             nd->lost = 0;
-            nd->idle = 0;
             if (!nd->have_last) nd->out_seq = nd->last[3];
             else if (nd->last[3] != nd->real_seq) { nd->out_seq++; nd->stale = 0; }
             else if (++nd->stale >= CONCEAL_EVERY) { nd->out_seq++; nd->stale = 0; }
             nd->real_seq = nd->last[3];
             nd->have_last = 1;
-        } else {                                            /* late or gone: conceal */
-            if (++nd->stale >= CONCEAL_EVERY) { nd->out_seq++; nd->stale = 0; }
-            if (++nd->idle > LOST_CYCLES && !nd->lost) {
-                nd->lost = 1;
-                rt_log("net: NETWORK ID %d lost%s\n", id, GAME_NET_GHOST_KEEP ? ": shown standing still until the attract mode" : "");
-            }
+        } else if (frame && ++nd->stale >= CONCEAL_EVERY) { nd->out_seq++; nd->stale = 0; }   /* late or gone: conceal */
+        if (++nd->idle > LOST_CYCLES && !nd->lost) {    /* (arrivals reset it, node_push) */
+            nd->lost = 1;
+            rt_log("net: NETWORK ID %d lost%s\n", id, GAME_NET_GHOST_KEEP ? ": shown standing still until the attract mode" : "");
         }
         static int noconceal = -1;
         if (noconceal < 0) noconceal = getenv("RT_NET_NOCONCEAL") != NULL;
-        if ((nd->lost && (!GAME_NET_GHOST_KEEP || enh_in_attract() || nd->idle > GHOST_CYCLES)) || (noconceal && nd->idle > 2)) {
+        if ((nd->lost && (!GAME_NET_GHOST_KEEP || enh_in_attract() || nd->idle > GHOST_CYCLES)) || (noconceal && nd->idle > TICK_CYCLES)) {
             rt_log("net: NETWORK ID %d is no longer linked\n", id);
             node_reset(id, ram);
             continue;

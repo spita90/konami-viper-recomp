@@ -132,7 +132,7 @@ void net_shutdown(void);                               /* at exit: LEAVE / CLOSE
 #define NET_DEFAULT_PORT 24700                 /* IANA-unassigned block 24681-24726 */
 /* link play, for the menu: a snapshot of the state, and requests carried out on the guest thread */
 enum { NET_OFF, NET_HOST, NET_JOINING, NET_MEMBER };
-enum { NET_RES_NONE, NET_RES_LEFT, NET_RES_FULL, NET_RES_CLOSED, NET_RES_NOANSWER, NET_RES_PORT, NET_RES_BADCODE };
+enum { NET_RES_NONE, NET_RES_LEFT, NET_RES_FULL, NET_RES_CLOSED, NET_RES_NOANSWER, NET_RES_PORT, NET_RES_BADCODE, NET_RES_VERSION };
 enum { NET_NODE_NONE, NET_NODE_SELF, NET_NODE_JOINING, NET_NODE_LINKED, NET_NODE_LOST };
 typedef struct {
     int role, id, over, result, portmap;    /* portmap: 0 idle 1 working 2 open 3 failed */

@@ -899,15 +899,48 @@ uses the same Konami link library).
   link task recompute mask, slot and watchdog.
 
 **The emulation.**
-- **A ring cycle** (`hw.c`: a kick, reg1 bit 0) calls `net_cycle()`: the node's own slot goes
-  out, the peers' newest slots come in, the IRQ follows. reg3 always reads 0.
+- **A ring cycle** (`hw.c`: a kick, reg1 bit 0) calls `net_cycle()`, two per game frame: the
+  node's own slot goes out, the peers' newest slots come in, the IRQ follows. reg3 always reads 0.
 - **A star.** The host is NETWORK ID 1 and hands out IDs 2–4; the others talk to the host only,
   and the host relays each packet to its other members. Only the host needs a reachable port.
-- **Datagrams:** data `"VPL1"`, sender ID, flags (bit 0: in the lobby, ready for a START), length,
-  32-bit sequence, then the slot with zero runs coded as 0x00 count (a race packet is a few
-  hundred bytes); control `"VPLC"`, type, ID, 32-bit token.
-- **A playout queue** per peer (`--net-buffer`, default 2 cycles) smooths the jitter: one packet
-  per cycle, as the sender produces them, the oldest dropped when the queue runs long.
+- **One frame per game frame.** The own slot goes out only when the game has changed it, so once
+  per game frame and not at both cycles of it (the second copy was identical), plus once every 8
+  cycles when it stays the same, to say the node is alive.
+- **Datagrams:** data `"VPL2"`, then frames, each: sender ID, flags (bit 0: in the lobby, ready
+  for a START), length, 32-bit sequence (one per frame; a frame sent again keeps it), then the
+  slot with zero runs coded as 0x00 count (a race packet is a few hundred bytes). What goes to one
+  node in one cycle travels in one datagram, up to 1200 bytes (no IP fragments; a frame longer
+  than that goes alone). Control `"VPLC"`, type, ID, protocol version (2), 32-bit token.
+  - **Another version** of the port does not link (version 1 sent a datagram per cycle and per
+    frame relayed): the host ignores its `JOIN` and logs it; a node whose host answers with
+    another version leaves with "THE HOST HAS ANOTHER VERSION".
+  - **Marked** as interactive voice: DSCP EF (`IP_TOS`), and on macOS the service type
+    `NET_SERVICE_TYPE_VO`, which also picks the Wi-Fi voice queue (WMM). The Internet mostly
+    ignores the mark; the Wi-Fi of a home router uses it. Windows ignores `IP_TOS` without a QoS
+    policy.
+  - **Traffic from the host**, at the ~28.75 frames per second of a race, with N players: N − 1
+    frames of its own and (N − 1)(N − 2) relayed frames per game frame, in at most one datagram per
+    member and cycle. Version 1 sent twice the frames, each in a datagram of its own: 9 streams
+    of 57.5 datagrams per second with 4 players.
+- **A playout queue** per peer smooths the jitter. It holds game frames and gives the game the
+  next one at each new game frame of the node's own (the sequence byte of its own packet changes;
+  after 4 cycles without a change, or for a slot that is no game packet every 2 cycles, anyway):
+  one of theirs per one of ours.
+  - It starts once it holds the playout buffer (`--net-buffer`, game frames, default 1).
+  - **In order of sequence:** a datagram overtaken by a later one still takes its place, unless a
+    later frame has gone to the game already. Version 1 dropped it: with jitter larger than the
+    gap between frames (two hops for a relayed frame) that was most of the holds.
+  - **A missing frame** (a gap of 1–2 in the sequence, so lost) is held in its place: the car
+    stands still for that frame, and the queue keeps its depth instead of paying with a hold later.
+  - **Adaptive:** a frame not there in time (the queue empty) is held, as by the concealment
+    below, and the buffer grows by one frame, up to 4 (~140 ms; once per such hold, not at every
+    frame of an outage). After 300 frames (~10 s) with no such hold and at least one frame left in
+    the queue after every frame taken, it shrinks by one (shrinking without that spare frame made
+    it swing between 1 and 2). Each change is logged ("playout buffer n frames").
+  - Frames beyond the buffer plus one are dropped, the oldest first (the queue caught up after a
+    burst, or the sender's clock runs faster). Each drop skips a frame of that car.
+  - A frame the game was still writing when a cycle sent it is followed by the finished one with
+    the same sequence byte: it replaces the one in the queue instead of taking a frame of its own.
 - **Polled** on the guest thread at each cycle, non-blocking, and at each video frame for the
   timers and the control traffic (the game may stop its cycles).
 
@@ -941,7 +974,7 @@ uses the same Konami link library).
   mismatch); then the game's set-ID routine is called, with the registers kept. Joining and
   leaving restart nothing; a member out of its session takes ID 1 back the same way, once it is
   in the attract mode, and the menu goes back to the main menu.
-- **Drops.** A peer's packets that stop are concealed: the game is given its last packet again,
+- **Drops.** A peer's frames that stop are concealed: the game is given its last packet again,
   with the sequence byte (which `net.c` rewrites for every peer) advanced every 2 game frames, so
   it looks alive and its car stands still; when its packets come back, the sequence goes on.
   After 2.5 s the peer is lost:
@@ -991,7 +1024,7 @@ rejected 7 times in 8; one that slips through ends in "no answer from the host".
 
 **Command line** (tests, or without the menu): `--net-host`, `--net-join CODE|host:port`
 (enhanced mode), `--net-id N --net-peer host:port` (a node with a fixed ID), `--net-port P`,
-`--net-buffer N`, and `--realtime` (headless at the speed of the clock, for a linked node with no
+`--net-buffer N` (game frames), and `--realtime` (headless at the speed of the clock, for a linked node with no
 window).
 
 **Tests** (all on one machine, headless nodes at real time).
@@ -1001,7 +1034,18 @@ window).
   `RT_NET_WATCH=addr` logs the changes of two guest words (GTI Club 2: `0x859070`, the link hold
   counters; `0x861E60` + 3, the race's player count); `RT_INPUT_FIFO=path` drives a node's inputs
   live from a named pipe.
-- Results: 2, 3 and 4 linked players in both games (the CPU cars fill the rest: Thrill Drive 2
+- Results, protocol version 2 (2026-10-13, counters added for the test only):
+  - One frame sent per game frame, in both games, attract and race (the slot changes once per
+    frame: no half-written frames seen). A race frame is ~520 bytes in GTI Club 2 and ~410 in
+    Thrill Drive 2 with the IP and UDP headers, so ~120 kbit/s per stream.
+  - 30 ms + 0–15 ms and 0.3% loss, 2 players, a whole race (lobby START, selections, race) in
+    both games: no NETWORK ERROR; per direction ~1 hold, ~1 drop and the lost frames held in place
+    in 2 minutes; the buffer settles at 2 frames.
+  - 100 ms + 0–50 ms and 1% loss, 3 players (relayed frames: two hops), attract: holds ~0.3% and
+    drops ~0.3% of the frames, plus the lost ones; the buffer moves between 2 and 4. Before the
+    in-order queue: ~8% holds at 4 frames.
+- Results (protocol version 1, before frames, aggregation and the adaptive buffer): 2, 3 and 4
+  linked players in both games (the CPU cars fill the rest: Thrill Drive 2
   races 4 cars, GTI Club 2 6). No link lost with 100 ms ± 50 ms and 1% loss. A node killed, the
   host killed, 2 s and 10 s outages, a frozen process: no NETWORK ERROR, the races go on.
 - The host runs the race (the clock, the traffic): a member that gets no data from it for ~5 s

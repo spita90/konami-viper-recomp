@@ -721,7 +721,7 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
-       T_COUNT };
+       T_OTHER_VERSION, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -749,6 +749,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "INVALID CODE", "CODICE NON VALIDO" }, { "PLAYER", "GIOCATORE" }, { "YOU", "TU" },
     { "FREE", "LIBERO" }, { "LINKED", "COLLEGATO" }, { "LOST", "PERSO" }, { "JOINING", "IN ARRIVO" },
     { "IN THE SESSION AS PLAYER", "IN SESSIONE COME GIOCATORE" },
+    { "THE HOST HAS ANOTHER VERSION", "L HOST HA UN ALTRA VERSIONE" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
@@ -1086,7 +1087,7 @@ static void menu_tick(void) {
  * happen), restarted with ID 1 and out of the session. */
 static void net_tick(void) {
     if (g_notice_frames > 0 && !enh_turbo() && !g_returning) g_notice_frames--;   /* counted once shown */
-    net_requests(2);
+    net_requests(1);
     if (!net_active() || g_apply || g_returning) return;
     if (net_start_signal() && enh_lobby_ready()) {    /* the host started: join its race */
         net_start_taken();
@@ -1219,7 +1220,8 @@ static void draw_net(uint32_t *fb, int w, int h) {
         y += font_height(zm);
     } else if (st.result && st.result != NET_RES_LEFT) {
         int msg = st.result == NET_RES_FULL ? T_FULL : st.result == NET_RES_CLOSED ? T_CLOSED :
-                  st.result == NET_RES_PORT ? T_PORT_FAIL : st.result == NET_RES_BADCODE ? T_BAD_CODE : T_NO_ANSWER;
+                  st.result == NET_RES_PORT ? T_PORT_FAIL : st.result == NET_RES_BADCODE ? T_BAD_CODE :
+                  st.result == NET_RES_VERSION ? T_OTHER_VERSION : T_NO_ANSWER;
         draw_centered(fb, w, h, zs, y, T(msg), red);
         y += font_height(zs);
     }
