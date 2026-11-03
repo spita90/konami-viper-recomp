@@ -1280,7 +1280,8 @@ Notes:
 2. GPU renderer (section 5f): the Switch port.
    Further software rasteriser optimisation (SIMD, less contention).
 3. CMake builds for Windows and Linux, CI.
-4. Distributable package: the game data stays external and is extracted from the user's CHD.
+4. Distributable package: done for Linux x86-64 and macOS arm64 (`dist/`, `viper-setup` builds the
+   games on the player's computer from their CHD); Windows to do.
 
 ## 8. Usage
 
