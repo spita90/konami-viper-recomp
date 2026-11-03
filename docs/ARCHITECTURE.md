@@ -39,8 +39,8 @@ Everything game-specific lives in one JSON file per MAME set.
 The profile fields:
 - **Metadata:** title, other names, version, year and status.
 - **`files`:** name, `roms/` subfolder and SHA1 of each required file.
-  - `tools/game.py check` verifies them; for a CHD it compares the internal SHA1 reported by
-    `chdman info`.
+  - `tools/game.py check` verifies them; for a CHD it compares the internal SHA1 (the one
+    `chdman info` shows), read by `tools/chdextract.c` on libchdr.
   - `dir` can be a list of subfolders, for a card shared by two sets.
   - `optional: true` marks a file with no known dump. A missing NVRAM starts empty, as the
     erased region does in MAME.
@@ -1220,27 +1220,26 @@ Open:
   left in play;
 - cabinet settings stored in the starting NVRAM: "SOUND IN ATTRACT MODE: COMPLETE OFF", and
   BGM/SE volume at 3. This is why the default audio gain is ×16;
-- Windows: a cross-build from macOS works (`make WIN=1`, below) and was tested in link play on
-  one Windows PC; there is no native Windows build yet (extraction, recompilation, and the
-  options-apply restart with `execv`, which splits paths with spaces). Linux is untested.
+- Windows: the release package builds the games on Windows itself (below).
 
-### Windows cross-build (`make WIN=1`)
+### Windows
 
-- Toolchain: mingw-w64 from Homebrew (`brew install mingw-w64`) and the SDL2 MinGW development
-  package (`SDL2-devel-*-mingw.tar.gz` from libsdl.org), unpacked under `build/win-deps/`
-  (`SDL2_MINGW` points to its `x86_64-w64-mingw32/`). Recompilation and extraction run on the
-  Mac as usual; only the build step changes.
-- Output: `<bin>.exe` (for example `td2.exe`), objects in `build/<id>-win/`. SDL2 and the MinGW
-  runtime are linked statically, so the executable needs only system DLLs (Windows 10 or later).
-  It is a console program: the log shows in the console and can be redirected. Built with
-  `-mfma -mavx2` (Haswell or later).
+- The release package's `viper-setup.exe` builds the games with zig (target
+  `x86_64-windows-gnu`, MinGW) and SDL2's MinGW package: SDL2main provides `main()` and calls
+  the runtime's (`-Dmain=SDL_main`), and `SDL2.dll` goes next to the executables. The rest of the
+  executable needs only system DLLs (the Universal CRT, Winsock, IP Helper: Windows 10 or later);
+  pthreads and the C++ library are linked in. It is a console program: the log shows in the
+  console and can be redirected.
+- A `make WIN=1` cross-build from macOS with mingw-w64 came first (0.10.0, tested in link play
+  on one Windows PC); the package replaced it.
 - Code changes, all under `#ifdef _WIN32`:
   - `net.c`, `portmap.c`: Winsock (started before the first name lookup), `ioctlsocket` for
     non-blocking sockets, `SIO_UDP_CONNRESET` off (otherwise an ICMP "port unreachable" makes the
     next `recvfrom` fail);
   - `main.c`: executable path from `GetModuleFileNameA`, the first-run scripted passes pass their
     variables through the inherited environment (`cmd.exe` has no `VAR=value cmd`), no
-    `RT_INPUT_FIFO`;
+    `RT_INPUT_FIFO`; the options-apply restart quotes its arguments, since the C runtime's
+    `_execv` joins them with spaces (a path with spaces would split);
   - `runtime.h`: `localtime_r`, `setenv`, `unsetenv` mapped to the MSVC runtime;
   - `voodoo/emu.h`: GCC rejects `inline` twice, so `ATTR_FORCE_INLINE` is MAME's own definition
     (`always_inline` alone) when the compiler is not Clang;
@@ -1281,13 +1280,13 @@ Notes:
 2. GPU renderer (section 5f): the Switch port.
    Further software rasteriser optimisation (SIMD, less contention).
 3. CMake builds for Windows and Linux, CI.
-4. Distributable package: done for Linux x86-64 and macOS arm64 (`dist/`, `viper-setup` builds the
-   games on the player's computer from their CHD); Windows to do.
+4. Distributable package: done for Windows x86-64, Linux x86-64 and macOS arm64 (`dist/`,
+   `viper-setup` builds the games on the player's computer from their CHD).
 
 ## 8. Usage
 
 ```sh
-brew install rom-tools sdl2     # chdman (Linux: mame-tools), SDL2
+brew install sdl2               # SDL2 (Linux: libsdl2-dev)
 pip3 install --user capstone    # only for tools/ppcdis.py
 make games                      # list the game profiles
 make check   GAME=thrild2       # verify roms/ against the expected SHA1s
@@ -1295,7 +1294,6 @@ make -j8 game GAME=thrild2      # extract + recomp + build in one step
 make extract GAME=thrild2       # roms/thrild2/ -> work/thrild2/
 make recomp  GAME=thrild2       # work/thrild2/ -> generated/thrild2/*.c + game_config.h
 make -j      GAME=thrild2       # ./td2   (GAME defaults to thrild2)
-make -j WIN=1 GAME=thrild2      # td2.exe, Windows x64 cross-build (section 6)
 make distclean GAME=thrild2     # removes work/, generated/, build/ of that game and its saved NVRAM
 python3 recomp/coverage.py thrild2 [module]   # coverage report
 ./td2                           # play (SDL window), enhanced mode

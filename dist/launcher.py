@@ -52,15 +52,20 @@ os.environ['VIPER_DATA'] = DATA
 os.environ['VIPER_BINDIR'] = HOME
 sys.path.insert(0, os.path.join(PYROOT, 'tools'))
 sys.path.insert(0, os.path.join(PYROOT, 'recomp'))
-import game      # noqa: E402
-import extract   # noqa: E402
-import recomp    # noqa: E402
+import buildspec  # noqa: E402
+import game       # noqa: E402
+import extract    # noqa: E402
+import recomp     # noqa: E402
 
-# Linux and macOS for now; Windows will need its own SDL2 linking and executables
-SYSTEM = platform.system()
-if SYSTEM not in ('Linux', 'Darwin'):
-    raise SystemExit('viper-setup: only Linux and macOS are supported for now')
-EXE = ''
+SYSTEM = platform.system()          # Linux, Darwin (macOS), Windows
+if SYSTEM not in ('Linux', 'Darwin', 'Windows'):
+    raise SystemExit(f'viper-setup: {SYSTEM} is not supported')
+EXE = '.exe' if SYSTEM == 'Windows' else ''
+
+
+def play_name(exe):
+    """How to start an executable from the terminal: ./td2, or td2.exe on Windows."""
+    return os.path.basename(exe) if SYSTEM == 'Windows' else './' + os.path.basename(exe)
 
 
 def log(msg=''):
@@ -178,17 +183,20 @@ def zig():
 
 
 def sdl2():
-    """(include dir, flags to link SDL2)."""
+    """(include dir, flags to link SDL2, the DLL to put next to the executables or None)."""
     base = os.path.join(ENGINE, 'sdl2')
     inc = os.environ.get('VIPER_SDL2_INCLUDE') or os.path.join(base, 'include', 'SDL2')
     lib = os.path.join(base, 'lib')
+    if SYSTEM == 'Windows':                     # SDL2's MinGW package: SDL2main gives main()
+        return inc, [os.path.join(lib, 'libSDL2main.a'), os.path.join(lib, 'libSDL2.dll.a')], \
+            os.path.join(lib, 'SDL2.dll')
     if SYSTEM == 'Darwin':                      # macOS has no SDL2 of its own: always the bundled one
         return inc, [os.environ.get('VIPER_SDL2_LIB') or os.path.join(lib, 'libSDL2-2.0.0.dylib'),
-                     '-Wl,-rpath,@executable_path/' + os.path.relpath(lib, HOME)]
+                     '-Wl,-rpath,@executable_path/' + os.path.relpath(lib, HOME)], None
     flags = [os.environ.get('VIPER_SDL2_LIB') or os.path.join(lib, 'libSDL2-2.0.so.0')]
     if not system_has_sdl2():                   # the system's SDL2 first, the bundled one if none
         flags.append('-Wl,-rpath,$ORIGIN/' + os.path.relpath(lib, HOME))
-    return inc, flags
+    return inc, flags, None
 
 
 def system_has_sdl2():
@@ -208,44 +216,32 @@ def run(cmd, env):
 
 
 class Compiler:
-    """The Makefile's compile and link steps, with zig cc. Keep the flags in step with it."""
+    """The Makefile's compile and link steps, with zig cc: the sources and the flags are
+    tools/buildspec.py's, as for make (without its debug information and warnings)."""
 
     def __init__(self, jobs):
         self.zig, self.jobs = zig(), jobs
         self.env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=os.path.join(DATA, 'zig-cache'),
                         ZIG_LOCAL_CACHE_DIR=os.path.join(DATA, 'zig-cache'))
-        # compiled here for this machine: the CPU's own instruction set (the Makefile uses AVX2
-        # and FMA on x86-64; on ARM, as the Makefile, the default); -ffp-contract=off keeps the
-        # floating point as the original
-        self.arch = ['-march=native'] if platform.machine() in ('x86_64', 'AMD64') else []
+        self.arch = None        # buildspec's: compiled here for this machine's CPU
 
     def cc(self, cxx=False):
         return [self.zig, 'c++' if cxx else 'cc']
 
+    def flags(self, kind, gen=''):
+        return buildspec.flags(kind, SRC, gen, SYSTEM, arch=self.arch)
+
     def chdextract(self):
-        """tools/chdextract.c on libchdr: reads the CHDs (no chdman needed)."""
+        """tools/chdextract.c on libchdr: reads the CHDs."""
         out = os.path.join(DATA, 'build', 'chdextract' + EXE)
         if not os.path.exists(out):
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            ch = os.path.join(SRC, 'third_party', 'libchdr')
-            run(self.cc() + ['-O2', '-w', '-DZ7_ST', '-I' + os.path.join(ch, 'include'),
-                             '-I' + os.path.join(ch, 'deps', 'lzma-26.02', 'include'),
-                             '-I' + os.path.join(ch, 'deps', 'miniz-3.1.2'),
-                             '-I' + os.path.join(ch, 'deps', 'zstd-1.5.7'),
-                             os.path.join(SRC, 'tools', 'chdextract.c'), os.path.join(ch, 'unity.c'),
-                             os.path.join(ch, 'src', 'libchdr_codec_avhuff.c'), '-o', out], self.env)
+            run(self.cc() + self.flags('chdextract') + buildspec.chdextract_sources(SRC) + ['-o', out], self.env)
         return out
 
     def build(self, g):
         gen, build = game.gen_dir(g), os.path.join(DATA, 'build', g['id'])
-        rt = os.path.join(SRC, 'runtime')
-        tp = os.path.join(SRC, 'third_party')
-        sdl_inc, sdl_link = sdl2()
-        tp_inc = ['-I' + os.path.join(tp, 'miniupnpc', 'include'), '-I' + os.path.join(tp, 'libnatpmp'),
-                  '-DMINIUPNP_STATICLIB', '-DNATPMP_STATICLIB']
-        cflags = ['-O2', *self.arch, '-g0', '-std=c11', '-D_DEFAULT_SOURCE', '-D_DARWIN_C_SOURCE', '-I' + rt,
-                  '-I' + gen, '-ffp-contract=off', '-fno-strict-aliasing', '-w']
-        cxxflags = ['-O2', *self.arch, '-g0', '-std=c++20', '-I' + os.path.join(rt, 'voodoo'), '-w']
+        sdl_inc, sdl_link, sdl_dll = sdl2()
         units = []      # (source, object, command)
 
         def unit(src, flags, cxx=False):
@@ -253,21 +249,18 @@ class Compiler:
             obj = os.path.splitext(obj)[0] + '.o'
             units.append((src, obj, self.cc(cxx) + flags + ['-c', src, '-o', obj]))
 
-        for f in ('cpu', 'sched', 'hw', 'main', 'frontend_sdl', 'enhanced', 'net', 'portmap'):
-            unit(os.path.join(rt, f + '.c'), cflags + ['-I' + sdl_inc] + tp_inc)
-        for f in ('voodoo', 'voodoo_2', 'voodoo_banshee', 'voodoo_render', 'voodoo_bridge', 'voodoo_gpu'):
-            unit(os.path.join(rt, 'voodoo', f + '.cpp'), cxxflags, True)
-        unit(os.path.join(rt, 'gpu_gl.cpp'), cxxflags + ['-I' + sdl_inc], True)
-        tps = [os.path.join(tp, 'miniupnpc', 'src', f) for f in sorted(os.listdir(os.path.join(tp, 'miniupnpc', 'src')))
-               if f.endswith('.c')]
-        tps += [os.path.join(tp, 'libnatpmp', 'natpmp.c'), os.path.join(tp, 'libnatpmp', 'getgateway.c')]
-        for f in tps:
-            unit(f, ['-O2', *self.arch, '-w'] + tp_inc + ['-I' + os.path.join(tp, 'miniupnpc', 'src'),
-                     '-DMINIUPNPC_SET_SOCKET_TIMEOUT', '-DMINIUPNPC_GET_SRC_ADDR', '-D_BSD_SOURCE',
-                     '-D_DEFAULT_SOURCE', '-D_DARWIN_C_SOURCE'])
+        srcs = buildspec.sources(SRC, SYSTEM)
+        for f in srcs['runtime']:
+            unit(f, self.flags('runtime', gen) + ['-I' + sdl_inc])
+        for f in srcs['voodoo']:
+            unit(f, self.flags('voodoo', gen), True)
+        for f in srcs['gl']:
+            unit(f, self.flags('gl', gen) + ['-I' + sdl_inc], True)
+        for f in srcs['third_party']:
+            unit(f, self.flags('third_party', gen))
         gen_srcs = open(os.path.join(gen, 'sources.mk')).read().split('=', 1)[1].split()
         for f in gen_srcs:
-            unit(os.path.join(gen, os.path.basename(f)), cflags + ['-frounding-math'])
+            unit(os.path.join(gen, os.path.basename(f)), self.flags('generated', gen))
 
         if os.path.isdir(build):
             shutil.rmtree(build)
@@ -286,7 +279,12 @@ class Compiler:
         log(f"\r  compiled {len(units)} files in {time.time() - t0:.0f} s" + ' ' * 10)
 
         exe = os.path.join(HOME, g['binary'] + EXE)
-        run(self.cc(True) + ['-s', '-o', exe] + [o for _, o, _ in units] + sdl_link + ['-lpthread', '-lm'], self.env)
+        libs = buildspec.libs(SYSTEM)
+        if SYSTEM == 'Windows':     # main.c exports the hints for the dedicated GPU: their import library, out of sight
+            libs = libs + ['-Wl,--out-implib,' + os.path.join(build, g['binary'] + '.lib')]
+        run(self.cc(True) + ['-s', '-o', exe] + [o for _, o, _ in units] + sdl_link + libs, self.env)
+        if sdl_dll:
+            shutil.copyfile(sdl_dll, os.path.join(HOME, os.path.basename(sdl_dll)))
         return exe
 
 
@@ -298,6 +296,8 @@ def cpu_id():
     if SYSTEM == 'Darwin':
         r = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], capture_output=True, text=True)
         return r.stdout.strip() or platform.machine()
+    if SYSTEM == 'Windows':                     # family, model and stepping
+        return os.environ.get('PROCESSOR_IDENTIFIER') or platform.processor() or platform.machine()
     try:
         info = open('/proc/cpuinfo').read()
     except OSError:
@@ -331,7 +331,7 @@ def build_game(g, files, comp, rebuild):
     stamp_file = os.path.join(DATA, 'build', g['id'] + '.stamp.json')
     stamp = stamp_of(g, files)
     if not rebuild and os.path.exists(exe) and os.path.exists(stamp_file) and json.load(open(stamp_file)) == stamp:
-        log(f"{g['title']} ({g['version']}): up to date, ./{g['binary'] + EXE}")
+        log(f"{g['title']} ({g['version']}): up to date, {play_name(exe)}")
         return exe
     log(f"\n=== {g['title']} ({g['version']}) ===")
     t0 = time.time()
@@ -348,7 +348,7 @@ def build_game(g, files, comp, rebuild):
     log('- compiling')
     exe = comp.build(g)
     json.dump(stamp, open(stamp_file, 'w'))
-    log(f"done in {time.time() - t0:.0f} s: ./{os.path.basename(exe)}")
+    log(f"done in {time.time() - t0:.0f} s: {play_name(exe)}")
     return exe
 
 
@@ -404,9 +404,27 @@ def main():
         except (RuntimeError, SystemExit) as e:
             log(f"\n{g['title']}: the build failed.\n{e}")
             sys.exit(1)
-    log('\nReady. To play: ' + ', '.join('./' + os.path.basename(b) for b in built) +
+    log('\nReady. To play: ' + ', '.join(play_name(b) for b in built) +
         ' (enhanced mode; --classic for the cabinet)')
 
 
+def started_from_explorer():
+    """Windows: true when the program has a console of its own (a double-click in Explorer),
+    which closes as soon as it ends; from a terminal the console also holds the shell."""
+    if SYSTEM != 'Windows':
+        return False
+    try:
+        import ctypes
+        ids = (ctypes.c_uint * 8)()
+        # the PyInstaller bootloader and this process; a terminal adds its shell
+        return ctypes.windll.kernel32.GetConsoleProcessList(ids, 8) <= 2
+    except Exception:
+        return False
+
+
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        if started_from_explorer():
+            input('\nPress Enter to close this window.')

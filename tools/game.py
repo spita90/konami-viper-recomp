@@ -15,7 +15,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 
@@ -74,37 +73,29 @@ def gen_dir(g):
 
 
 def chd_tool():
-    """The command that reads CHDs: tools/chdextract.c when VIPER_CHDEXTRACT names it (the
-    release launcher builds it), else MAME's chdman. None if neither is there."""
-    if os.environ.get('VIPER_CHDEXTRACT'):
-        return [os.environ['VIPER_CHDEXTRACT']]
-    return ['chdman'] if shutil.which('chdman') else None
+    """tools/chdextract.c, which reads the CHDs: the launcher's (VIPER_CHDEXTRACT), or the one
+    `make check` and `make extract` build in build/tools/."""
+    exe = os.environ.get('VIPER_CHDEXTRACT') or os.path.join(
+        ROOT, 'build', 'tools', 'chdextract' + ('.exe' if os.name == 'nt' else ''))
+    if not os.path.exists(exe):
+        raise SystemExit(f"{os.path.relpath(exe, ROOT)} not found: run 'make check' or 'make extract', which build it")
+    return exe
 
 
 def chd_sha1(p):
-    """The CHD's internal SHA1 (the one MAME lists), None if it cannot be read."""
-    tool = chd_tool()
-    if not tool:
-        return None
-    args = ['info', '-i', p] if tool[0] == 'chdman' else ['info', p]
-    out = subprocess.run(tool + args, capture_output=True, text=True).stdout
+    """The CHD's internal SHA1 (the one MAME lists, as `chdman info` shows), None if unreadable."""
+    out = subprocess.run([chd_tool(), 'info', p], capture_output=True, text=True).stdout
     m = re.search(r'^SHA1:\s+([0-9a-f]{40})', out, re.M)
     return m.group(1) if m else None
 
 
 def chd_extracthd(chd, img):
-    """Raw hard disk image of a CHD (chdman extracthd)."""
-    tool = chd_tool()
-    if not tool:
-        raise SystemExit('chdman not found (macOS: brew install rom-tools; Linux: mame-tools)')
-    if tool[0] == 'chdman':
-        subprocess.check_call(['chdman', 'extracthd', '-i', chd, '-o', img, '-f'])
-    else:
-        subprocess.check_call(tool + ['extracthd', chd, img])
+    """Raw hard disk image of a CHD (as `chdman extracthd`)."""
+    subprocess.check_call([chd_tool(), 'extracthd', chd, img])
 
 
 def sha1_of(g, key):
-    """SHA1 as listed by MAME: for a CHD the internal one reported by chdman, else the file hash."""
+    """SHA1 as listed by MAME: for a CHD its internal one, else the file hash."""
     p = file_path(g, key)
     if p.endswith('.chd'):
         return chd_sha1(p)
@@ -363,7 +354,7 @@ def write_roms_readmes():
         w = max(len(n) for n in files)
         for name, (f, gs) in sorted(files.items(), key=lambda kv: (not kv[0].endswith('.chd'), kv[0])):
             if f.get('sha1'):
-                desc = "SHA1 " + f['sha1'] + (" (internal CHD SHA1, see 'chdman info')" if name.endswith('.chd') else "")
+                desc = "SHA1 " + f['sha1'] + (" (the CHD's internal SHA1)" if name.endswith('.chd') else "")
             else:
                 desc = "no known dump: optional, the game starts with an empty NVRAM"
             lines.append(f"  {name.ljust(w)}  {desc}")

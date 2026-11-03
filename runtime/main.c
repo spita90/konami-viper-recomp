@@ -20,6 +20,7 @@
 #endif
 #ifdef _WIN32
 #include <windows.h>
+#include <process.h>
 /* laptops with two GPUs: run OpenGL (the GPU renderer) on the dedicated one */
 __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
 __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
@@ -472,7 +473,21 @@ int main(int argc, char **argv) {
         hw_shutdown();
         fflush(NULL);
         setenv("RT_RESTARTED", "1", 1);  /* the frontend raises the new window */
+#ifdef _WIN32
+        /* the C runtime joins the arguments with spaces into one command line: quoted, a path
+         * with spaces (C:\Users\Name Surname\...) stays one argument */
+        static char *qargv[128];
+        int n = 0;
+        for (; argv[n] && n < 127; n++) {
+            size_t len = strlen(argv[n]) + 3;
+            qargv[n] = malloc(len);
+            snprintf(qargv[n], len, "\"%s\"", argv[n]);
+        }
+        qargv[n] = NULL;
+        _execv(g_exe, (const char *const *)qargv);
+#else
         execv(g_exe, argv);
+#endif
         fprintf(stderr, "restart failed: %s\n", g_exe);
     }
     rt_fatal("window closed");

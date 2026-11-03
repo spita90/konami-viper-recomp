@@ -170,7 +170,8 @@ roms/
 | `gticlub2ea/941a02.chd`                 | GTI Club 2 (EAA) CF card                                     | `dd180ad92dd344b38f160e31833077e342cee38d` |
 | `gticlub2ea/941eaa_nvram.u39`           | GTI Club 2 (EAA) NVRAM                                       | `92e0ce01049308f459985d466fbfcfac82f34a47` |
 
-- **CHD hashes:** for a CHD, the hash is the CHD's internal SHA1, as shown by `chdman info`.
+- **CHD hashes:** for a CHD, the hash is the CHD's internal SHA1, as shown by `chdman info`
+  (or `build/tools/chdextract info`, which the build uses).
 - **Checking your files:** `make check GAME=<id>` compares your files with this table. It also
   runs automatically before extraction.
 - **Files you don't need:** `941a01.u25`, the other BIOS revision in `kviper`, is not used.
@@ -193,6 +194,8 @@ make -j8     GAME=thrild2     # generated/thrild2/ + runtime/ -> ./td2
   need them regenerated.
 - **Several games:** each game builds into its own `work/<id>/`, `generated/<id>/` and
   `build/<id>/`, so you can build several side by side. `GAME` defaults to `thrild2`.
+- **Sources and flags:** `tools/buildspec.py` lists them for the Makefile (it writes
+  `build/make-vars.mk`) and for the release packages' launcher, so the two builds stay the same.
 - **Profiles:** each version is described by `games/<id>/game.json`: the expected files, the
   modules to recompile, the input defaults and the calibration. Versions of the same game
   inherit the main profile. `make games` lists them.

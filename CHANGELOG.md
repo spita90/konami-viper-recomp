@@ -5,6 +5,34 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Added
+
+- **A download for Windows x86-64**, as for Linux and macOS: `viper-setup.exe` builds the games
+  on the player's computer with the zig it carries and SDL2's MinGW package (`SDL2.dll` goes
+  next to the games). Double-clicked, it waits for Enter before closing its window.
+
+### Changed
+
+- **The build from the sources no longer needs chdman** (`rom-tools`, `mame-tools`): `make check`
+  and `make extract` build `tools/chdextract.c` (libchdr) into `build/tools/` and read the CHDs
+  with it, as the packages do.
+- **One description of the build:** the sources, flags and libraries of the executables are in
+  `tools/buildspec.py`, used by the Makefile (through `build/make-vars.mk`) and by the packages'
+  launcher. On x86-64 both build for the computer's own CPU without AVX-512
+  (`-march=native -mno-avx512f`) instead of `-mfma -mavx2`: with AVX-512, gcc changes a few
+  pixels of the software renderer, and the builds are compared bit for bit.
+
+### Removed
+
+- **`make WIN=1`**, the Windows cross-build from macOS: the Windows package replaces it.
+
+### Fixed
+
+- **Windows: the restart after changing the game options** (enhanced mode) no longer fails when
+  the game's path has spaces (`C:\Users\Name Surname\...`): the arguments are quoted.
+
 ## [0.12.0] - 2026-11-03
 
 ### Added
@@ -435,6 +463,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/spita90/konami-viper-recomp/compare/5cca0f5...v0.12.0
 [0.11.1]: https://github.com/spita90/konami-viper-recomp/compare/52d4260...5cca0f5
 [0.11.0]: https://github.com/spita90/konami-viper-recomp/compare/0e2bedc...52d4260

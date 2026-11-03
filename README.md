@@ -13,21 +13,24 @@ I/O, CF card and timekeeper. This is not an emulator.
 ## Download and play
 
 The [releases](https://github.com/spita90/konami-viper-recomp/releases/latest) have packages for
-**Linux x86-64** and **macOS on Apple Silicon**, with nothing else to install. They hold no game
-code: they build the ports on your computer from your own dumps, in about a minute, the first
-time only.
+**Windows x86-64**, **Linux x86-64** and **macOS on Apple Silicon**, with nothing else to
+install. They hold no game code: they build the ports on your computer from your own dumps, in
+about a minute, the first time only.
 
 1. Extract the package and copy your files into its `roms/` folder, in any layout: loose files
    or MAME's zips, and the CHD folders.
-2. Open a terminal in the package's folder (where `viper-setup` is). On macOS, once:
-   `xattr -dr com.apple.quarantine .` (the package is not signed by Apple, and macOS blocks its
-   programs until then).
-3. Run `./viper-setup` (or `./viper-setup --roms /path/to/your/roms`). It checks your files and
-   builds every game it can.
-4. Play: `./td2`, `./gticlub2`, ... After an update, or on another computer, run `./viper-setup`
+2. Run the setup, which checks your files and builds every game it can:
+   - **Windows:** double-click `viper-setup.exe`. It is not signed, so Windows may show "Windows
+     protected your PC": "More info", then "Run anyway".
+   - **Linux and macOS:** open a terminal in the package's folder (where `viper-setup` is) and
+     run `./viper-setup` (or `./viper-setup --roms /path/to/your/roms`). On macOS, once before:
+     `xattr -dr com.apple.quarantine .` (the package is not signed by Apple, and macOS blocks
+     its programs until then).
+3. Play: `td2.exe`, `gticlub2.exe`, ... on Windows (a double-click is enough), `./td2`,
+   `./gticlub2`, ... on Linux and macOS. After an update, or on another computer, run the setup
    again.
 
-There is no Windows package yet. You can also [build from the sources](#build-from-the-sources).
+You can also [build from the sources](#build-from-the-sources).
 
 ## Two ways to play
 
@@ -130,13 +133,11 @@ the [guide](docs/GUIDE.md#enhanced-mode).
 
 ## Build from the sources
 
-Tested on macOS (Apple Silicon) and Linux. Windows is not supported yet: an experimental Windows
-executable can be cross-built (`make WIN=1 GAME=<id>`, see
-[ARCHITECTURE.md](docs/ARCHITECTURE.md#windows-cross-build-make-win1)).
+On macOS and Linux. On Windows, use the package.
 
-1. **Install the tools:** a C/C++ compiler, `make`, Python 3, SDL2 and `chdman` (MAME's tools).
-   - macOS, with [Homebrew](https://brew.sh) and Xcode's command-line tools: `brew install sdl2 rom-tools`
-   - Debian/Ubuntu: `sudo apt install build-essential python3 libsdl2-dev mame-tools`
+1. **Install the tools:** a C/C++ compiler, `make`, Python 3 and SDL2.
+   - macOS, with [Homebrew](https://brew.sh) and Xcode's command-line tools: `brew install sdl2`
+   - Debian/Ubuntu: `sudo apt install build-essential python3 libsdl2-dev`
 2. **Add your files:** the BIOS into `roms/kviper/`, each game into the folder of its MAME set,
    for example `roms/thrild2/`. Each folder has a `README.txt` with the files it expects.
 3. **Build** (extract, recompile and compile, about a minute):
