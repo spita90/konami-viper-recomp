@@ -78,6 +78,16 @@
       }
     }
   },
+  "idle": {
+    "game": {
+      "0x4c1f4": {
+        "note": "the idle task's polling loop (0x4c144-0x4c204, about half the CPU in the attract and in a race): each pass compares 6 state bytes with their previous values and calls the kernel only for those that changed (0x4c170); a pass with nothing changed is skipped (rt_idle)",
+        "work": ["0x4c170"],
+        "loop": ["0x4c144", "0x4c204"],
+        "crc32": "0x04a54268"
+      }
+    }
+  },
   "inputs": {
     "defaults": [
       255,

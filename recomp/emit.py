@@ -111,6 +111,11 @@ class Emitter:
     def emit(self):
         fn = self.fn
         self.out.append(f"void {fn.name}(PPCContext *c) {{")
+        # idle loops in this function: the state of each, and which loop each work address marks
+        idle = {end: work for end, work in self.mod.idle.items() if end in fn.insns}
+        work = {w: end for end, ws in idle.items() for w in ws}
+        for end in idle:
+            self.w(f"static RtIdle idle_{end:08x};")
         self.w(f"CHK(c, {h(fn.entry)}, 0);")
         if min(fn.insns) != fn.entry:
             self.w(f"goto L_{fn.entry:08x};")   # body contains code below the entry point
@@ -147,6 +152,10 @@ class Emitter:
                 self.w(f"TRACE(c, {h(a)});")
             if a in self.mod.hooks:
                 self.w(f"rt_hook(c, {h(a)});")
+            if a in idle:
+                self.w(f"rt_idle(c, &idle_{a:08x});")
+            if a in work:
+                self.w(f"idle_{work[a]:08x}.clean = 0;")
             self.insn(i)
             # every block either ends in a branch or continues at a+4 (which is in the body)
             if not self.ends_flow(i) and a + 4 not in fn.insns:

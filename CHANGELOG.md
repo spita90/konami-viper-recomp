@@ -7,6 +7,16 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Added
+
+- **Idle loop skipping:** Thrill Drive 2 and GTI Club 2 spend about half of their CPU time in the
+  idle task's polling loop. The passes of that loop that would find nothing to do are now charged
+  without running them: the game itself runs exactly the same (registers and frames compared over
+  a race, in all five versions), with about 40% less CPU time for the game code; with the GPU
+  renderer that is most of the program's CPU time. The profiles mark the loop (`"idle"` in
+  `game.json`, checked against the code's CRC-32, so a version with other code ignores it);
+  `RT_IDLE=0` turns it off.
+
 ### Changed
 
 - **The enhanced mode is now the default:** the game starts in enhanced mode, also when the

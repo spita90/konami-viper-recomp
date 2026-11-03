@@ -30,6 +30,7 @@ class Module:
         self.bss_end = bss_end
         self.local_indirect = {}   # entry -> set of targets reachable by bctr/blr inside that function
         self.hooks = set()         # addresses where the generated code calls rt_hook() first (mods)
+        self.idle = {}             # idle loops: {end of a pass: [work addresses]} (rt_idle)
         self._cache = {}
 
     def contains(self, a):

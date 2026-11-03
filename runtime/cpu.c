@@ -357,6 +357,31 @@ void rt_eat_cycles(uint32_t n) { g_ctx.budget -= n; }
 
 uint64_t rt_now(void) { return g_ctx.cycles + (uint64_t)(g_slice - g_ctx.budget); }
 
+/* Idle loop skipping (profile hint "idle", recomp/recomp.py). The game's idle task polls a table
+ * in RAM that only interrupts and other tasks change, and those run only at a time checkpoint:
+ * until the slice ends, every pass of the loop repeats the previous one. This is called at the
+ * end of each pass. If the pass that just ended found nothing to do (no "work" address reached:
+ * the generated code clears `clean` there) and no checkpoint happened during it, the budget it
+ * took is the cost P of a pass, and k whole passes are charged at once, always leaving more than
+ * one to run. The last passes run for real and end the slice at the same instruction, cycle and
+ * register state as without skipping, so the game runs the same; the host only runs fewer passes.
+ * RT_IDLE=0 turns it off (to compare). */
+void rt_idle(PPCContext *c, RtIdle *s) {
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("RT_IDLE"); on = !e || atoi(e) != 0; }
+    if (on && s->clean && s->cycles == c->cycles && s->slice == g_slice) {
+        int64_t p = s->budget - c->budget;
+        if (p > 0) {
+            int64_t k = (c->budget - 1) / p - 1;   /* leaves a budget in (P, 2P]: no check fires early */
+            if (k > 0) c->budget -= k * p;
+        }
+    }
+    s->budget = c->budget;
+    s->slice = g_slice;
+    s->cycles = c->cycles;
+    s->clean = 1;
+}
+
 void rt_shorten_slice(uint64_t until) {
     int64_t d = (int64_t)(until - rt_now());
     if (d < 1) d = 1;

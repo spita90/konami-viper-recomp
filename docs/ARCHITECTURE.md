@@ -657,6 +657,20 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   34 ms, so its own main loop sets the 30 fps: one frame every two vblanks of the ~57.5 Hz
   display. The idle part of that loop takes about 64% of the CPU in a race (`0x45E1C` in GTI
   Club 2 JAB, found with `RT_PROFILE`).
+- **Idle loop skipping.** That loop is the idle task's: the same routine in both games
+  (`0x4C144`–`0x4C204` in Thrill Drive 2, all three versions; `0x45E1C`–`0x45EDC` in GTI Club 2 JAB;
+  `0x45E40`–`0x45F00` in EAA). Each pass
+  compares 6 state bytes with their previous values and calls the kernel for those that changed;
+  the bytes are written by interrupts and other tasks, which run only at a time checkpoint. The
+  profile's `"idle"` hint marks the end of a pass and the "work" addresses (a byte changed); the
+  recompiler emits `rt_idle()` at the end of each pass (runtime/cpu.c). When the pass that just
+  ended reached no work address and no checkpoint happened during it, the budget it took is the
+  cost of a pass, and whole passes are charged at once, always leaving more than one to run: the
+  slice then ends at the same instruction, cycle and register state as without skipping. Checked
+  over scripted races of all five versions: final registers and every compared frame identical
+  with `RT_IDLE=0` and without; about 40% less CPU time for the game code (enhanced mode, GPU renderer
+  at 2X: Thrill Drive 2 7.1 s -> 4.0 s of CPU for 120 s of game). The hint carries the CRC-32 of the
+  loop's code: a version whose code differs (or moved) ignores it, with a message from the recompiler.
 - **The logic steps per frame.** A build with a CPU three times slower (`RECOMP_CYCLE_SCALE=3`)
   runs at 14–19 fps, and the race slows down with it: the lap time advanced 5.3 s in 10 emulated
   seconds. Only the countdown follows real time, because it counts vblanks.

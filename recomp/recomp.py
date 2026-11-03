@@ -7,12 +7,17 @@ work/<id>/ is produced by tools/extract.py (kernel.bin + fs/...). The modules to
 the hints for hand-written code come from games/<id>/game.json:
   "hints": {"<module>": {"entries": ["0xADDR", ...],
                           "local_indirect": {"0xADDR": {"slots": [lo, hi, step], "targets": [...]}}}}
+and the idle loops to skip (runtime/cpu.c, rt_idle) from:
+  "idle": {"<module>": {"0xEND": {"work": ["0xADDR", ...], "loop": ["0xLO", "0xHI"], "crc32": "0x..."}}}
+0xEND is reached once per pass of the loop, the work addresses only when a pass has something to do;
+the hint applies only if the code in [LO, HI) has that CRC-32 (a version with other code ignores it).
 """
 import json
 import os
 import struct
 import sys
 import time
+import zlib
 
 sys.path.insert(0, os.path.dirname(__file__))
 from analyze import Module, discover          # noqa: E402
@@ -75,6 +80,19 @@ def apply_hints(m, h):
     return extra
 
 
+def idle_sites(m, spec):
+    """{end address: [work addresses]} of the module's idle hints whose code matches."""
+    out = {}
+    for end, h in spec.items():
+        lo, hi = (int(x, 16) for x in h['loop'])
+        crc = zlib.crc32(b''.join(struct.pack('>I', m.word(a)) for a in range(lo, hi, 4)))
+        if crc != int(h['crc32'], 16):
+            print(f"{m.name}: idle loop {end} not applied (its code differs: CRC-32 {crc:#010x})")
+            continue
+        out[int(end, 16)] = [int(w, 16) for w in h['work']]
+    return out
+
+
 def main(gid):
     g = game.load(gid)
     work, out = game.work_dir(g), game.gen_dir(g)
@@ -88,6 +106,7 @@ def main(gid):
     for m in mods:
         t0 = time.time()
         m.hooks = {int(a, 16) for a in hooks.get(m.name, {})}
+        m.idle = idle_sites(m, g.get('idle', {}).get(m.name, {}))
         funcs, entries = discover(m, apply_hints(m, hints.get(m.name, {})))
         all_funcs[m.name] = (m, funcs, entries)
         ninsn = sum(len(f.insns) for f in funcs.values())
@@ -95,6 +114,12 @@ def main(gid):
         njt = sum(len(f.jumptables) for f in funcs.values())
         print(f"{m.name:9s} base={m.base:#08x} text={m.text[0]:#x}-{m.text[1]:#x} toc={(m.toc or 0):#x} "
               f"funcs={len(funcs)} insns={ninsn} bad={nbad} jumptables={njt} ({time.time()-t0:.1f}s)")
+
+    for m, funcs, _ in all_funcs.values():         # an idle loop and its work addresses: one function
+        for end, work in m.idle.items():
+            fns = [f for f in funcs.values() if all(a in f.insns for a in [end] + work)]
+            if not fns:
+                raise SystemExit(f"{m.name}: idle loop {end:#x} and its work addresses are not in one function")
 
     def resolve_call(mod, target):
         _, funcs, entries = all_funcs[mod.name]

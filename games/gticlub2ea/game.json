@@ -28,6 +28,17 @@
       "sha1": "92e0ce01049308f459985d466fbfcfac82f34a47"
     }
   },
+  "idle": {
+    "game": {
+      "0x45ecc": null,
+      "0x45ef0": {
+        "note": "the idle task's polling loop of ver JAB, 0x24 bytes further (0x45e40-0x45f00): see gticlub2",
+        "work": ["0x45e6c"],
+        "loop": ["0x45e40", "0x45f00"],
+        "crc32": "0x04a54268"
+      }
+    }
+  },
   "inputs": {
     "defaults": [
       255,

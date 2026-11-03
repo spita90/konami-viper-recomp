@@ -142,6 +142,10 @@ void rt_trace_bp(PPCContext *c, uint32_t pc);
 
 void rt_call(PPCContext *c, uint32_t target);       /* indirect call through dispatch */
 void rt_hook(PPCContext *c, uint32_t pc);           /* profile hooks (runtime/enhanced.c) */
+/* idle loops (profile "idle" hints): the end of a pass of the game's polling loop, where whole
+ * passes that would find nothing to do are charged without running them (runtime/cpu.c) */
+typedef struct RtIdle { int64_t budget, slice; uint64_t cycles; int clean; } RtIdle;
+void rt_idle(PPCContext *c, RtIdle *s);
 int rt_sc(PPCContext *c, uint32_t next_pc);   /* 1: resumed at LR -> return */
 void rt_rfi(PPCContext *c);
 void rt_mtmsr(PPCContext *c, uint32_t v, uint32_t next_pc);
