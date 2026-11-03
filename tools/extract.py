@@ -12,7 +12,6 @@ usage: extract.py <game id>      (see games/, e.g. thrild2)
 import os
 import shutil
 import struct
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -47,9 +46,7 @@ def main(gid):
     os.makedirs(work, exist_ok=True)
     img = os.path.join(work, 'cf.img')
     if not os.path.exists(img):
-        if not shutil.which('chdman'):
-            raise SystemExit('chdman not found (macOS: brew install rom-tools; Linux: mame-tools)')
-        subprocess.check_call(['chdman', 'extracthd', '-i', chd, '-o', img, '-f'])
+        game.chd_extracthd(chd, img)
     fat_extract.main(img, os.path.join(work, 'cf'))
     bins = [f for f in os.listdir(os.path.join(work, 'cf')) if f.upper().endswith('.BIN')]
     binpath = os.path.join(work, 'cf', bins[0])

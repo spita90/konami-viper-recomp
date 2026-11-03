@@ -20,7 +20,12 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROMS = os.path.join(ROOT, 'roms')
+# The release launcher (dist/launcher.py) keeps the sources apart from the data: VIPER_DATA holds
+# roms/, work/ and generated/, and VIPER_BINDIR the executables (the paths built into them are
+# relative to it). Unset, both are the repository, as with the Makefile.
+DATA = os.environ.get('VIPER_DATA') or ROOT
+BINDIR = os.environ.get('VIPER_BINDIR') or ROOT
+ROMS = os.path.join(DATA, 'roms')
 
 
 def ids():
@@ -61,22 +66,48 @@ def file_path(g, key):
 
 
 def work_dir(g):
-    return os.path.join(ROOT, 'work', g['id'])
+    return os.path.join(DATA, 'work', g['id'])
 
 
 def gen_dir(g):
-    return os.path.join(ROOT, 'generated', g['id'])
+    return os.path.join(DATA, 'generated', g['id'])
+
+
+def chd_tool():
+    """The command that reads CHDs: tools/chdextract.c when VIPER_CHDEXTRACT names it (the
+    release launcher builds it), else MAME's chdman. None if neither is there."""
+    if os.environ.get('VIPER_CHDEXTRACT'):
+        return [os.environ['VIPER_CHDEXTRACT']]
+    return ['chdman'] if shutil.which('chdman') else None
+
+
+def chd_sha1(p):
+    """The CHD's internal SHA1 (the one MAME lists), None if it cannot be read."""
+    tool = chd_tool()
+    if not tool:
+        return None
+    args = ['info', '-i', p] if tool[0] == 'chdman' else ['info', p]
+    out = subprocess.run(tool + args, capture_output=True, text=True).stdout
+    m = re.search(r'^SHA1:\s+([0-9a-f]{40})', out, re.M)
+    return m.group(1) if m else None
+
+
+def chd_extracthd(chd, img):
+    """Raw hard disk image of a CHD (chdman extracthd)."""
+    tool = chd_tool()
+    if not tool:
+        raise SystemExit('chdman not found (macOS: brew install rom-tools; Linux: mame-tools)')
+    if tool[0] == 'chdman':
+        subprocess.check_call(['chdman', 'extracthd', '-i', chd, '-o', img, '-f'])
+    else:
+        subprocess.check_call(tool + ['extracthd', chd, img])
 
 
 def sha1_of(g, key):
     """SHA1 as listed by MAME: for a CHD the internal one reported by chdman, else the file hash."""
     p = file_path(g, key)
     if p.endswith('.chd'):
-        if not shutil.which('chdman'):
-            return None
-        out = subprocess.run(['chdman', 'info', '-i', p], capture_output=True, text=True).stdout
-        m = re.search(r'^SHA1:\s+([0-9a-f]{40})', out, re.M)
-        return m.group(1) if m else None
+        return chd_sha1(p)
     return hashlib.sha1(open(p, 'rb').read()).hexdigest()
 
 
@@ -84,7 +115,7 @@ def check(g, keys=None):
     ok = True
     for key in keys or g['files']:
         f, p = g['files'][key], file_path(g, key)
-        rel = os.path.relpath(p, ROOT)
+        rel = os.path.relpath(p, DATA)
         if not os.path.exists(p):
             if f.get('optional'):
                 print(f"  (absent) {rel}: optional, no known dump")
@@ -236,7 +267,7 @@ def game_options_config(opts):
 
 def write_config_header(g, out):
     """generated/<id>/game_config.h: the per-game constants the runtime is built with."""
-    rel = lambda p: os.path.relpath(p, ROOT)
+    rel = lambda p: os.path.relpath(p, BINDIR).replace(os.sep, '/')
     inp = g['inputs']
     cal = g.get('calibration') or {}
     if 'script' not in cal:

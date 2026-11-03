@@ -84,6 +84,24 @@ More about the enhanced mode in [Enhanced mode in detail](#enhanced-mode-in-deta
 supports both modes. The `GAME=` value is the game's MAME set name. Per-version notes are in
 [Game notes](#game-notes).
 
+## Download (Linux)
+
+The [releases](https://github.com/spita90/konami-viper-recomp/releases/latest) have a package for
+**Linux x86-64**: no toolchain to install. It holds no game code: it builds the ports on your
+computer from your own dumps, with the C compiler it carries
+([zig](https://ziglang.org)). It takes well under a minute, the first time only.
+
+1. Extract `konami-viper-<version>-linux-x86_64.tar.xz` and copy your files into its `roms/`
+   folder, in any layout: loose files or MAME's zips (`kviper.zip`, `thrild2.zip`, ...) and the CHD
+   folders. `roms/FILES.txt` lists them.
+2. Run `./viper-setup` in that folder (or `./viper-setup --roms /path/to/your/roms`, to leave your
+   files where they are). It checks the files and builds every game it can.
+3. Play: `./td2`, `./gticlub2`, ... as below. After an update of the package, run `./viper-setup`
+   again.
+
+The games use your system's SDL2 if there is one, otherwise the copy in the package. macOS and
+Windows packages are not available yet: build from the sources as below.
+
 ## Build and run
 
 Tested on macOS (Apple Silicon). Linux should work with the same steps but is untested.
@@ -342,6 +360,7 @@ listed in [CHANGELOG.md](CHANGELOG.md).
 | `runtime/`        | Runtime shared by every game: CPU context and exceptions, kernel task switching, event scheduler, Viper hardware, SDL frontend, enhanced mode         |
 | `runtime/voodoo/` | Voodoo3 core from MAME, with a small compatibility layer                                                                                              |
 | `docs/`           | Architecture and reverse-engineering notes, README screenshots                                                                                        |
+| `dist/`           | Release packages: the launcher that builds the games on the player's computer (`viper-setup`), the packaging script                                   |
 
 ## Legal
 
@@ -356,7 +375,9 @@ listed in [CHANGELOG.md](CHANGELOG.md).
   of hardware you own. Do not ask for game files in this project's issues or discussions, and
   do not link to them.
 - Do not redistribute anything the build produces from the game data: `work/`, `generated/`,
-  the executables (`td2`, `td2j`, `gticlub2`, …) and the `*_nvram.bin` files.
+  the executables (`td2`, `td2j`, `gticlub2`, …) and the `*_nvram.bin` files. The release
+  packages follow the same rule: they contain only this project's code, the third-party code
+  below and a C compiler, and the games are built on the player's computer.
 - **License:** the original code in this repository is released under the
   [BSD-3-Clause license](LICENSE). The license covers only this project's code. It grants no
   rights to the games.
