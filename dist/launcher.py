@@ -16,8 +16,9 @@ The files may be anywhere under roms/ (next to this program) or under a --roms f
 layout, loose or in MAME's zips: they are recognised by their name and SHA1.
 
 Release layout (dist/build-release.sh makes it):
-  viper-setup          this program (frozen with PyInstaller; tools/, recomp/ and games/ inside)
+  viper-setup          this program (frozen with PyInstaller)
   roms/                the player's files
+  engine/              this program's Python, and its tools/, recomp/ and games/
   engine/zig/          the C compiler
   engine/sdl2/         SDL2 headers and library
   engine/src/          runtime/, third_party/, tools/chdextract.c
@@ -199,13 +200,21 @@ def sdl2():
     return inc, flags, None
 
 
-def system_has_sdl2():
-    try:
-        import ctypes
-        ctypes.CDLL('libSDL2-2.0.so.0')
-        return True
-    except OSError:
-        return False
+def system_has_sdl2(name='libSDL2-2.0.so.0'):
+    """Whether the system itself has SDL2, from the dynamic linker's cache and the usual folders.
+    Not with ctypes: PyInstaller would bundle the build machine's SDL2 next to this program, and
+    the program's own folder is on its library path, so the answer would always be yes."""
+    for ldconfig in ('/sbin/ldconfig', '/usr/sbin/ldconfig', 'ldconfig'):
+        try:
+            out = subprocess.run([ldconfig, '-p'], capture_output=True, text=True).stdout
+        except OSError:
+            continue
+        if name in out:
+            return True
+        break
+    dirs = ('/usr/lib64', '/usr/lib', '/lib64', '/lib', '/usr/lib/x86_64-linux-gnu', '/lib/x86_64-linux-gnu',
+            '/usr/local/lib', '/usr/local/lib64')
+    return any(os.path.exists(os.path.join(d, name)) for d in dirs)
 
 
 def run(cmd, env):
@@ -277,6 +286,7 @@ class Compiler:
                 if sys.stdout.isatty():
                     print(f"\r  compiling {done}/{len(units)}", end='', flush=True)
         log(f"\r  compiled {len(units)} files in {time.time() - t0:.0f} s" + ' ' * 10)
+        log('  linking (the first time zig also builds its C++ library)')
 
         exe = os.path.join(HOME, g['binary'] + EXE)
         libs = buildspec.libs(SYSTEM)
@@ -360,6 +370,7 @@ def main():
     ap.add_argument('--rebuild', action='store_true', help='rebuild also the games that are up to date')
     ap.add_argument('-j', '--jobs', type=int, default=os.cpu_count() or 4)
     a = ap.parse_args()
+    log(f"Konami Viper setup, version {version()}")
 
     ids = a.games or game.ids()
     for i in ids:
@@ -373,6 +384,8 @@ def main():
     comp = None
     if not a.list or any(n.endswith('.chd') for g in games for n in (f['name'] for f in g['files'].values())):
         comp = Compiler(a.jobs)
+        if not os.path.exists(os.path.join(DATA, 'build', 'chdextract' + EXE)):
+            log('Preparing the tools (the first time only, a few seconds)...')
         os.environ['VIPER_CHDEXTRACT'] = comp.chdextract()
 
     wanted = {f['name'].lower() for g in games for f in g['files'].values()}

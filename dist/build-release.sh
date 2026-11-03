@@ -125,13 +125,18 @@ mkdir -p "$DIR/engine/src/tools" && cp "$ROOT/tools/chdextract.c" "$DIR/engine/s
 cp "$ROOT/LICENSE" "$DIR/engine/src/"
 echo "$VERSION" > "$DIR/engine/VERSION"
 
-# the launcher, with the python tools and the game profiles inside
-$PY -m PyInstaller --onefile --clean --noconfirm --name viper-setup \
-    --distpath "$(native "$DIR")" --workpath "$(native "$OUT/pyinstaller")" --specpath "$(native "$OUT/pyinstaller")" \
+# the launcher, with the python tools and the game profiles: one folder, not one file, so that it
+# starts at once (a single file unpacks itself to a temporary folder at every start, which an
+# antivirus then scans); its files go into engine/, next to the executable
+rm -rf "$OUT/pyinstaller-dist"
+$PY -m PyInstaller --onedir --contents-directory engine --clean --noconfirm --name viper-setup \
+    --distpath "$(native "$OUT/pyinstaller-dist")" --workpath "$(native "$OUT/pyinstaller")" \
+    --specpath "$(native "$OUT/pyinstaller")" \
     --add-data "$(native "$ROOT/tools")${SEP}tools" --add-data "$(native "$ROOT/recomp")${SEP}recomp" \
     --add-data "$(native "$ROOT/games")${SEP}games" \
     --hidden-import struct --hidden-import re \
     "$(native "$ROOT/dist/launcher.py")"
+cp -R "$OUT/pyinstaller-dist/viper-setup/." "$DIR/"
 
 # the folders for the player's files, and the instructions
 mkdir -p "$DIR/roms"

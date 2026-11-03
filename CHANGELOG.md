@@ -23,6 +23,10 @@ version can change the build, the profiles or the command-line options.
   launcher. On x86-64 both build for the computer's own CPU without AVX-512
   (`-march=native -mno-avx512f`) instead of `-mfma -mavx2`: with AVX-512, gcc changes a few
   pixels of the software renderer, and the builds are compared bit for bit.
+- **`viper-setup` starts at once and says what it is doing:** it is now a folder (its Python in
+  `engine/`) instead of a single file, which unpacked itself to a temporary folder at every
+  start, slowly where an antivirus scans it; it prints its version at once, and a line before
+  the first-time tool build and before linking.
 
 ### Removed
 
@@ -30,6 +34,9 @@ version can change the build, the profiles or the command-line options.
 
 ### Fixed
 
+- **Linux package without a system SDL2:** the games now use the package's copy, as intended.
+  In 0.12.0 the check for a system SDL2 found the copy PyInstaller had put inside `viper-setup`,
+  so the games were linked without the path to the package's copy and did not start.
 - **Windows: the restart after changing the game options** (enhanced mode) no longer fails when
   the game's path has spaces (`C:\Users\Name Surname\...`): the arguments are quoted.
 
