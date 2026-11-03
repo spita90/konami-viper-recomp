@@ -56,9 +56,10 @@ import game      # noqa: E402
 import extract   # noqa: E402
 import recomp    # noqa: E402
 
-# Linux x86-64 for now; macOS and Windows will need their own SDL2 linking and executables
-if platform.system() != 'Linux':
-    raise SystemExit('viper-setup: only Linux is supported for now')
+# Linux and macOS for now; Windows will need its own SDL2 linking and executables
+SYSTEM = platform.system()
+if SYSTEM not in ('Linux', 'Darwin'):
+    raise SystemExit('viper-setup: only Linux and macOS are supported for now')
 EXE = ''
 
 
@@ -181,6 +182,9 @@ def sdl2():
     base = os.path.join(ENGINE, 'sdl2')
     inc = os.environ.get('VIPER_SDL2_INCLUDE') or os.path.join(base, 'include', 'SDL2')
     lib = os.path.join(base, 'lib')
+    if SYSTEM == 'Darwin':                      # macOS has no SDL2 of its own: always the bundled one
+        return inc, [os.environ.get('VIPER_SDL2_LIB') or os.path.join(lib, 'libSDL2-2.0.0.dylib'),
+                     '-Wl,-rpath,@executable_path/' + os.path.relpath(lib, HOME)]
     flags = [os.environ.get('VIPER_SDL2_LIB') or os.path.join(lib, 'libSDL2-2.0.so.0')]
     if not system_has_sdl2():                   # the system's SDL2 first, the bundled one if none
         flags.append('-Wl,-rpath,$ORIGIN/' + os.path.relpath(lib, HOME))
@@ -211,8 +215,9 @@ class Compiler:
         self.env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=os.path.join(DATA, 'zig-cache'),
                         ZIG_LOCAL_CACHE_DIR=os.path.join(DATA, 'zig-cache'))
         # compiled here for this machine: the CPU's own instruction set (the Makefile uses AVX2
-        # and FMA on x86-64); -ffp-contract=off keeps the floating point as the original
-        self.arch = ['-march=native']
+        # and FMA on x86-64; on ARM, as the Makefile, the default); -ffp-contract=off keeps the
+        # floating point as the original
+        self.arch = ['-march=native'] if platform.machine() in ('x86_64', 'AMD64') else []
 
     def cc(self, cxx=False):
         return [self.zig, 'c++' if cxx else 'cc']
@@ -290,6 +295,9 @@ class Compiler:
 def cpu_id():
     """The CPU the games are compiled for (-march=native): its model and instruction set extensions.
     A folder moved to another computer (a microSD card between a PC and a Steam Deck) rebuilds."""
+    if SYSTEM == 'Darwin':
+        r = subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'], capture_output=True, text=True)
+        return r.stdout.strip() or platform.machine()
     try:
         info = open('/proc/cpuinfo').read()
     except OSError:

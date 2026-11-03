@@ -9,12 +9,12 @@ version can change the build, the profiles or the command-line options.
 
 ### Added
 
-- **A download for Linux x86-64**, with no toolchain to install: the package holds a launcher,
-  `viper-setup`, the runtime's sources and a C compiler (zig), and no game code. From the
-  player's dumps, found anywhere under `roms/` or a `--roms` folder, loose or in MAME's zips, it
-  builds the games on their computer, in under a minute, for that computer's CPU (a folder moved
-  to another computer is rebuilt). The GitHub release workflow makes the package
-  (`dist/build-release.sh`).
+- **Downloads for Linux x86-64 and macOS on Apple Silicon**, with no toolchain to install: a
+  package holds a launcher, `viper-setup`, the runtime's sources and a C compiler (zig), and no
+  game code. From the player's dumps, found anywhere under `roms/` or a `--roms` folder, loose or
+  in MAME's zips, it builds the games on their computer, in about a minute, for that computer's
+  CPU (a folder moved to another computer is rebuilt). The GitHub release workflow makes the
+  packages (`dist/build-release.sh`).
 - **Idle loop skipping:** Thrill Drive 2 and GTI Club 2 spend about half of their CPU time in the
   idle task's polling loop. The passes of that loop that would find nothing to do are now charged
   without running them: the game itself runs exactly the same (registers and frames compared over

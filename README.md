@@ -84,23 +84,25 @@ More about the enhanced mode in [Enhanced mode in detail](#enhanced-mode-in-deta
 supports both modes. The `GAME=` value is the game's MAME set name. Per-version notes are in
 [Game notes](#game-notes).
 
-## Download (Linux)
+## Download (Linux and macOS)
 
-The [releases](https://github.com/spita90/konami-viper-recomp/releases/latest) have a package for
-**Linux x86-64**: no toolchain to install. It holds no game code: it builds the ports on your
-computer from your own dumps, with the C compiler it carries
-([zig](https://ziglang.org)). It takes well under a minute, the first time only.
+The [releases](https://github.com/spita90/konami-viper-recomp/releases/latest) have packages for
+**Linux x86-64** and **macOS on Apple Silicon**: no toolchain to install. They hold no game code:
+they build the ports on your computer from your own dumps, with the C compiler they carry
+([zig](https://ziglang.org)). It takes about a minute, the first time only.
 
-1. Extract `konami-viper-<version>-linux-x86_64.tar.xz` and copy your files into its `roms/`
-   folder, in any layout: loose files or MAME's zips (`kviper.zip`, `thrild2.zip`, ...) and the CHD
-   folders. `roms/FILES.txt` lists them.
-2. Run `./viper-setup` in that folder (or `./viper-setup --roms /path/to/your/roms`, to leave your
-   files where they are). It checks the files and builds every game it can.
-3. Play: `./td2`, `./gticlub2`, ... as below. After an update of the package, run `./viper-setup`
-   again.
+1. Extract `konami-viper-<version>-linux-x86_64.tar.xz` or `konami-viper-<version>-macos-arm64.zip`
+   and copy your files into its `roms/` folder, in any layout: loose files or MAME's zips
+   (`kviper.zip`, `thrild2.zip`, ...) and the CHD folders. `roms/FILES.txt` lists them.
+2. Open a terminal in that folder. On macOS, once: `xattr -dr com.apple.quarantine .` (the package
+   is not signed by Apple, and macOS blocks the programs in it until then).
+3. Run `./viper-setup` (or `./viper-setup --roms /path/to/your/roms`, to leave your files where
+   they are). It checks the files and builds every game it can.
+4. Play: `./td2`, `./gticlub2`, ... as below. After an update of the package, or on another
+   computer, run `./viper-setup` again.
 
-The games use your system's SDL2 if there is one, otherwise the copy in the package. macOS and
-Windows packages are not available yet: build from the sources as below.
+On Linux the games use your system's SDL2 if there is one, otherwise the copy in the package.
+There is no Windows package yet: build from the sources as below.
 
 ## Build and run
 
