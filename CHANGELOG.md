@@ -37,6 +37,10 @@ version can change the build, the profiles or the command-line options.
 - **Linux package without a system SDL2:** the games now use the package's copy, as intended.
   In 0.12.0 the check for a system SDL2 found the copy PyInstaller had put inside `viper-setup`,
   so the games were linked without the path to the package's copy and did not start.
+- **Windows: a click in the console window no longer stops the program.** With the console's
+  QuickEdit mode (on by default) a click starts a selection, and Windows suspends the program at
+  its next output until a key is pressed: `viper-setup.exe` looked stuck, and the game would
+  stop at its next log line. Both turn QuickEdit off while they run, and back as it was at exit.
 - **Windows: the restart after changing the game options** (enhanced mode) no longer fails when
   the game's path has spaces (`C:\Users\Name Surname\...`): the arguments are quoted.
 

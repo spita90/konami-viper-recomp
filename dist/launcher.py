@@ -429,15 +429,37 @@ def started_from_explorer():
     try:
         import ctypes
         ids = (ctypes.c_uint * 8)()
-        # the PyInstaller bootloader and this process; a terminal adds its shell
-        return ctypes.windll.kernel32.GetConsoleProcessList(ids, 8) <= 2
+        return ctypes.windll.kernel32.GetConsoleProcessList(ids, 8) == 1
     except Exception:
         return False
 
 
+def console_quick_edit(on):
+    """Windows: turns the console's QuickEdit mode off (on=False) and back on. With it, a click
+    in the window starts a selection ("Select" in the title) and Windows suspends the program at
+    its next output until a key is pressed, so a build looks stuck. Returns the previous mode."""
+    if SYSTEM != 'Windows':
+        return None
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.GetStdHandle(-10)             # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not k.GetConsoleMode(h, ctypes.byref(mode)):
+            return None
+        quick_edit, extended = 0x0040, 0x0080
+        k.SetConsoleMode(h, (mode.value | extended) | quick_edit if on else (mode.value | extended) & ~quick_edit)
+        return bool(mode.value & quick_edit)
+    except Exception:
+        return None
+
+
 if __name__ == '__main__':
+    was_quick_edit = console_quick_edit(False)
     try:
         main()
     finally:
         if started_from_explorer():
             input('\nPress Enter to close this window.')
+        if was_quick_edit:
+            console_quick_edit(True)

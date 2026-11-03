@@ -350,7 +350,29 @@ static void usage(void) {
     exit(2);
 }
 
+#ifdef _WIN32
+/* The console's QuickEdit mode: a click in the console window starts a selection, and Windows
+ * then suspends the program at its next log line until a key is pressed, the game included.
+ * Off while the game runs, back as it was at exit (the console may be the user's own prompt). */
+static DWORD g_console_mode;
+static int g_console_saved;
+static void console_restore(void) {
+    if (g_console_saved) SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), g_console_mode);
+}
+static void console_no_quick_edit(void) {
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &g_console_mode)) return;
+    if (SetConsoleMode(h, (g_console_mode | ENABLE_EXTENDED_FLAGS) & ~ENABLE_QUICK_EDIT_MODE)) {
+        g_console_saved = 1;
+        atexit(console_restore);
+    }
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    console_no_quick_edit();
+#endif
     g_argv0 = argv[0];
     find_executable(argv[0]);
     const char *settings = beside_exe(GAME_SETTINGS);
@@ -484,6 +506,7 @@ int main(int argc, char **argv) {
             snprintf(qargv[n], len, "\"%s\"", argv[n]);
         }
         qargv[n] = NULL;
+        console_restore();              /* _execv skips atexit: the new process saves it again */
         _execv(g_exe, (const char *const *)qargv);
 #else
         execv(g_exe, argv);

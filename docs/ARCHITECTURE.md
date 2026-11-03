@@ -1239,7 +1239,9 @@ Open:
   - `main.c`: executable path from `GetModuleFileNameA`, the first-run scripted passes pass their
     variables through the inherited environment (`cmd.exe` has no `VAR=value cmd`), no
     `RT_INPUT_FIFO`; the options-apply restart quotes its arguments, since the C runtime's
-    `_execv` joins them with spaces (a path with spaces would split);
+    `_execv` joins them with spaces (a path with spaces would split); the console's QuickEdit mode
+    is off while the game runs (a click in the console would suspend the game at its next log
+    line), and back as it was at exit;
   - `runtime.h`: `localtime_r`, `setenv`, `unsetenv` mapped to the MSVC runtime;
   - `voodoo/emu.h`: GCC rejects `inline` twice, so `ATTR_FORCE_INLINE` is MAME's own definition
     (`always_inline` alone) when the compiler is not Clang;
