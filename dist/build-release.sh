@@ -148,7 +148,7 @@ for i in game.ids():
 
 case $PLATFORM in
 linux-*)
-    XZ_OPT=-9T0 tar -cJf "$OUT/$NAME.tar.xz" -C "$OUT" "$NAME"
+    XZ_OPT=-6T0 tar -cJf "$OUT/$NAME.tar.xz" -C "$OUT" "$NAME"     # -9: 3x the time for 2.5% less
     echo "$OUT/$NAME.tar.xz" ;;
 macos-*)
     rm -f "$OUT/$NAME.zip"
