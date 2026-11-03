@@ -19,7 +19,8 @@ on it. Other games and versions run on the same board with the same BIOS and hav
 The repository contains none of these files and nothing derived from them. `roms/` (except its
 README and placeholders), `work/`, `generated/`, `build/`, the executables and the
 `*_nvram.bin` files are all in `.gitignore`. Users put their files in `roms/<MAME set>/`, as
-described in the [README](../README.md). The README also lists the full SHA1s.
+described in the [README](../README.md). The full SHA1s are listed in the
+[guide](GUIDE.md#required-files-and-their-sha1).
 
 | File | Role | Notes |
 |---|---|---|
