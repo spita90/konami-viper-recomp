@@ -5,6 +5,26 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Added
+
+- **EXTRA modes** (enhanced mode, main menu EXTRA): alternative rules for a race.
+  - **Gravity** (GTI Club 2): every 10 seconds the gravity turns light (0.1 to 0.5 times the
+    normal one) or heavy (2 to 4 times), in the air and in the grip on the road, with 5-second
+    moments at zero G; the CPU cars fly by it too, and the time is 1.2 times longer.
+  - **Speed** (both games): a bomb arms itself at 50 km/h (30 mph with the speedometer in mph)
+    and explodes after 2 seconds below it, ending the race. In Thrill Drive 2 the car is the bus.
+  - **Pass the bomb** (GTI Club 2): a bomb passes from car to car on contact; when it explodes,
+    that car goes up in flames (the game's own fire) and stands still for 4 seconds. The time is 1.2 times longer.
+  - **Elimination** (GTI Club 2): every 45 seconds the last car is out; the goal is only a
+    checkpoint until one car is left, and the winner goes on to the next course.
+  - **Police** (Thrill Drive 2): in the police car, the CPU cars are on the run; staying right on
+    one for 3 seconds in a row arrests it.
+- **OPTIONS → GAME → SPEEDOMETER** (all versions): km/h or mph, the TEST MODE setting.
+- `RT_DUMP_RAM_EVERY` and `RT_DUMP_RAM_RANGE`: RAM dumps every N frames, for finding the game's
+  variables.
+
 ## [0.13.0] - 2026-11-03
 
 ### Added

@@ -147,7 +147,31 @@ void rt_frame_published(uint64_t cnt, const uint32_t *buf, int w, int h) {
     static int fps_stats = -1;
     static uint64_t last_hash, uniq, last_sec;
     if (fps_stats < 0) fps_stats = getenv("RT_FPS_STATS") != NULL;
-    if (!buf) return;                               /* GPU renderer: the picture is on the GPU */
+    /* RT_DUMP_RAM_EVERY=N[,K]: --dump-ram FILE.<frame> every N frames (and K frames after each, for
+     * a velocity); RT_DUMP_RAM_RANGE=lo-hi (hex) dumps only that range, all frames appended to
+     * FILE.range */
+    static int dump_every = -1, dump_pair;
+    static uint32_t dump_lo, dump_hi;
+    if (dump_every < 0) {
+        dump_every = getenv("RT_DUMP_RAM_EVERY") && g_dump_ram ? atoi(getenv("RT_DUMP_RAM_EVERY")) : 0;
+        const char *k = dump_every ? strchr(getenv("RT_DUMP_RAM_EVERY"), ',') : NULL;
+        if (k) dump_pair = atoi(k + 1);
+        const char *r = getenv("RT_DUMP_RAM_RANGE");
+        if (r && sscanf(r, "%x-%x", &dump_lo, &dump_hi) != 2) dump_lo = dump_hi = 0;
+        if (dump_hi > RAM_SIZE || dump_lo >= dump_hi) dump_lo = dump_hi = 0;
+    }
+    if (dump_every > 0 && (cnt % (uint64_t)dump_every == 0 || (dump_pair && cnt % (uint64_t)dump_every == (uint64_t)dump_pair))) {
+        char path[1024];
+        if (dump_hi) snprintf(path, sizeof path, "%s.range", g_dump_ram);
+        else snprintf(path, sizeof path, "%s.%06llu", g_dump_ram, (unsigned long long)cnt);
+        FILE *f = fopen(path, dump_hi ? "ab" : "wb");
+        if (f) {
+            if (dump_hi) { uint32_t hd[2] = { (uint32_t)cnt, dump_hi - dump_lo }; fwrite(hd, sizeof hd, 1, f); fwrite(g_ram + dump_lo, 1, dump_hi - dump_lo, f); }
+            else fwrite(g_ram, 1, RAM_SIZE, f);
+            fclose(f);
+        }
+    }
+    if (!buf) return;                             /* GPU renderer: the picture is on the GPU */
     if (fps_stats) {
         uint64_t hsh = 1469598103934665603ull;
         for (int i = 0; i < w * h; i += 7) hsh = (hsh ^ buf[i]) * 1099511628211ull;

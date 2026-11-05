@@ -118,6 +118,30 @@
         "note": "TEST MODE shows the language of the region and cannot change it; the game uses whatever the NVRAM holds (0 Japanese, 1 English, 2 Italian). With Japanese the port menus are in English."
       },
       {
+        "page": "game",
+        "label": [
+          "SPEEDOMETER",
+          "TACHIMETRO"
+        ],
+        "addr": "0x88",
+        "size": 1,
+        "shift": 5,
+        "bits": 1,
+        "min": 0,
+        "max": 1,
+        "values": [
+          [
+            "KMH",
+            "KMH"
+          ],
+          [
+            "MPH",
+            "MPH"
+          ]
+        ],
+        "note": "TEST MODE speedometer: km/h (0) or mph (1), as in EBB (checked on JAA's race HUD)"
+      },
+      {
         "page": "sound",
         "label": [
           "ATTRACT SOUND",
@@ -187,6 +211,14 @@
       }
     ],
     "test_menu_game_mode": 12,
-    "test_menu_note": "no KONAMI INTERNET CHALLENGE item in the TEST MODE main menu (EBB has it after BOOKKEEPING), so GAME MODE is item 12"
+    "test_menu_note": "no KONAMI INTERNET CHALLENGE item in the TEST MODE main menu (EBB has it after BOOKKEEPING), so GAME MODE is item 12",
+    "modes": {
+      "note": "ver JAA and AAA (the same game module): the code at the same addresses as EBB (hooks unchanged), the TOC and most RAM moved by +0x30 (found through the TOC slot pointing next to them), but the car array by -0x420 (found in a race: the player's position at +0xc of entry 0); not yet played",
+      "state": "0xdd720",
+      "player": "0xdd83c",
+      "time_left": "0x77e4d0",
+      "cars": "0x741150",
+      "cpu_path": ["0x77d820", "0x20c"]
+    }
   }
 }

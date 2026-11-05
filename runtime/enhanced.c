@@ -20,6 +20,7 @@
  */
 #include "runtime.h"
 #include "game_config.h"
+#include "modes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -233,7 +234,8 @@ static void net_set_id_hook(PPCContext *c) {
 
 typedef struct { uint32_t addr; const char *name; } Hook;
 static const Hook k_hooks[] = GAME_ENH_HOOKS;
-enum { HOOK_NONE, HOOK_ATTRACT, HOOK_PROJECTION, HOOK_VIEWPORT, HOOK_NAME_INDEX, HOOK_NAME_CONFIRM, HOOK_WHEEL_SELECT, HOOK_NET_SET_ID };
+enum { HOOK_NONE, HOOK_ATTRACT, HOOK_PROJECTION, HOOK_VIEWPORT, HOOK_NAME_INDEX, HOOK_NAME_CONFIRM, HOOK_WHEEL_SELECT, HOOK_NET_SET_ID,
+       HOOK_CAR_MARKER, HOOK_CAR_SELECT, HOOK_CAR_DRAW, HOOK_CAR_EFFECT };
 #define NHOOKS (sizeof k_hooks / sizeof k_hooks[0])
 
 /* the kind of the hook at pc, and for a wheel select its entry in k_wsel (*arg); the names are
@@ -243,7 +245,7 @@ static int hook_kind(uint32_t pc, int *arg) {
     static int resolved;
     if (!resolved) {
         static const char *const names[] = { "", "attract", "projection", "viewport", "name_index", "name_confirm",
-                                             "", "net_set_id" };
+                                             "", "net_set_id", "car_marker", "car_select", "car_draw", "car_effect" };
         for (size_t i = 0; k_hooks[i].name; i++) {
             for (int k = 1; k < (int)(sizeof names / sizeof names[0]); k++)
                 if (!strcmp(k_hooks[i].name, names[k])) kind[i] = (signed char)k;
@@ -264,6 +266,10 @@ void rt_hook(PPCContext *c, uint32_t pc) {
     case HOOK_NAME_CONFIRM: if (g_enhanced) name_confirm_hook(c); break;
     case HOOK_WHEEL_SELECT: if (g_enhanced) wheel_select_hook(arg); break;
     case HOOK_NET_SET_ID: if (g_enhanced) net_set_id_hook(c); break;
+    case HOOK_CAR_MARKER: if (g_enhanced) modes_car_marker(c); break;
+    case HOOK_CAR_SELECT: if (g_enhanced) modes_car_select(c); break;
+    case HOOK_CAR_DRAW: if (g_enhanced) modes_car_draw(c); break;
+    case HOOK_CAR_EFFECT: if (g_enhanced) modes_car_effect(c); break;
     case HOOK_ATTRACT: g_attract_frame = g_frame ? g_frame : 1; break;
     case HOOK_PROJECTION: {                  /* the current slot has just been written */
         uint32_t s = LD8(GAME_ENH_WIDE_PROJ_SLOT);
@@ -407,6 +413,7 @@ void enh_on_frame(const uint32_t *buf, int w, int h) {
     int attract = g_attract_frame && g_frame - g_attract_frame <= ATTRACT_GRACE_FRAMES;
     if (attract != g_attract && g_enh_log) rt_log("enhanced: %s\n", attract ? "attract mode" : "game in progress");
     g_attract = attract;
+    modes_tick(attract);
     wide_tick(g_set.aspect);
     menu_tick();
     net_tick();
@@ -624,11 +631,27 @@ static void draw_centered(uint32_t *fb, int w, int h, int z, int y, const char *
     draw_text(fb, w, h, z, (w - text_width(z, s)) / 2, y, s, rgb);
 }
 
-static void dim_rect(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int a) {
+static void fill_rect(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int a, uint32_t rgb) {
     (void)w; (void)h;
     int X0 = (int)(x0 * g_ui), Y0 = (int)(y0 * g_ui), X1 = (int)(x1 * g_ui), Y1 = (int)(y1 * g_ui);
     for (int y = Y0 < 0 ? 0 : Y0; y < Y1 && y < g_fbh; y++)
-        for (int x = X0 < 0 ? 0 : X0; x < X1 && x < g_fbw; x++) blend(&fb[y * g_fbw + x], 0x000000, a);
+        for (int x = X0 < 0 ? 0 : X0; x < X1 && x < g_fbw; x++) blend(&fb[y * g_fbw + x], rgb, a);
+}
+
+static void dim_rect(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int a) {
+    fill_rect(fb, w, h, x0, y0, x1, y1, a, 0x000000);
+}
+
+/* the primitives for the EXTRA modes' HUD (modes.c), called from enh_draw_overlay */
+void enh_hud_text(uint32_t *fb, int w, int h, int size, int x, int y, const char *s, uint32_t rgb) {
+    if (!g_font) return;
+    if (x < 0) draw_centered(fb, w, h, size, y, s, rgb);
+    else draw_text(fb, w, h, size, x, y, s, rgb);
+}
+int enh_hud_text_width(int size, const char *s) { return text_width(size, s); }
+int enh_hud_font_height(int size) { return font_height(size); }
+void enh_hud_dim(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int a, uint32_t rgb) {
+    fill_rect(fb, w, h, x0, y0, x1, y1, a, rgb);
 }
 
 /* ================================================================== fps counter */
@@ -721,7 +744,7 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
-       T_OTHER_VERSION, T_COUNT };
+       T_OTHER_VERSION, T_EXTRA, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -750,6 +773,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "FREE", "LIBERO" }, { "LINKED", "COLLEGATO" }, { "LOST", "PERSO" }, { "JOINING", "IN ARRIVO" },
     { "IN THE SESSION AS PLAYER", "IN SESSIONE COME GIOCATORE" },
     { "THE HOST HAS ANOTHER VERSION", "L HOST HA UN ALTRA VERSIONE" },
+    { "EXTRA", "EXTRA" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
@@ -761,15 +785,28 @@ static int menu_language(void) {
     return 0;
 }
 #define T(id) k_text[id][menu_language()]
+int enh_lang(void) { return menu_language(); }
 
 /* ================================================================== attract menu */
 /* Shown over the attract mode. The frontend (host main thread) sends the actions and draws
  * the overlay; the guest thread updates the attract state. Plain ints are enough: each field
  * has a single writer. */
-enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS, SCREEN_NET, SCREEN_NET_JOIN };
+enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS, SCREEN_NET, SCREEN_NET_JOIN, SCREEN_EXTRA };
 enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, N_PAGES };
-static const int k_main_items[] = { T_START, T_MULTIPLAYER, T_OPTIONS, T_CREDITS, T_QUIT };
-#define N_MAIN_ITEMS 5
+/* the main menu: EXTRA only where the game has modes (modes.c) */
+#define MAX_MAIN_ITEMS 6
+static int main_items(int *items) {
+    const int *ids;
+    int n = 0;
+    items[n++] = T_START;
+    if (modes_list(&ids)) items[n++] = T_EXTRA;
+    items[n++] = T_MULTIPLAYER;
+    items[n++] = T_OPTIONS;
+    items[n++] = T_CREDITS;
+    items[n++] = T_QUIT;
+    return n;
+}
+static volatile int g_extra_cursor;
 #define MENU_GRACE_FRAMES 300      /* the Konami logo gap in the attract loop lasts about 4 s */
 #define START_HOLD_FRAMES 12
 
@@ -1009,15 +1046,36 @@ void enh_menu_action(int action) {
         return;
     }
     if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { net_menu_action(action); return; }
+    if (g_screen == SCREEN_EXTRA) {           /* the modes, then BACK */
+        const int *ids;
+        int n = modes_list(&ids);
+        switch (action) {
+        case ENH_UP: g_extra_cursor = (g_extra_cursor + n) % (n + 1); break;
+        case ENH_DOWN: g_extra_cursor = (g_extra_cursor + 1) % (n + 1); break;
+        case ENH_BACK: g_screen = SCREEN_MAIN; break;
+        case ENH_OK:
+            if (g_extra_cursor == n) { g_screen = SCREEN_MAIN; break; }
+            modes_select(ids[g_extra_cursor]);
+            g_screen = SCREEN_MAIN;
+            g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES;
+            break;
+        default: break;
+        }
+        return;
+    }
+    int items[MAX_MAIN_ITEMS], n = main_items(items);
     switch (action) {
-    case ENH_UP: g_cursor = (g_cursor + N_MAIN_ITEMS - 1) % N_MAIN_ITEMS; break;
-    case ENH_DOWN: g_cursor = (g_cursor + 1) % N_MAIN_ITEMS; break;
+    case ENH_UP: g_cursor = (g_cursor + n - 1) % n; break;
+    case ENH_DOWN: g_cursor = (g_cursor + 1) % n; break;
     case ENH_OK:
-        if (g_cursor == 0) { g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES; }
-        else if (g_cursor == 1) { g_screen = SCREEN_NET; g_net_cursor = 0; }
-        else if (g_cursor == 2) { g_screen = SCREEN_OPTIONS; g_opt_cursor = 0; options_read(); }
-        else if (g_cursor == 3) g_screen = SCREEN_CREDITS;
-        else g_quit = 1;
+        switch (items[g_cursor]) {
+        case T_START: modes_select(0); g_starting = 1; g_starting_frame = g_frame; g_start_hold = START_HOLD_FRAMES; break;
+        case T_EXTRA: g_screen = SCREEN_EXTRA; g_extra_cursor = 0; break;
+        case T_MULTIPLAYER: g_screen = SCREEN_NET; g_net_cursor = 0; break;
+        case T_OPTIONS: g_screen = SCREEN_OPTIONS; g_opt_cursor = 0; options_read(); break;
+        case T_CREDITS: g_screen = SCREEN_CREDITS; break;
+        default: g_quit = 1; break;
+        }
         break;
     default: break;
     }
@@ -1137,6 +1195,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         draw_centered(fb, w, h, FONT_MEDIUM, h / 2 - font_height(FONT_MEDIUM) / 2, T(g_apply == 1 || g_apply == 2 ? T_APPLYING : T_LOADING), 0xffffff);
         return;
     }
+    if (!enh_menu_active()) modes_draw(fb, w, h);  /* an EXTRA mode's HUD, under the pause */
     if (g_paused) {
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
         static const int items[2] = { T_RESUME, T_MAIN_MENU };
@@ -1258,16 +1317,30 @@ static void draw_menu(uint32_t *fb, int w, int h) {
     if (g_screen == SCREEN_MAIN) {
         /* a compact panel on the left, so the attract stays visible */
         const int z = FONT_MEDIUM, step = font_height(z) * 7 / 8, pad = 12, left = 24;
-        int tw = 0;
-        for (int i = 0; i < N_MAIN_ITEMS; i++) {
-            int iw = text_width(z, T(k_main_items[i]));
+        int tw = 0, items[MAX_MAIN_ITEMS], n = main_items(items);
+        for (int i = 0; i < n; i++) {
+            int iw = text_width(z, T(items[i]));
             if (iw > tw) tw = iw;
         }
-        int ph = N_MAIN_ITEMS * step + 2 * pad - (step - font_height(z));
+        int ph = n * step + 2 * pad - (step - font_height(z));
         int y0 = h - ph - 40;          /* lower left */
         dim_rect(fb, w, h, left, y0, left + tw + 2 * pad, y0 + ph, 150);
-        for (int i = 0; i < N_MAIN_ITEMS; i++)
-            draw_text(fb, w, h, z, left + pad, y0 + pad + i * step, T(k_main_items[i]), i == g_cursor ? yellow : white);
+        for (int i = 0; i < n; i++)
+            draw_text(fb, w, h, z, left + pad, y0 + pad + i * step, T(items[i]), i == g_cursor ? yellow : white);
+    } else if (g_screen == SCREEN_EXTRA) {
+        /* the modes, the highlighted one described below the list */
+        const int *ids;
+        int n = modes_list(&ids), z = FONT_MEDIUM, step = font_height(z) + 6, y = 90;
+        dim_rect(fb, w, h, 0, 0, w, h, 190);
+        draw_centered(fb, w, h, FONT_LARGE, 24, T(T_EXTRA), yellow);
+        for (int i = 0; i < n; i++, y += step)
+            draw_centered(fb, w, h, z, y, modes_text(ids[i], 0, lang), i == g_extra_cursor ? yellow : white);
+        draw_centered(fb, w, h, z, y + step / 2, T(T_BACK), g_extra_cursor == n ? yellow : white);
+        if (g_extra_cursor < n) {
+            int ys = h - 20 - 2 * (font_height(FONT_SMALL) + 4);
+            for (int k = 1; k <= 2; k++, ys += font_height(FONT_SMALL) + 4)
+                draw_centered(fb, w, h, FONT_SMALL, ys, modes_text(ids[g_extra_cursor], k, lang), grey);
+        }
     } else if (g_screen == SCREEN_OPTIONS) {
         static const int items[N_PAGES + 1] = { T_GAME, T_SOUND, T_DISPLAY, T_BACK };
         const int z = FONT_MEDIUM, step = font_height(z) + 8;

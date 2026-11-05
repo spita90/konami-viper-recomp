@@ -84,9 +84,25 @@
         "0x8c028": null,
         "0x8c04c": "transmission_select",
         "0x40a74": null,
-        "0x40a98": "net_set_id"
+        "0x40a98": "net_set_id",
+        "0x65bbc": null,
+        "0x65be0": "car_marker",
+        "0x65a90": null,
+        "0x65ab4": "car_effect"
       }
     },
-    "test_menu_game_mode": 13
+    "test_menu_game_mode": 13,
+    "modes": {
+      "note": "ver EAA: the same code moved by +0x24 (hooks, effect_start), data, TOC and RAM by +0x20 (tools: matching the code with branch and TOC offsets masked, the constants by their bytes, RAM addresses through the TOC slot pointing next to them); not yet played",
+      "state": "0x154e1c",
+      "player": "0x155250",
+      "cars": "0x8d4640",
+      "effect_slots": "0x155274",
+      "effect_start": "0x68138",
+      "effect_offset": ["0x155248", "0x70c"],
+      "race_laps": ["0x15531c", "0x10"],
+      "lap_length": ["0x1551c8", "0x2c"],
+      "gravity": [["0xf9ea4", "0x3cbeeb5d"], ["0x102354", "0x411ce80a"]]
+    }
   }
 }

@@ -42,15 +42,16 @@ You can also [build from the sources](#build-from-the-sources).
 
 The default, also when you double-click the executable. Menus, options and pause instead of
 coins and operator menus: 2X resolution, widescreen up to 21:9, graphics drawn by the GPU,
-course difficulty, language, and [multiplayer](#multiplayer) over the Internet.
+course difficulty, language, [extra modes](#extra-modes) with new rules, and
+[multiplayer](#multiplayer) over the Internet.
 
 <p align="center">
-  <img src="docs/images/enhanced-td2-menu.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: attract menu with START GAME, OPTIONS, CREDITS, QUIT">
-  <img src="docs/images/enhanced-td2-options.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: DISPLAY options with window mode, 2X resolution, 16:9 aspect ratio and fps counter">
+  <img src="docs/images/enhanced-td2-menu.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: main menu with START GAME, EXTRA, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode">
+  <img src="docs/images/enhanced-td2-options.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: DISPLAY options with window mode, 2X resolution, 16:9 aspect ratio, texture filter, renderer and fps counter">
   <img src="docs/images/enhanced-td2-pause.png" width="32%" alt="Thrill Drive 2, enhanced mode at 16:9: pause menu during a race in London">
   <br>
-  <img src="docs/images/enhanced-gticlub2-menu.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: attract menu over a demo race">
-  <img src="docs/images/enhanced-gticlub2-options.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: DISPLAY options">
+  <img src="docs/images/enhanced-gticlub2-menu.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: main menu over a demo race">
+  <img src="docs/images/enhanced-gticlub2-extra.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: EXTRA page with GRAVITY, SPEED, PASS THE BOMB and ELIMINATION">
   <img src="docs/images/enhanced-gticlub2-pause.png" width="32%" alt="GTI Club 2, enhanced mode at 16:9: pause menu during a race">
 </p>
 <p align="center"><sub>Thrill Drive 2 (top) and GTI Club 2 (bottom) in enhanced mode, 2X resolution, 16:9.</sub></p>
@@ -119,6 +120,20 @@ The files are checked by their SHA1 before the build; the list is in the
 | Test / Service (classic)                               | F2 / 9                                        | —                    |
 | Fullscreen                                             | F11                                           | —                    |
 | Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
+
+## Extra modes
+
+EXTRA in the main menu (enhanced mode) starts a race with different rules, in every version:
+
+| Mode          | Game          | Rules                                                                                                  |
+| ------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| Gravity       | GTI Club 2    | Every 10 seconds the gravity turns light or heavy (0.1 to 4 G), with moments at zero G where the cars float off the road. |
+| Speed         | Both          | A bomb arms itself at 50 km/h (30 mph) and goes off after 2 seconds below it. In Thrill Drive 2 you drive the bus. |
+| Pass the bomb | GTI Club 2    | A car carries a bomb: touch another car to pass it on. When it explodes, that car burns and stops for 4 seconds. |
+| Elimination   | GTI Club 2    | Every 45 seconds the last car is out. The goal is only a checkpoint until one car is left; the winner goes on to the next course. |
+| Police        | Thrill Drive 2 | You drive the police car and the CPU cars are on the run: stay right on one for 3 seconds to arrest it. |
+
+More in the [guide](docs/GUIDE.md#enhanced-mode).
 
 ## Multiplayer
 

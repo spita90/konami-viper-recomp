@@ -256,6 +256,28 @@ def game_options_config(opts):
     return "#define GAME_ENH_GAME_OPTIONS {" + ", ".join(rows + ["{-1}"]) + "}"
 
 
+def modes_config(modes):
+    """GAME_MODE_*: the EXTRA modes (runtime/modes.c). `available` lists the modes the game offers,
+    in menu order (GAME_MODE_LIST); every other key becomes GAME_MODE_<KEY>: a hex string an
+    address (unsigned), a number itself, a list an initializer. Keys starting with "note" are
+    comments. GAME_HAS_MODES is 0 when the profile has none (an unverified version)."""
+    if not modes:
+        return ["#define GAME_HAS_MODES 0", "#define GAME_MODE_LIST {NULL}"]
+    def val(v):
+        if isinstance(v, list):
+            return "{" + ", ".join(val(x) for x in v) + "}"
+        if isinstance(v, str):
+            return f"0x{int(v, 16):x}u"
+        return repr(v) if isinstance(v, float) else str(int(v))
+    lines = ["#define GAME_HAS_MODES 1",
+             "#define GAME_MODE_LIST {" + "".join(c_str(m) + ", " for m in modes['available']) + "NULL}"]
+    for k, v in modes.items():
+        if k == 'available' or k.startswith('note'):
+            continue
+        lines.append(f"#define GAME_MODE_{k.upper()} {val(v)}")
+    return lines
+
+
 def write_config_header(g, out):
     """generated/<id>/game_config.h: the per-game constants the runtime is built with."""
     rel = lambda p: os.path.relpath(p, BINDIR).replace(os.sep, '/')
@@ -324,6 +346,7 @@ def write_config_header(g, out):
         f"#define GAME_ENH_TEST_GAME_MODE {enh.get('test_menu_game_mode', -1)}",
         "#define GAME_ENH_BLANK_STRINGS {" + "".join(f"{{0x{int(b['addr'], 16):08x}u, {c_str(b['text'])}}}, " for b in blanks)
         + "{0, NULL}}",
+        *modes_config(enh.get('modes')),
     ]
     open(os.path.join(out, 'game_config.h'), 'w').write("\n".join(lines) + "\n")
 

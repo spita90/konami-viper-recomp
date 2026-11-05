@@ -170,7 +170,9 @@
         "0x839f8": "name_confirm",
         "0x8cacc": "course_select",
         "0x8c028": "transmission_select",
-        "0x40a74": "net_set_id"
+        "0x40a74": "net_set_id",
+        "0x65bbc": "car_marker",
+        "0x65a90": "car_effect"
       },
       "gl": {
         "0x213f4": "projection",
@@ -349,6 +351,30 @@
         "language": true
       },
       {
+        "page": "game",
+        "label": [
+          "SPEEDOMETER",
+          "TACHIMETRO"
+        ],
+        "addr": "0x84",
+        "size": 1,
+        "shift": 5,
+        "bits": 1,
+        "min": 0,
+        "max": 1,
+        "values": [
+          [
+            "KMH",
+            "KMH"
+          ],
+          [
+            "MPH",
+            "MPH"
+          ]
+        ],
+        "note": "TEST MODE speedometer: km/h (0) or mph (1), on the race HUD (checked: both games show mph with the bit set); the fonts have no slash"
+      },
+      {
         "page": "sound",
         "label": [
           "ATTRACT SOUND",
@@ -433,6 +459,50 @@
         "positions": [-1.0, 0.0]
       }
     },
-    "test_menu_game_mode": 12
+    "test_menu_game_mode": 12,
+    "modes": {
+      "note": "EXTRA modes (runtime/modes.c). state / player: TOC slots (TOC 0x154da8 + 0x54 / + 0x488) holding the own state struct (the link packet, 0x7f5eb8: flags at +4, mode bits 27-30 = 4 in a game, substate bits 23-26 = race_substate from the countdown to the goal, 14 at the TIME OVER) and the player's car object (0x8c1d28: x +0x174, z +0x178, height +0x17c, speed m/s +0xcc, heading +0xc4). time_state: the race clock, a field of the state struct (offset, shift, bits) in 1/57.5 s, set at 0x6ec5c, extended at 0xaa6f4, shown by 0xb461c (0x1172e0 is only the HUD's copy); 0 ends the race. gravity: the per-frame acceleration of an airborne car (pool *(TOC+0x570) + 0xa4, read at 0x700dc into +0x1f4 of the car, applied at 0x70454, 0.0233056) and 9.80665 at 0x102334 (read at 0x9465c, lateral acceleration in g of the car: body lean), each with its value, all scaled by the same factor",
+      "available": ["gravity", "speed", "bomb", "elimination"],
+      "state": "0x154dfc",
+      "race_substate": 11,
+      "player": "0x155230",
+      "speed_unit": ["0x84", 5],
+      "player_speed": "0xcc",
+      "note_player_flight": "the player car's flight (0x700c0): height player_y, vertical displacement per game frame player_vy; the airborne flag player_air (byte) and its frame counter player_air_frames (16-bit); on its first airborne frame (counter 0) the game sets player_vy from player_vy0. Lifting the car without the flag does nothing (the road takes it back, even 2 m up); with the flag set it flies. player_pitch: the car's pitch (radians, positive nose down) and its smoothed copies: in the air the game adds a constant to +0x1dc every frame up to a limit (0x7048c), so the nose drops; holding them at 0 keeps the car level",
+      "player_y": "0x17c",
+      "player_vy": "0x1f8",
+      "player_vy0": "0x1f0",
+      "player_air": "0x37e",
+      "player_air_frames": "0x37c",
+      "player_pitch": ["0x1dc", "0x1e8", "0x184"],
+      "time_state": ["0xc", 6, 14],
+      "note_hud": "where the modes write (logical 384-line units): the top lines, clear of the game's HUD, and the announcements",
+      "hud_y": 8,
+      "hud_big_y": 70,
+      "note_cars": "the race's cars (TOC+0x590 = 0x8d4608, + 0x18): 6 entries of 0x134 bytes, the player's first, then the CPU cars; position (x, height, z) +8, the frame before +0x14, velocity per game frame +0x38 (the previous one +0x44); a CPU car's position is kept only here (and copied to the render lists), so writing it moves the car. +0xec points to the car's progress (its byte 0 ranks the cars at 0x98430). A CPU car's vertical velocity per game frame is +0x48 (car_vy); in the air it loses cpu_gravity (0.035) every frame",
+      "cars": "0x8d4620",
+      "car_stride": "0x134",
+      "car_count": 6,
+      "car_pos": "0x8",
+      "car_prev": "0x14",
+      "car_vel": "0x38",
+      "car_vy": "0x48",
+      "note_marker": "the hook car_marker sits at the entry of the routine drawing the marker over a car (0x65bbc, called at 0x64d08): r3 the marker's byte (bits 3-5 the player, 4 = CPU; bits 0-2 the place, 0 = TOP), f1 the distance (out of the range pool+0x200..0x204 it draws nothing); marker_pos: the register of the caller with the car's draw record and the offset of its x (z follows)",
+      "marker_pos": [18, "0x64"],
+      "cpu_gravity": 0.035,
+      "note_effect": "the fire and smoke a car shows when hit hard: the routine drawing a CPU car (0x64be4, record in r18) reads the record's flag word +0xa8 at 0x65a90 and starts the effect (0x68114(on, slot, record)) while bit 0x2000 is set, stops it when cleared, updates it from the record (0x68cd0: x +0x64, height +0x78, z +0x68, ...). The hook car_effect sits at that read. car_record: the word of a car array entry pointing to its draw record (the player's is 0). effect_slots: the TOC slot of the effect slots (*(TOC+0x4ac) = 0x8c58c8, 0x28 bytes each, byte 0 active, x/height/z at +4); slot 0 is the player's, started by calling effect_start and moved to player_pos (x, height, z in the player's car object) every frame",
+      "car_effect": [18, "0xa8", "0x2000"],
+      "car_record": "0x124",
+      "effect_slots": "0x155254",
+      "effect_start": "0x68114",
+      "player_pos": ["0x174", "0x17c", "0x178"],
+      "player_heading": "0xc4",
+      "effect_offset": ["0x155228", "0x70c"],
+      "note_laps": "each car's progress record (car array entry word +0xec, progress): place (byte 0, 1 = first), lap (byte 1), sector (byte 2), distance of the laps done (+0xc = lap * lap length, *(TOC+0x400) + 0x2c, TOWN 5321.06), in the lap (+0x10), total (+8, what the places compare); 0x8f74c steps the lap at the line. At every sector 0xaa71c copies the player's lap and sector into the race record *(TOC+0x554) (+0x11, +0x12) and, once the lap is past the race's laps (+0x10; TOWN 1), calls the goal (0xaa8fc: status 2, FINISH!); its callers (0xaa540) check only while the record's lap is not past the laps. race_laps: that TOC slot and the offset of the laps; lap_length: TOC slot and offset of the lap length. Found with RT_WATCH on the state word (the finish sets its flags 0x40, 0x80, 0x20 from 0xb4324, which reads the status 0xb44c8)",
+      "progress": "0xec",
+      "race_laps": ["0x1552fc", "0x10"],
+      "lap_length": ["0x1551a8", "0x2c"],
+      "gravity": [["0xf9e84", "0x3cbeeb5d"], ["0x102334", "0x411ce80a"]]
+    }
   }
 }

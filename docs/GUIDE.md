@@ -33,8 +33,8 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Menus:** drawn with each game's own font, in English or Italian. They follow the language
   chosen in the game; with Japanese they are in English.
 - **Options**, on three pages. Left and right change a value.
-  - **Game:** the difficulty of each course, and the language (English or Italian; Thrill
-    Drive 2 JAA and AAA also offer Japanese).
+  - **Game:** the difficulty of each course, the language (English or Italian; Thrill
+    Drive 2 JAA and AAA also offer Japanese), and the speedometer, km/h or mph.
   - **Sound:** attract sound, music in game, music and effects volume.
   - **Display:** window or fullscreen (F11 also switches it), the rendering resolution, and an
     fps counter. 2X renders the 3D scenes and the HUD at 1024×768. With the software renderer it
@@ -78,6 +78,34 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
   - While a session is open, the lobby is the main menu, and there is no pause. A player whose
     connection drops stays on the track standing still (GTI Club 2) or leaves the race
     (Thrill Drive 2), and races on if the connection comes back.
+- **Extra modes** (all versions): EXTRA in the main menu lists alternative rules for a race; choosing one
+  starts a game with them, and they end with that game. The normal START GAME plays the game as
+  it is.
+  - **Gravity** (GTI Club 2): every 10 seconds the gravity changes, light (0.1 to 0.5 times the
+    normal one) and heavy (2 to 4 times) in turn, and one change in three starts with 5 seconds
+    at zero G. Light, the car grips less and bumps throw it far; heavy, it sticks to the
+    road and lands hard; at zero G it drifts slowly upwards
+    once a bump lifts it. The CPU cars fly by the same gravity. The time is 1.2 times longer
+    (at the start and at every checkpoint).
+  - **Speed** (both games): as in the film, a bomb arms itself once the car reaches 50 km/h
+    (30 mph with the speedometer in mph); from then on 2 seconds below it set it off, and the
+    race ends there. In Thrill Drive 2 you drive the bus: the car select shows it for 3 seconds,
+    time to choose the transmission (shift up for manual), and the wheel does not change it.
+  - **Pass the bomb** (GTI Club 2): 3 seconds after the start a car gets a bomb with a 25-second
+    fuse; touching another car passes it on (not straight back for 5 seconds). The marker over
+    the car with the bomb blinks, and the top of the screen says which car has it (by its marker:
+    TOP, 2ND, ...), ahead or behind, and how far. The time is 1.2 times longer. When it explodes, that car goes up in
+    flames and stands still for 4 seconds (yours: no accelerator, brake held), and soon another car gets a new
+    bomb.
+  - **Elimination** (GTI Club 2): every 45 seconds the last car is out and stops. If it is you,
+    your race ends. The goal does not end the race: you race on round the course until one car
+    is left (the line gives a third of its usual time). Win, and the game takes you to its next
+    course, with all the cars again.
+  - **Police** (Thrill Drive 2): you are the police, in the white and blue police car (the car
+    select shows it for 3 seconds, time to choose the transmission), the CPU cars are on the run. After a 6-second head start, staying right on one (within about 2.5 m)
+    for 3 seconds in a row arrests it (the percentage shows how far the arrest is; moving away starts it
+    again), and it stops for the rest of the race. With all of them arrested the
+    race ends. The course's own police car does not show up in this mode.
 - **Separate saves:** the enhanced mode keeps its own NVRAM, `<executable>_enhanced_nvram.bin`,
   so it never changes the classic mode's settings. Delete that file to set it up again.
 - **Fast boot:** the game boots at full speed, muted, behind a LOADING screen, until the

@@ -464,6 +464,34 @@ entered.
 These findings come from reading the code only. They have not been tested in the runtime or on
 a real cabinet.
 
+### DIP switches (4-position bank on the board, IN2 bits 0–3)
+
+The BIOS reads IN2–IN5 into the boot word (`r31`, saved at `0xFC`). The game inverts it and
+shuffles the bits (`0x38388` → `0x38424`, the same in all five versions): the halfword at `0x826`
+holds SW:1–SW:4 in bits `0x8000`/`0x4000`/`0x2000`/`0x1000`, 1 = ON. Every game-side read takes
+`(h >> 12) & 0xf` into CR7. Bits 12–15 of the halfword at `0x824` come from IN4 (buttons held at
+boot), not from the DIPs.
+
+| Switch | IN2 bit | GTI Club 2 (JAB, EAA) | Thrill Drive 2 (EBB, JAA, AAA) |
+|---|---|---|---|
+| SW:1 | `0x08` | not read by the game | OFF: boot state 4 runs a kernel check (call `0x9d90`) and polls it before going on (`0x4c3b8`). ON: skipped. MAME: "Memory Card Check On Boot"; its board notes say SW:1 skips the CF check |
+| SW:2 | `0x04` | OFF: boot state `0x21` runs the per-device init/calibration of the four analog inputs (`0x46930`). ON: skipped (state `0x23`) | same (`0x4cf6c`, state `0x2f` → `0x31`). MAME: "Calibrate Controls On Boot", crashes in MAME when on |
+| SW:3 | `0x02` | bypass of the game mode lock (`0x54628`, see above), and two more checks on the same lock byte (`0x54970`, `0xb8a14`) | not read |
+| SW:4 | `0x01` | selects the Voodoo3 video timing table in `grphinit` (passed to its entry at `0x2000c`) | same |
+
+SW:4 tables (identical in both games, `grphinit` TOC+4, 68 bytes per entry in GTI Club 2, 88
+in TD2). Both give 512×384 and differ only in PLL and CRTC (refresh estimated with MAME's
+Banshee formula, `htotal = (CR00+5)*8`):
+
+| SW:4 | pllCtrl0 | Pixel clock | htotal × vtotal | Line / frame |
+|---|---|---|---|---|
+| OFF (default) | `0x963e` | 32.005 MHz | 1288 × 428 | 24.85 kHz / 58.06 Hz |
+| ON | `0xc927` | 33.029 MHz | 1352 × 424 | 24.43 kHz / 57.62 Hz |
+
+The profiles use IN2 `0x43` (SW:1 and SW:2 ON, as in MAME) and `0x41` for gticlub2ea (SW:3 ON
+too). The other IN2 bits are not switches: `0x20` is the DS2430 line, and per MAME `0x40` low
+loads the `copydisk` card duplicator (the kernel's second-card check at `0xd724`).
+
 ## 5a. Enhanced mode (default, `runtime/enhanced.c`)
 
 A layer on top of the faithful port, and the default mode: `--classic` runs the
@@ -876,8 +904,8 @@ were run headless; the findings come from those runs and from reading the code.
 - Empty placeholders: `CA_mdl/tex`, `SKY2`, `SKY3`, `YST`, `TEST_tex`; `TEST_mdl` only points to
   the DEMO and KONAMI images.
 
-Not covered: input combinations or DIP switches that could open a debug screen were not
-searched for in the input code.
+Not covered: input combinations that could open a debug screen were not searched for in the
+input code. The DIP switches are listed under "DIP switches" above; none opens one.
 
 ## 5e. Link play (multiplayer, `runtime/net.c`, `runtime/portmap.c`)
 
@@ -1164,6 +1192,249 @@ windows, the fog, the motion blur).
 
 **Not handled yet** (logged once when a game does it): LFB pixel writes into a colour buffer, depth
 source compare, reads of the pixel counters (`fbiPixelsIn`…), the rotating stipple.
+
+## 5g. EXTRA modes (enhanced mode, `runtime/modes.c`)
+
+Alternative rules on top of a normal race, chosen in the main menu's EXTRA page (where the
+profile has a `modes` section: all five versions; GTI Club 2 JAB and Thrill Drive 2 EBB were
+mapped by hand, the others from them). A mode applies to the game it starts and
+ends in the attract mode. Without a mode `modes_tick` returns at its first test, and nothing of
+the game is touched.
+
+**What the modes read and write** (profile `enhanced.modes`, `GAME_MODE_*` in `game_config.h`):
+- `state`: the TOC slot of the game's own state struct, the one the link sends as its packet
+  (section 5e), filled every frame also without a link. Its flags word (+4) gives the mode
+  (bits 27–30, 4 in a game) and the substate (bits 23–26): `race_substate` is the race, from the
+  countdown to the goal (GTI Club 2 11, then 14 at the TIME OVER; Thrill Drive 2 6, then 7).
+- `player`: the TOC slot of the player's car object; `player_speed` the offset of its speed in
+  m/s (km/h = × 3.6). GTI Club 2 `0x8c1d28`: x +0x174, z +0x178, height +0x17c, speed +0xcc,
+  heading +0xc4. Thrill Drive 2 `0x70f018`: x +0x1ac, z +0x1b0, height +0x1b4, heading +0x1c4,
+  speed +0xc0.
+- The race clock, written to 0 to end the race as a TIME OVER (the game then runs its results
+  and GAME OVER as always). Thrill Drive 2: `time_left`, a 32-bit word at `0x77e4a0` in 1/57.5 s.
+  GTI Club 2: `time_state`, bits 6–19 of the state struct's word +0xc, also in 1/57.5 s (set at
+  `0x6ec5c`, extended at the checkpoints by `0xaa6f4`); the word at `0x1172e0` is only the HUD's
+  copy in seconds, and writing it changes nothing. The clock's first change marks the start
+  (GO) of the race.
+- `hud_y`, `hud_big_y`: where the modes write, clear of the game's HUD (Thrill Drive 2: below
+  the rear-view mirror).
+
+**GRAVITY** (GTI Club 2). `gravity` lists constants scaled by one factor, each with its value
+(checked before writing, restored at the end):
+- `0xf9e84`, the per-frame acceleration of an airborne car. The car object keeps the vertical
+  displacement per frame (+0x1f8) and an "airborne" flag (+0x37e); every frame `0x700c0` loads
+  this constant (`*(TOC+0x570) + 0xa4`, 0.0233056 m/frame², about 2.1 g at 30 frames per
+  second) into +0x1f4, times factors for some surfaces, and the airborne branch (`0x70454`)
+  subtracts it from +0x1f8 and adds that to the height.
+- `0x102334`, 9.80665, read at `0x9465c` (`f = a·b / (c·g)`, clamped): the grip on the road.
+  Scaled with the first one it makes the gravity felt on the ground too: measured at full
+  throttle over 60 s of race, the mean speed is 44 km/h at 0.2, 72 at 1, 91 at 5 (low, the car
+  slides and barely accelerates; high, it sticks and flips over when it hits something). It
+  also sets how sharply the car steers, which at full scale was too much (sluggish when light,
+  twitchy when heavy), so it follows the factor on a flatter curve, factor^0.35 from 0.1 up (the
+  game divides by it): 0.1 gives 0.45, 4 gives 1.62. Mean speeds with that curve: 68 km/h at
+  0.1, 78 at 1, 84 at 4.
+
+Every 10 s of race clock a new factor, light (0.1, 0.2, 0.3, 0.5) and heavy (2, 2.5, 3, 4) in
+turn; one change in three starts with 5 s at "zero G", and the new factor then holds 10 s. At
+zero G the flight is −0.04, just below zero, and the cars are made to leave the road, since a
+negative value alone does not lift a car on the ground (a whole race at −0.05: 6 airborne
+frames, the height never above the start's):
+- the player's car: lifting it does nothing by itself (the road takes it back, even 2 m up);
+  with its airborne flag (+0x37e, byte) set, the frame counter (+0x37c) at 1 and an upward
+  displacement of 0.01 m per frame (+0x1f8, and +0x1f0, which the game copies into it on the
+  first airborne frame) the game flies it, with no lift at all: it leaves the road gently and
+  rises faster and faster, about 11 m in the 5 s (a first version lifted it 0.3 m at once with
+  0.035 m per frame: too sudden), then the next factor brings it down. In the air the game tips
+  the nose down a little more every frame (a constant added to the pitch +0x1dc up to a limit,
+  `0x7048c`; +0x1e8 and +0x184 follow it): about 0.6 rad in 1.5 s. During the zero G the
+  pitch fields (`player_pitch`) are held at 0, so the car rises level;
+- a CPU car: 1 m up (position and next position) with the same upward velocity (+0x48); the game
+  flies most of them, puts some back on the road (a slope, or a car standing still), so one not
+  in the air is lifted again every 0.5 s, at most 3 times (more only made a stuck car hop). The
+first version (0.2 to 2, at least 0.4 apart, the airborne constant only) changed little: on the
+ground the car follows the road, so only the jumps showed it. Airborne frames over a whole race
+at full throttle with the first constant alone: 12 out of 2346 at 1 G, 8 at 2 G, 1143 at 0 G
+(the car climbs to the rooftops); 5 and 8 G leave the car on the road (no sinking).
+The CPU cars have a flight of their own: in the air their vertical velocity per game frame
+(+0x48 of their entry, `car_vy`) loses 0.035 every frame (`cpu_gravity`; measured by lifting
+one by 5 m: it fell back by exactly that). At each game frame of a CPU car (its position
+changed), one whose vertical velocity fell by that much since the last one is in the air and gets
+(1 − factor) of it back, so it flies by the same factor as the player (their grip is not
+touched). Measured over a whole race at a fixed zero G: CPU cars climb up to 160 m (at 1 G at
+most 38 m, the course's own heights); with the real schedule they rise to 18–27 m in the light
+and zero-G phases and land again.
+
+The race clock is 1.2 times longer in this mode, and in PASS THE BOMB (`k_time_scale`): the clock is multiplied at
+the start of the race, and every extension the game adds at a checkpoint (an increase of more
+than 30/57.5 s) gets a fifth of it again. Measured with 1.5: 99 s at the start instead of 66.
+
+`RT_MODES_GRAVITY=f` fixes the factor, for tests. The car object's word +0x350 is a NaN at
+times also at 1 G: the game's own.
+
+**SPEED** (both games). The bomb arms itself the first time the speed reaches 50 km/h; then 2 s
+below it end the race (the clock to 0), with BOOM on the screen (in GTI Club 2 the player's car
+also catches fire, the bomb's explosion below). The limit and its texts follow
+the game's speedometer (`speed_unit`: the TEST MODE option, NVRAM GTI Club 2 `0x84` / Thrill
+Drive 2 `0x88`, bit 5, 1 = mph; both games then show mph on the race HUD): 50 KMH or 30 MPH
+(the fonts have no slash). The option is also on the OPTIONS GAME page (SPEEDOMETER).
+In Thrill Drive 2 the SPEED car is the bus (and the POLICE car the police car: `bus`,
+`police_car`), chosen for the player. SELECT A CAR is the
+state machine at `0x80600` (struct `*(TOC+0x618)` = `0x77c778`, in r31): +0x64 the screen's
+state (0 set up, 1 coming in, 2 choosing, 3 chosen), +0x34 the car on the carousel (the
+steering adds or takes one, `0x807cc`/`0x80804`), +0x5c the TIME countdown in frames; at 0 the
+choice (`0x80b14`) takes the car from the table at +0x180 (row +0x4c × 48 + index × 4) into the
+state struct (word +8, bits 28–31). The hook `car_select`, at that confirmation and at the end
+of every frame of the screen (`0x80c94`), puts the mode's car (bus 6, police car 7; 9 compact,
+8 truck, 5 van: the carousel shows a change a step late, so the indices are read off a still
+screen) on the carousel and, once the screen is choosing, cuts the countdown to 72 game frames (2.5 s,
+the TIME shows 3, 2, 1): time to pick the automatic or manual transmission with the shift
+lever, then the game takes that car (`car_select` in the profile). Meanwhile the steering is held
+at the centre (`g_mode_steer_hold`, at the ADC read in hw.c, released a few frames after the
+screen's last hook), so the carousel does not turn; tested by turning the wheel all along.
+
+**The race's cars** (`cars`, `car_stride`, `car_count`, `car_pos`, `car_prev`, `car_vel`): an
+array with one entry per car, the player's first, then the CPU cars. In GTI Club 2 a CPU car's
+position lives only there (the render lists copy it each frame), and the game moves it by its
+velocity, so writing the position, the previous one and a zero velocity every frame holds it
+where it is; released, it goes on from there (its controller sets the velocity again). In
+Thrill Drive 2 that does not stop it: there the array follows the car's path record (below).
+- GTI Club 2: 6 entries of 0x134 bytes at `0x8d4620` (`*(TOC+0x590)` + 0x18): position (x,
+  height, z) +8, the frame before +0x14, velocity per game frame +0x38 (the previous +0x44).
+  +0xec points to the car's progress, whose first byte ranks the cars (`0x98430`).
+- Thrill Drive 2: 4 entries of 0x114 bytes at `0x741570`: position +0xc, a copy +0xac, velocity
+  +0xb8, heading +0xc4. Also there: a position table at `0x77a46c` (x, z, stride 0x4c), the CPU
+  cars in the state struct (+0xa0, stride 0x6c: in link play the host sends them) and the replay
+  ring buffer (`0x5a0000`–`0x700000`, the 4 cars every frame). A CPU car runs along its path:
+  its path record (`cpu_path`: CPU car k at `0x77d7f0` + (k − 1) × 0x20c) keeps the distance
+  along the path in three copies (+0x0, +0x30, +0x104, `cpu_path_s`) and the speed per game frame
+  (+0x144, +0x148, `cpu_path_speed`), and the car array, the state struct and the position table
+  only follow it. Writing them did not stop the car (an arrested car went on for the whole race,
+  as the player saw); holding the distance and zeroing the speed does: an arrested car stayed at
+  the same metre from 57 s to the end of the race at 130 s. Found as the RAM words that track
+  the car's displacement per frame (speed) and grow by it every frame (distance), with
+  `RT_DUMP_RAM_EVERY=120,2` (a second dump 2 frames after each).
+- Both games tell the direction of travel by the position minus the previous one.
+
+**PASS THE BOMB** (GTI Club 2). 3 s after the start a random car gets the bomb, with a 25 s fuse.
+It passes to a car within 4 m along the direction of travel of the car with the bomb and 1.9 m
+across (cars side by side in a lane are further apart), at most every 1.5 s and not straight
+back before 5 s (without that rule two CPU cars driving side by side passed it to each other
+every 1.5 s). At 0 the car stands still for 4 s: the player through `g_mode_hold`, a CPU car by
+the hold above (measured: it stays at the same position to the hundredth for 4 s, then drives
+on from there). 3 s later another car gets a new bomb.
+
+The cars are named by the labels the game draws over them (TOP, 2nd, ... for the CPU cars, 1P–4P
+for linked players): the hook `car_marker` sits at the entry of the routine that draws one
+(`0x65bbc`, called per car at `0x64d08`), where r3 is the marker's byte (bits 3–5 the player, 4
+for a CPU car; bits 0–2 the place, 0 = TOP), f1 the distance from the camera, and the caller's
+r18 the car's draw record (x +0x64, z +0x68: the nearest entry of the car array within 3 m is
+that car; `marker_pos`). The hook records each car's label and place (the routine is called
+also for cars hundreds of metres away, so they are known), and for the car with the bomb it
+puts f1 out of the routine's range every other 0.2 s, so its marker blinks (the routine's range
+check `0x65f10` then draws nothing). The texts say BOMB PASSED TO 3RD (the label at the moment
+of the pass) and BOMB: 3RD AHEAD 40 M; ahead or behind comes from the places (the player's is
+the one no CPU car has), since by the direction of travel a car far along a winding course
+showed as behind.
+The explosion is the game's own fire and smoke, the effect a car shows when hit hard (BOOM is
+also written on the screen, and the player's explosion flashes it white):
+- the routine that draws a CPU car (`0x64be4`, draw record in r18) reads the record's flag word
+  +0xa8 at `0x65a90`, starts the effect (`0x68114(on, slot, record)`) while bit 0x2000 is set
+  and stops it when the bit is clear, and updates it from the record (`0x68cd0`: x +0x64,
+  height +0x78, z +0x68, an offset along the car of k·sin/k·cos of the heading +0xb4, a drift
+  from the velocity). The hook `car_effect` sits at that read and sets the bit for the CPU car
+  that exploded (its record: the word +0x124 of its car array entry, `car_record`) for 2 s;
+- the player's car has no such record (its entry's +0x124 is 0). Its effect slot (slot 0 of
+  `*(TOC+0x4ac)` = `0x8c58c8`, 0x28 bytes each, byte 0 active) is started by calling
+  `0x68114(1, 0, record)` from the hook with the CPU record at hand, and then, every frame, the
+  slot gets the player's position (x, height, z at +4), the offset from the player's heading
+  (+0x10, +0x18; k at `*(TOC+0x480)+0x70c`) and no drift (+0x1c..+0x24): without those the fire
+  burned beside the car, with the CPU car's heading;
+- `0x4a6` of the player's car object (sent in the link packet) is not an explosion: it is the
+  exhaust backfire (`EFFECTS_eff_aexpll` flames, `0x696a8`, per car model at `0x116ce0`).
+
+`RT_MODES_BOMB_FUSE=s` shortens the fuse, for tests.
+
+**ELIMINATION** (GTI Club 2). Every 45 s of race the last of the cars still in it is out: a CPU
+car is held for the rest of the race; the player stops (`g_mode_hold`) and the race ends 4 s
+later. The places are the markers' (TOP, 2ND, ...; the player's is the one no CPU car has); a car
+far away whose marker is not drawn now keeps its last place, and an elimination waits until every
+car's place has been seen once (requiring all of them fresh delayed the first one by 10 s).
+
+The goal is a checkpoint while two cars are left. A course is one lap of a loop (TOWN: 5321 m),
+which the game counts as laps all the same:
+- each car's progress record (word +0xec of its car array entry, `progress`) keeps its place
+  (byte 0, 1 = first), lap (byte 1), sector (byte 2), the distance of the laps done (+0xc, lap ×
+  lap length `*(TOC+0x400)+0x2c`), the distance in the lap (+0x10) and the totals (+8, which the
+  places compare, and +0x14); `0x8f74c` steps the lap at the line, `0x8f720` back when reversing;
+- at the sectors (`0xaa540`, only while its copy of the lap is not past the laps already)
+  `0xaa71c` copies the player's lap and sector into the race record `*(TOC+0x554)` (+0x11,
+  +0x12) and calls the goal (`0xaa8fc`: status 2, FINISH!) once the lap is past the race's laps
+  (+0x10, TOWN 1). Found with `RT_WATCH` on the state word: the finish sets its flags 0x40, 0x80,
+  0x20 from `0xb4324`, which reads the status from `0xb44c8`;
+- the mode sets the race's laps to 99 (`race_laps`) while two cars are left: the player crosses
+  the line and races on (tested: put past the line, the race went on to the clock's end). An
+  earlier attempt that put the cars one lap back at the line failed: the race ended anyway;
+- the last one left wins: the race's laps are set to the player's lap and the player is put one
+  lap on (lap, +0xc, +0x14), as at the line; at the next sector the game finishes the race, first,
+  shows NOW CHALLENGE ANOTHER COURSE and starts its next course (tested: FINISH 3.5 s after the
+  last elimination, then COAST), where the elimination starts again with all the cars (the mode's
+  state is reset at every race start). The race's own laps are put back when the race ends.
+
+The clock is the game's own (no factor), and the time the game gives at the line, now a
+checkpoint, is cut to a third: a rise of the clock within 2 s of a change of the player's lap
+(either first) is taken back by two thirds.
+
+`RT_MODES_ELIM_SPARE=1` never picks the player, `RT_MODES_ELIM_INTERVAL=s` changes the interval,
+for tests. `RT_WATCH=addr` (RT_TRACE builds) logs every change of a word with the blocks before it.
+
+**POLICE** (Thrill Drive 2). The CPU cars are the suspects. After a 6 s head start (the grid is
+closer than the arrest distance), a meter per suspect fills while the player is within 7 m (between
+the centres, the cars are about 4.5 m long: some 2.5 m between the bumpers) and drops to zero as
+soon as the player is further away (at first it emptied at the rate it filled, and 2 s made it
+too easy; 5 m between the centres could not be reached from behind at speed, where the two cars'
+positions can also be a frame apart); at 3 s in one go the suspect is arrested and held for the rest
+of the race. When all are arrested, ALL ARRESTED and the race ends 4 s later.
+`RT_MODES_POLICE_DIST=m` changes the distance, for tests.
+
+The course has a police car of its own: the car array's fifth entry (index 4) and CPU path
+record 4, parked by the road from the start (EUROPE: 2756, −339) until the player comes by, then
+chasing with a POLICE marker (`c_police0a/1a`; marker byte 0x62, the CPU cars 0x2n). In this mode
+the player is the police, so it does not show up: the routine that draws one car (`0x6a54c`,
+record in r31) skips the car and its marker when the record's byte +4 is not zero, and the hook
+`car_draw`, where that byte is in r4 (`0x6a5a8`), sets r4 to 1 for the record whose marker byte
+has the high nibble 6 (`hide_police`); nothing is written to the record. The car is also held
+parked by its path record (`police_car_index`), so it does not chase unseen. Checked: no POLICE
+marker drawn over a whole race (before: 692 frames from 124 s on), the car stays at its parking
+place. `RT_MARKER_LOG=1` logs every marker drawn (byte, record, position).
+
+**The other versions.** GTI Club 2 EAA and Thrill Drive 2 JAA and AAA (one game module for the
+two) override only the addresses in their `modes` and hooks. They were mapped from JAB and EBB:
+code by its instructions with the branch and TOC offsets masked (EAA +0x24, JAA/AAA unchanged),
+constants by their surrounding bytes (EAA +0x20), RAM addresses through the TOC slot pointing
+next to them (EAA +0x20, JAA/AAA +0x30), and each one checked in a race: the Thrill Drive 2 car
+array is the exception, at −0x420 in JAA/AAA (`0x741150`; the TOC route gave +0x30, which read
+the course's police car as entry 0: two suspects instead of three), found from the player's
+position at +0xc of entry 0. Tested headless: EAA gravity (zero G lifts) and the bomb (passes,
+explosions); JAA SPEED with the bus and POLICE (arrests); AAA shares JAA's module and addresses.
+The speedometer option (NVRAM `0x88` bit 5) is the same in JAA and AAA (checked: mph on JAA's
+race HUD), so their GAME page has it too.
+
+**Log.** The modes log their events (mode start and end, zero G, bomb passes and explosions,
+arrests) only with `RT_ENH_LOG=1`, as the rest of the enhanced mode.
+
+**HUD.** The tick (guest thread) fills one of two buffers and flips them; `modes_draw`, called
+from `enh_draw_overlay` (frontend), draws the last full one with the game font, under the pause
+and not over the menus. `g_mode_hold` (hw.c, at the ADC read) can hold the car: accelerator
+released, brake pressed.
+
+**Finding the addresses** (`RT_DUMP_RAM_EVERY=N[,K]` with `--dump-ram FILE` dumps the RAM every N
+frames to `FILE.<frame>`, and K frames after each; with `RT_DUMP_RAM_RANGE=lo-hi` only that range, appended to
+`FILE.range` as records {frame, length, bytes}). Dump the RAM and the frames in the same run:
+two headless runs with the same inputs do not reach the same frame at the same moment. The speed
+came from matching the speedometer read on the frames with the RAM words (GTI Club 2: a float of
+m/s, three copies in the link buffers and the one in the state struct); the packet writer
+(`0xaf8b0` GTI Club 2, `0x87f30` Thrill Drive 2) then names the car object it copies from.
 
 ## 6. Current status (2026-09-29)
 

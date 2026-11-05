@@ -147,7 +147,11 @@
         "0xb59c4": "name_index",
         "0xb510c": "name_confirm",
         "0x828c4": "course_select",
-        "0x42e54": "net_set_id"
+        "0x42e54": "net_set_id",
+        "0x80b10": "car_select",
+        "0x80c94": "car_select",
+        "0x6c66c": "car_marker",
+        "0x6a5a8": "car_draw"
       },
       "gl": {
         "0x217bc": "projection",
@@ -356,6 +360,30 @@
         "language": true
       },
       {
+        "page": "game",
+        "label": [
+          "SPEEDOMETER",
+          "TACHIMETRO"
+        ],
+        "addr": "0x88",
+        "size": 1,
+        "shift": 5,
+        "bits": 1,
+        "min": 0,
+        "max": 1,
+        "values": [
+          [
+            "KMH",
+            "KMH"
+          ],
+          [
+            "MPH",
+            "MPH"
+          ]
+        ],
+        "note": "TEST MODE speedometer: km/h (0) or mph (1), on the race HUD (checked: both games show mph with the bit set); the fonts have no slash"
+      },
+      {
         "page": "sound",
         "label": [
           "ATTRACT SOUND",
@@ -476,6 +504,38 @@
         "spans": [[0, 195], [218, 226], [203, 256]]
       }
     ],
-    "test_menu_game_mode": 13
+    "test_menu_game_mode": 13,
+    "modes": {
+      "note": "EXTRA modes (runtime/modes.c). state / player: TOC slots (TOC 0xdd690 + 0x60 / + 0x17c) holding the own state struct (the link packet, 0x55e088: flags at +4, mode bits 27-30 = 4 in a game, substate bits 23-26 = race_substate in the race, 7 after it) and the player's car object (0x70f018: x +0x1ac, z +0x1b0, height +0x1b4, heading +0x1c4, speed m/s +0xc0). time_left: the race clock in 1/57.5 s (32-bit; 0 ends the race)",
+      "available": ["speed", "police"],
+      "state": "0xdd6f0",
+      "race_substate": 6,
+      "player": "0xdd80c",
+      "speed_unit": ["0x88", 5],
+      "note_car_select": "SELECT A CAR (the state machine 0x80600, struct *(TOC+0x618) = 0x77c778 in r31): +0x34 the car on the carousel (steering: 0x807cc +1, 0x80804 -1), +0x44 the one before, +0x4c the row; the confirmation (0x80b14) takes the car from the table at +0x180 + row * 48 + index * 4 into the state struct (word +8, bits 28-31). +0x64 the screen's state (0 set up, 1 coming in, 2 choosing, 3 chosen), +0x5c the TIME countdown of the choice in frames (0x80ae8: at 0 the car on the carousel is taken). The hook car_select (at the confirmation and at the end of every frame of the screen, 0x80c94), in a mode with its own car (bus: SPEED, police_car: POLICE; 9 compact, 8 truck, 7 police car, 6 bus, 5 van, read off still screens: the carousel shows a change a step late), puts that car on the carousel and, once the screen is choosing, cuts the countdown to a few seconds (time to pick the transmission with the shift lever); the steering is held at the centre meanwhile, so the carousel does not turn. car_select: register of the struct, offset of the car, offset of the countdown, offset of the state, the choosing state, the countdown left (game frames, 28.75 a second)",
+      "car_select": [31, "0x34", "0x5c", "0x64", 2, 72],
+      "bus": 6,
+      "police_car": 7,
+      "player_speed": "0xc0",
+      "time_left": "0x77e4a0",
+      "note_cars": "the race's cars: 4 entries of 0x114 bytes at 0x741570, the player's first, then the CPU cars; position (x, height, z) +0xc, a copy +0xac, velocity per game frame +0xb8, heading +0xc4. Writing them holds a CPU car. Also kept: a position table at 0x77a46c (x, z, stride 0x4c), the CPU cars in the state struct (+0xa0, stride 0x6c: the host sends them in link play) and a replay ring buffer at 0x5a0000-0x700000",
+      "note_cpu_path": "a CPU car runs along its path: its path record (CPU car k at cpu_path[0] + (k - 1) * cpu_path[1]) keeps the distance along the path in three copies (cpu_path_s) and the speed per game frame (cpu_path_speed, two copies); the car array and the other copies follow it, so writing the car array alone does not stop the car, holding the distance and zeroing the speed does (measured: the car stays put to the decimetre, and it stays stopped afterwards)",
+      "marker_pos": [20, "0x64"],
+      "note_police": "the police car on the course: the car array's fifth entry (index 4) and CPU path record 4, parked by the road from the start (2756, -339 on EUROPE) until the player comes by, then chasing; its marker byte (draw record +3) is 0x62, high nibble 6 (the CPU cars 0x2n). The routine drawing one car (0x6a54c, record in r31) skips the car and its marker when the record's byte +4 is not zero: the hook car_draw sits where that byte is in r4 (0x6a5a8) and, for the police car in the POLICE mode, makes r4 1. hide_police: register of the record, offset of the marker byte, its high nibble, register to set; police_car_index: its entry, held parked meanwhile",
+      "hide_police": [31, "0x3", 6, 4],
+      "police_car_index": 4,
+      "cpu_path": ["0x77d7f0", "0x20c"],
+      "cpu_path_s": ["0x0", "0x30", "0x104"],
+      "cpu_path_speed": ["0x144", "0x148"],
+      "cars": "0x741570",
+      "car_stride": "0x114",
+      "car_count": 4,
+      "car_pos": "0xc",
+      "car_prev": "0xac",
+      "car_vel": "0xb8",
+      "note_hud": "where the modes write (logical 384-line units): the top lines, clear of the game's HUD, below the rear-view mirror, and the announcements",
+      "hud_y": 52,
+      "hud_big_y": 100
+    }
   }
 }

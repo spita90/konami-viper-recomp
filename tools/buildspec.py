@@ -16,7 +16,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-RUNTIME_C = ('cpu', 'sched', 'hw', 'main', 'frontend_sdl', 'enhanced', 'net', 'portmap')
+RUNTIME_C = ('cpu', 'sched', 'hw', 'main', 'frontend_sdl', 'enhanced', 'modes', 'net', 'portmap')
 VOODOO_CPP = ('voodoo', 'voodoo_2', 'voodoo_banshee', 'voodoo_render', 'voodoo_bridge', 'voodoo_gpu')
 LIBCHDR_DEPS = ('lzma-26.02/include', 'miniz-3.1.2', 'zstd-1.5.7')
 

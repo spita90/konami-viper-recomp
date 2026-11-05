@@ -110,8 +110,32 @@ static int g_nbp = -1;
 
 int g_bp_any;
 static void check_bp(PPCContext *c, uint32_t target);
-void rt_trace_bp(PPCContext *c, uint32_t pc) { check_bp(c, pc); }
-void rt_bp_init(void) { check_bp(&g_ctx, 0xffffffffu); g_bp_any = g_nbp > 0; }
+/* RT_WATCH=addr (RT_TRACE builds): logs every change of that 32-bit word with the block that
+ * made it and the blocks before it (RT_TRACE_DEPTH of them, default 48) */
+static uint32_t g_watch, g_watch_val;
+static int g_watching;
+#ifdef RT_TRACE
+static void watch_check(uint32_t pc) {
+    uint32_t v = LD32(g_watch);
+    if (v == g_watch_val) return;
+    rt_log("WATCH %08x: %08x -> %08x in block %08x (lr=%08x)\n", g_watch, g_watch_val, v, pc, g_ctx.lr);
+    unsigned depth = getenv("RT_TRACE_DEPTH") ? (unsigned)atoi(getenv("RT_TRACE_DEPTH")) : 48;
+    for (unsigned i = 1; i <= depth && i < 65536; i++) rt_log("    %08x\n", g_trace_pc[(g_trace_pos - i) & 65535]);
+    g_watch_val = v;
+}
+#endif
+void rt_trace_bp(PPCContext *c, uint32_t pc) {
+#ifdef RT_TRACE
+    if (g_watching) watch_check(pc);
+#endif
+    if (g_nbp) check_bp(c, pc);
+}
+void rt_bp_init(void) {
+    check_bp(&g_ctx, 0xffffffffu);
+    const char *w = getenv("RT_WATCH");
+    if (w) { g_watch = (uint32_t)strtoul(w, NULL, 16); g_watch_val = LD32(g_watch); g_watching = 1; }
+    g_bp_any = g_nbp > 0 || g_watching;
+}
 
 static void check_bp(PPCContext *c, uint32_t target) {
     if (g_nbp < 0) {
