@@ -102,16 +102,30 @@ jobs:
     needs: [linux-x86_64, macos-arm64, windows-x86_64]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: packages
           merge-multiple: true
+
+      # the release's description: the version's section of CHANGELOG.md (from its "## [x.y.z]"
+      # heading, excluded, to the next "## [" heading)
+      - name: Release notes
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## \[/ { if (on) exit; on = index($0, "## [" v "]") == 1; next }
+            on' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
 
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md."
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+          fi
           gh release upload "$GITHUB_REF_NAME" packages/* --clobber
