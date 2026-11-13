@@ -240,26 +240,29 @@ static void inev_setup(void) {
 static const char *k_calibration_script = GAME_CALIBRATION_SCRIPT;
 
 static int file_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) fclose(f); return f != NULL; }
+static const char *beside_exe(const char *rel);
 
-/* Runs this executable headless with a scripted input sequence (TEST MODE automation) that ends
- * by saving the NVRAM to nvsave; an existing nvsave is loaded first, so passes can be chained. */
+/* Runs this executable headless, in the classic mode (the cabinet as it is), with a scripted input
+ * sequence (TEST MODE automation) that ends by saving the NVRAM to nvsave. Its output goes to
+ * log, kept only if the pass fails. */
 static int run_scripted_pass(const char *what, const char *script, int seconds, const char *self,
-                             const char *work, const char *nvram, const char *nvsave) {
+                             const char *work, const char *nvram, const char *nvsave, const char *log) {
     char cmd[8192];
 #ifdef _WIN32                           /* cmd.exe: the variables through the inherited environment */
     _putenv_s("RT_FFB_WHEEL", "1");
     _putenv_s("RT_INPUT", script);
-    snprintf(cmd, sizeof cmd, "\"\"%s\" --headless --work \"%s\" --nvram \"%s\" --nvram-save \"%s\" --seconds %d >NUL 2>&1\"",
-             self, work, nvram, nvsave, seconds);
+    snprintf(cmd, sizeof cmd, "\"\"%s\" --headless --classic --work \"%s\" --nvram \"%s\" --nvram-save \"%s\" --seconds %d >\"%s\" 2>&1\"",
+             self, work, nvram, nvsave, seconds, log);
     int rc = system(cmd);
     _putenv_s("RT_FFB_WHEEL", "");
     _putenv_s("RT_INPUT", "");
 #else
-    snprintf(cmd, sizeof cmd, "RT_FFB_WHEEL=1 RT_INPUT='%s' '%s' --headless --work '%s' --nvram '%s' --nvram-save '%s' --seconds %d >/dev/null 2>&1",
-             script, self, work, nvram, nvsave, seconds);
+    snprintf(cmd, sizeof cmd, "RT_FFB_WHEEL=1 RT_INPUT='%s' '%s' --headless --classic --work '%s' --nvram '%s' --nvram-save '%s' --seconds %d >'%s' 2>&1",
+             script, self, work, nvram, nvsave, seconds, log);
     int rc = system(cmd);
 #endif
-    if (rc != 0 || !file_exists(nvsave)) { fprintf(stderr, "%s failed (rc=%d)\n", what, rc); return -1; }
+    if (rc != 0 || !file_exists(nvsave)) { fprintf(stderr, "%s failed (rc=%d), see %s\n", what, rc, log); return -1; }
+    remove(log);
     return 0;
 }
 
@@ -282,19 +285,10 @@ static void calibration_nvram_set(const char *nvsave) {
 static int run_first_time_calibration(const char *self, const char *work, const char *nvram, const char *nvsave) {
     if (!k_calibration_script) return 0;
     fprintf(stderr, "first run: calibrating steering and pedals in TEST MODE (a few seconds)...\n");
-    if (run_scripted_pass("calibration", k_calibration_script, GAME_CALIBRATION_SECONDS, self, work, nvram, nvsave)) return -1;
+    if (run_scripted_pass("calibration", k_calibration_script, GAME_CALIBRATION_SECONDS, self, work, nvram, nvsave,
+                          beside_exe(GAME_FIRST_RUN_LOG))) return -1;
     calibration_nvram_set(nvsave);
     fprintf(stderr, "calibration saved to %s\n", nvsave);
-    return 0;
-}
-
-/* enhanced mode, first launch: after the calibration, the profile's setup pass (free play) */
-static int run_enhanced_setup(const char *self, const char *work, const char *nvram, const char *nvsave) {
-    static const char *k_setup = GAME_ENH_SETUP_SCRIPT;
-    if (!k_setup) return 0;
-    fprintf(stderr, "first run (enhanced mode): setting up the game options in TEST MODE...\n");
-    if (run_scripted_pass("enhanced setup", k_setup, GAME_ENH_SETUP_SECONDS, self, work, nvram, nvsave)) return -1;
-    fprintf(stderr, "enhanced settings saved to %s\n", nvsave);
     return 0;
 }
 
@@ -458,10 +452,7 @@ int main(int argc, char **argv) {
     enh_init(work, settings);
     if (!headless && enh_want_gpu()) voodoo_set_gpu(1);  /* the frontend falls back if it cannot */
     if (headless && getenv("RT_GPU_BENCH")) voodoo_set_gpu(1);   /* benchmark: GPU without a window */
-    if (!headless && !file_exists(nvsave)) {
-        run_first_time_calibration(g_exe, work, nvram, nvsave);
-        if (g_enhanced) run_enhanced_setup(g_exe, work, nvram, nvsave);
-    }
+    if (!headless && !file_exists(nvsave)) run_first_time_calibration(g_exe, work, nvram, nvsave);
     static char cfbuf[1024], kbuf[1024];
     if (!cf) { snprintf(cfbuf, sizeof cfbuf, "%s/cf.img", work); cf = cfbuf; }
     snprintf(kbuf, sizeof kbuf, "%s/kernel.bin", work);

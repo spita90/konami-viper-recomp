@@ -113,6 +113,7 @@ The files are checked by their SHA1 before the build; the list is in the
 | Handbrake (GTI Club 2 JAB, Thrill Drive 2 JAA and AAA) | Space                                         | X                    |
 | Shift up / down                                        | E / Q                                         | R1 / L1              |
 | Start                                                  | 1                                             | Start                |
+| Change view (in a race, as on the cabinet)             | 1 (Start)                                     | Start                |
 | Menus (enhanced)                                       | Arrows or WASD, Enter or 1, Backspace         | D-pad, A or Start, B |
 | Pause (enhanced)                                       | Esc                                           | Guide                |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |

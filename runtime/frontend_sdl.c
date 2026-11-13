@@ -363,7 +363,7 @@ int frontend_run(int scale, int scale_explicit) {
             text_on = enh_text_input_active();
             if (text_on) SDL_StartTextInput(); else SDL_StopTextInput();
         }
-        if (enh_want_fullscreen() != fs_applied) {      /* enhanced mode: DISPLAY option */
+        if (g_enhanced && enh_want_fullscreen() != fs_applied) {      /* enhanced mode: DISPLAY option */
             fs_applied = enh_want_fullscreen();
             SDL_SetWindowFullscreen(win, fs_applied ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
         }

@@ -297,6 +297,7 @@ def write_config_header(g, out):
         f"#define GAME_DEFAULT_BIOS {c_str(rel(file_path(g, 'bios')))}",
         f"#define GAME_NVRAM_SAVE {c_str(g['binary'] + '_nvram.bin')}",
         f"#define GAME_SETTINGS {c_str(g['binary'] + '_settings.ini')}",
+        f"#define GAME_FIRST_RUN_LOG {c_str(g['binary'] + '_first_run.log')}",
         "#define GAME_INPUT_DEFAULTS {" + ", ".join(f"0x{v:02x}" for v in inp['defaults']) + "}",
         "#define GAME_ANALOG_REST {" + ", ".join(str(v) for v in inp['analog_rest']) + "}",
         f"#define GAME_HAS_HANDBRAKE {1 if inp.get('handbrake') else 0}",
@@ -318,14 +319,15 @@ def write_config_header(g, out):
     ]
     # enhanced ("conversion") mode, runtime/enhanced.c: optional, absent for unverified versions
     enh = g.get('enhanced') or {}
-    setup = enh.get('setup') or {}
+    free_play = enh.get('free_play') or {}
     blanks = enh.get('blank_strings') or []
     lines += [
         f"#define GAME_HAS_ENHANCED {1 if enh else 0}",
         f"#define GAME_ENH_NVRAM_SAVE {c_str(g['binary'] + '_enhanced_nvram.bin')}",
         f"#define GAME_ENH_SETTINGS {c_str(g['binary'] + '_enhanced_settings.ini')}",
-        f"#define GAME_ENH_SETUP_SCRIPT {c_str(setup['script']) if setup.get('script') else 'NULL'}",
-        f"#define GAME_ENH_SETUP_SECONDS {setup.get('seconds', 0)}",
+        # TEST MODE FREE PLAY in the NVRAM option block, set at every boot of the enhanced mode (mask 0: none)
+        f"#define GAME_ENH_FREE_PLAY_ADDR 0x{int(free_play.get('addr', '0'), 16):x}",
+        f"#define GAME_ENH_FREE_PLAY_MASK 0x{int(free_play.get('mask', '0'), 16):02x}",
         # named hooks (the recompiler inserts rt_hook() there): GAME_ENH_HOOK_<NAME> = address for
         # a name used once, and GAME_ENH_HOOKS lists them all (a name may mark several addresses)
         *[f"#define GAME_ENH_HOOK_{name.upper()} 0x{int(a, 16):08x}u"

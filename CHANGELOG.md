@@ -5,6 +5,27 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Changed
+
+- **Enhanced mode: free play is set at every boot**, in the NVRAM (profile field
+  `enhanced.free_play`), instead of by a TEST MODE pass on first launch. The first launch is
+  shorter, and an NVRAM without free play is repaired (see Fixed).
+- **The first-run calibration runs in the classic mode** (`--classic`), whatever the mode of the
+  launch; the calibrated NVRAM is the same. Its output goes to `<binary>_first_run.log` next to
+  the game, kept only when the calibration fails, and the console names that file.
+- **README:** the controls say that START changes the view during a race, as on the cabinets.
+
+### Fixed
+
+- **Enhanced mode without a menu:** when the first-launch TEST MODE pass failed (it happened on
+  a Windows PC), the game stayed without free play. The menu then never appeared, and COIN and
+  TEST are ignored in this mode, so the attract mode played on and no key did anything.
+  Starting the new version is enough: the NVRAM is repaired at boot.
+- **F11 in the classic mode** switched to fullscreen for a frame and back: the enhanced mode's
+  DISPLAY setting, which the classic mode does not have, undid it.
+
 ## [0.14.0] - 2026-11-05
 
 ### Added

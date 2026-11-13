@@ -60,7 +60,8 @@ The profile fields:
   5a), used by `calibration.nvram_set` and by the enhanced mode.
 - **`enhanced`:** data for the enhanced mode (section 5a), or `null` where it is not
   available (every current profile has it):
-  - `setup`: a scripted TEST MODE pass run on first launch after the calibration;
+  - `free_play`: the TEST MODE FREE PLAY option in the NVRAM (`addr`, `mask`), set at every
+    boot of the enhanced mode;
   - `blank_strings`: game strings to empty in RAM (`addr`, `text`);
   - `hooks`: `{module: {"0xADDR": name}}`. The recompiler inserts `rt_hook(c, addr)` before the
     instruction at each address; `GAME_ENH_HOOK_<NAME>` gives the runtime the address;
@@ -377,9 +378,13 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
   - **First-run calibration**, which replaces the calibration done on a cabinet when it is
     first switched on:
     - If that file is missing and the profile has a `calibration` script, the executable re-launches itself headless.
-    - It drives TEST MODE → CALIBRATION on its own with scripted inputs (about 6 s).
+    - It drives TEST MODE → CALIBRATION on its own with scripted inputs (about 6 s), in the
+      classic mode (`--classic`) whatever the mode of the launch: the cabinet as it is, with no
+      enhanced settings (render scale, free play) in the way. The saved NVRAM is the same.
     - It then saves the NVRAM with steering and pedals calibrated to the same values the
       frontend produces.
+    - Its output goes to `<binary>_first_run.log` next to the executable, deleted when the pass
+      succeeds; when it fails, the console says so and names that file.
     - At "RELEASE THE STEERING WHEEL" the game waits for the wheel to come back to the centre,
       as the force-feedback motor does on a deluxe cabinet. On a real cabinet without the motor
       this step fails unless the wheel is brought back by hand; the script sets the steering to
@@ -500,13 +505,19 @@ without an `enhanced` section starts in classic mode. Everything is gated on `g_
 classic mode is unchanged. Headless runs follow the same default: tests of the classic mode
 (bit-identical frames, linked test nodes) pass `--classic`.
 - **NVRAM:** the mode keeps its own NVRAM, `<binary>_enhanced_nvram.bin`.
-- **First launch:** when that file is missing, the calibration pass runs, followed by the
-  profile's `setup` pass. `run_scripted_pass()` chains the passes: each one loads the NVRAM
-  saved by the previous one.
-  - The setup of Thrill Drive 2 and GTI Club 2 is the same script: TEST MODE → COIN OPTIONS →
-    START on FREE PLAY, which toggles it directly (the menu then shrinks to FREE PLAY / FACTORY
-    SETTINGS / SAVE AND EXIT / EXIT) → two SHIFT UP → START on SAVE AND EXIT.
-  - Pressing START on FACTORY SETTINGS resets the coin options, so the cursor must skip it.
+- **First launch:** when that file is missing, the calibration pass runs, as in the classic mode.
+- **Free play:** set at every boot, in the NVRAM loaded at start (`nvram_boot_options()` in
+  `hw.c`, with the NETWORK ID), on an option block whose checksum is valid. The profile gives
+  its place, `enhanced.free_play` (`addr`, `mask`). It is TEST MODE → COIN OPTIONS → FREE PLAY:
+  bit 7 of the option block's byte `start + 0x10`, so `0x98` in Thrill Drive 2 and `0x94` in GTI
+  Club 2, in every version (found by comparing an NVRAM before and after the option was set in
+  TEST MODE).
+  - Without free play there is no menu: the attract hook is on the free-play branch (see
+    Attract detection), and the mode ignores COIN.
+  - Up to 0.14.0 a scripted TEST MODE pass set it on first launch, after the calibration. When
+    that pass failed (it happened on a Windows PC), the game stayed without free play and so
+    without a menu, for good: the file was then written by the game, and the pass never ran
+    again. Forcing it at boot also repairs those NVRAMs.
 - **Hidden captions:** `enh_on_frame()` runs at every published frame, on the guest thread. For
   each `blank_strings` entry, if the RAM still holds the original text, it writes a NUL at the
   first byte, so the game draws an empty string. The check repeats every frame, which also
@@ -518,7 +529,7 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
     CONTINUE", the FREE PLAY option name) and "PRESS START BUTTON TO DECIDE" are separate.
   - `RT_ENH_BLANK="addr:text,…"` blanks extra strings at run time, to find new ones.
 - **TEST MODE locked:** the frontend does not pass Test, Service and Coin to the game. Scripted inputs
-  (`RT_INPUT`) still reach every port, so the setup passes and the tests keep working.
+  (`RT_INPUT`) still reach every port, so the scripted passes and the tests keep working.
 - **Attract detection:** the hook `attract` sits on the free-play branch of the credit display.
   That routine is shared by the games (TD2 `0x7DD40`, GTI Club 2 JAB `0x61B4C`, EAA `0x61B70`),
   and the game calls it only while no game is in progress. It does not run during the Konami

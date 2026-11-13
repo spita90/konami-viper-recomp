@@ -688,22 +688,35 @@ void hw_nvram_options_fix(uint8_t *nv) {
     nv[GAME_NVRAM_OPT_CSUM + 1] = (uint8_t)cs;
 }
 
-/* The NETWORK ID (TEST MODE NETWORK OPTIONS, bits 6-7 of the profile's network.id_addr, as
- * ID - 1), set at every boot in both modes: 1, a single cabinet, or --net-id for a link (net.c).
- * Some dumps come from cabinet 2 of a linked set, and the race HUD then says PLAYER 2. Only an
- * option block whose checksum is valid is touched; an empty NVRAM gets the factory settings. */
-static void nvram_network_id(void) {
+/* TEST MODE options set at every boot. Only an option block whose checksum is valid is touched;
+ * an empty NVRAM gets the factory settings.
+ * - The NETWORK ID (NETWORK OPTIONS, bits 6-7 of the profile's network.id_addr, as ID - 1), in
+ *   both modes: 1, a single cabinet, or --net-id for a link (net.c). Some dumps come from
+ *   cabinet 2 of a linked set, and the race HUD then says PLAYER 2.
+ * - FREE PLAY (COIN OPTIONS), in the enhanced mode: it has no coins, and its menu needs the
+ *   attract hook, which is on the free-play branch of the credit display. */
+static void nvram_boot_options(void) {
     extern int g_net_id;
-    if (!GAME_NETWORK_ID_ADDR || !GAME_NVRAM_OPT_CSUM || getenv("RT_NVRAM_NOFORCE")) return;
+    if (!GAME_NVRAM_OPT_CSUM || getenv("RT_NVRAM_NOFORCE")) return;
     uint32_t sum = 0;
     for (int o = GAME_NVRAM_OPT_START; o <= GAME_NVRAM_OPT_CSUM; o += 2) sum += (uint32_t)(g_nvram[o] << 8 | g_nvram[o + 1]);
     if ((sum & 0xffff) != 0xffff) return;
-    int id = g_net_id ? g_net_id : 1;
-    uint8_t v = (uint8_t)((g_nvram[GAME_NETWORK_ID_ADDR] & 0x3f) | (id - 1) << 6);
-    if (v == g_nvram[GAME_NETWORK_ID_ADDR]) return;
-    g_nvram[GAME_NETWORK_ID_ADDR] = v;
-    hw_nvram_options_fix(g_nvram);
-    rt_log("NVRAM: NETWORK ID set to %d\n", id);
+    int changed = 0;
+    if (GAME_NETWORK_ID_ADDR) {
+        int id = g_net_id ? g_net_id : 1;
+        uint8_t v = (uint8_t)((g_nvram[GAME_NETWORK_ID_ADDR] & 0x3f) | (id - 1) << 6);
+        if (v != g_nvram[GAME_NETWORK_ID_ADDR]) {
+            g_nvram[GAME_NETWORK_ID_ADDR] = v;
+            changed = 1;
+            rt_log("NVRAM: NETWORK ID set to %d\n", id);
+        }
+    }
+    if (GAME_ENH_FREE_PLAY_MASK && g_enhanced && (g_nvram[GAME_ENH_FREE_PLAY_ADDR] & GAME_ENH_FREE_PLAY_MASK) != GAME_ENH_FREE_PLAY_MASK) {
+        g_nvram[GAME_ENH_FREE_PLAY_ADDR] |= GAME_ENH_FREE_PLAY_MASK;
+        changed = 1;
+        rt_log("NVRAM: FREE PLAY on\n");
+    }
+    if (changed) hw_nvram_options_fix(g_nvram);
 }
 
 static uint8_t nvram_read(uint32_t off) {
@@ -1143,7 +1156,7 @@ void hw_init(const HwConfig *cfg) {
     if (f) {
         if (fread(g_nvram, 1, sizeof g_nvram, f) != sizeof g_nvram) rt_log("NVRAM: short file\n");
         fclose(f);
-        nvram_network_id();
+        nvram_boot_options();
     } else {
         rt_log("NVRAM: %s not found, starting from an empty NVRAM\n", cfg->nvram_path ? cfg->nvram_path : "(none)");
     }
