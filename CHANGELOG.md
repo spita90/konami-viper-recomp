@@ -15,6 +15,11 @@ version can change the build, the profiles or the command-line options.
   the enhanced or the classic mode. For it, `viper-setup` has two new options: `--prepare`
   (progress lines, no prompt at the end) and `--play GAME` (starts a game it built).
 
+### Changed
+
+- **The Linux package is a `.tar.gz`** (it was a `.tar.xz`), the format RecompLauncher installs
+  on Linux. It is extracted the same way.
+
 ## [0.15.1] - 2026-11-17
 
 ### Fixed

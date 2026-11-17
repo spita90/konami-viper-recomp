@@ -48,7 +48,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: build/release/*.tar.xz
+          path: build/release/*.tar.gz
 
   macos-arm64:
     runs-on: macos-15
