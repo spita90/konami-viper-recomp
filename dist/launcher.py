@@ -11,6 +11,8 @@ gticlub2, ...) next to itself.
   viper-setup --roms DIR       also look for the files in DIR (repeatable)
   viper-setup --list           show which games are found, and what is missing
   viper-setup --rebuild        rebuild even the games that are up to date
+  viper-setup --prepare ...    no window, no prompt: "progress 0.4 text" lines (RecompLauncher)
+  viper-setup --play GAME ...  start a game built here, with the other arguments (RecompLauncher)
 
 The files may be anywhere under roms/ (next to this program) or under a --roms folder, in any
 layout, loose or in MAME's zips: they are recognised by their name and SHA1.
@@ -49,6 +51,35 @@ DATA = os.path.join(ENGINE, 'data')
 # the C sources: engine/src/ in a release, the repository when run from it
 SRC = os.path.join(ENGINE, 'src') if os.path.isdir(os.path.join(ENGINE, 'src')) else PYROOT
 
+SYSTEM = platform.system()          # Linux, Darwin (macOS), Windows
+if SYSTEM not in ('Linux', 'Darwin', 'Windows'):
+    raise SystemExit(f'viper-setup: {SYSTEM} is not supported')
+EXE = '.exe' if SYSTEM == 'Windows' else ''
+NOT_BUILT = 66                      # --play: the game is not built (EX_NOINPUT; recomplauncher.json)
+
+
+def play(args):
+    """--play GAME [ARGS]: starts the executable the setup built for GAME (a MAME set name) with
+    the other arguments, as RecompLauncher's Play does (one program for all the games). Before
+    the build modules are imported: they take about a second."""
+    i = args.index('--play')
+    gid = args[i + 1] if i + 1 < len(args) else ''
+    p = os.path.join(PYROOT, 'games', gid, 'game.json')
+    if not gid.isalnum() or not os.path.exists(p):
+        raise SystemExit(f"viper-setup: --play wants a game (thrild2, gticlub2, ...), not '{gid}'")
+    exe = os.path.join(HOME, json.load(open(p))['binary'] + EXE)
+    if not os.path.exists(exe):
+        print(f"viper-setup: {gid} is not built: run the setup with its files", file=sys.stderr)
+        sys.exit(NOT_BUILT)
+    cmd = [exe] + args[:i] + args[i + 2:]
+    if SYSTEM == 'Windows':             # no exec there: wait, and pass the exit code on
+        sys.exit(subprocess.call(cmd))
+    os.execv(exe, cmd)
+
+
+if __name__ == '__main__' and '--play' in sys.argv[1:]:
+    play(sys.argv[1:])
+
 os.environ['VIPER_DATA'] = DATA
 os.environ['VIPER_BINDIR'] = HOME
 sys.path.insert(0, os.path.join(PYROOT, 'tools'))
@@ -58,11 +89,6 @@ import game       # noqa: E402
 import extract    # noqa: E402
 import recomp     # noqa: E402
 
-SYSTEM = platform.system()          # Linux, Darwin (macOS), Windows
-if SYSTEM not in ('Linux', 'Darwin', 'Windows'):
-    raise SystemExit(f'viper-setup: {SYSTEM} is not supported')
-EXE = '.exe' if SYSTEM == 'Windows' else ''
-
 
 def play_name(exe):
     """How to start an executable from the terminal: ./td2, or td2.exe on Windows."""
@@ -71,6 +97,14 @@ def play_name(exe):
 
 def log(msg=''):
     print(msg, flush=True)
+
+
+PREPARE = False     # --prepare: progress lines for RecompLauncher's setup screen
+
+
+def progress(frac, text):
+    if PREPARE:
+        print(f"progress {min(max(frac, 0), 1):.3f} {text}", flush=True)
 
 
 def version():
@@ -248,7 +282,8 @@ class Compiler:
             run(self.cc() + self.flags('chdextract') + buildspec.chdextract_sources(SRC) + ['-o', out], self.env)
         return out
 
-    def build(self, g):
+    def build(self, g, on_unit=None):
+        """on_unit(done, total): after each compiled file."""
         gen, build = game.gen_dir(g), os.path.join(DATA, 'build', g['id'])
         sdl_inc, sdl_link, sdl_dll = sdl2()
         units = []      # (source, object, command)
@@ -283,6 +318,8 @@ class Compiler:
             for fu in concurrent.futures.as_completed(futs):
                 fu.result()
                 done += 1
+                if on_unit:
+                    on_unit(done, len(units))
                 if sys.stdout.isatty():
                     print(f"\r  compiling {done}/{len(units)}", end='', flush=True)
         log(f"\r  compiled {len(units)} files in {time.time() - t0:.0f} s" + ' ' * 10)
@@ -336,14 +373,20 @@ def quietly(fn, *args):
         sys.stdout = stdout
 
 
-def build_game(g, files, comp, rebuild):
+def build_game(g, files, comp, rebuild, span=(0, 1)):
+    """span: the part of the --prepare progress bar this game fills."""
     exe = os.path.join(HOME, g['binary'] + EXE)
     stamp_file = os.path.join(DATA, 'build', g['id'] + '.stamp.json')
     stamp = stamp_of(g, files)
+    title = f"{g['title']} ({g['version']})"
+
+    def at(f):
+        return span[0] + (span[1] - span[0]) * f
     if not rebuild and os.path.exists(exe) and os.path.exists(stamp_file) and json.load(open(stamp_file)) == stamp:
-        log(f"{g['title']} ({g['version']}): up to date, {play_name(exe)}")
+        log(f"{title}: up to date, {play_name(exe)}")
+        progress(at(1), f"{title}: up to date")
         return exe
-    log(f"\n=== {g['title']} ({g['version']}) ===")
+    log(f"\n=== {title} ===")
     t0 = time.time()
     stage(g, files)
     if os.path.exists(stamp_file):
@@ -352,13 +395,22 @@ def build_game(g, files, comp, rebuild):
         if os.path.isdir(d):
             shutil.rmtree(d)
     log('- extracting the game')
+    progress(at(0), f"{title}: extracting the game")
     quietly(extract.main, g['id'])
     log('- recompiling the PowerPC code to C')
+    progress(at(0.1), f"{title}: recompiling the PowerPC code to C")
     quietly(recomp.main, g['id'])
     log('- compiling')
-    exe = comp.build(g)
+    step = [0]      # a line every 2% of the files, not one per file
+
+    def on_unit(done, total):
+        if done * 50 // total > step[0]:
+            step[0] = done * 50 // total
+            progress(at(0.25 + 0.7 * done / total), f"{title}: compiling, {done}/{total} files")
+    exe = comp.build(g, on_unit if PREPARE else None)
     json.dump(stamp, open(stamp_file, 'w'))
     log(f"done in {time.time() - t0:.0f} s: {play_name(exe)}")
+    progress(at(1), f"{title}: ready")
     return exe
 
 
@@ -369,7 +421,12 @@ def main():
     ap.add_argument('--list', action='store_true', help='show the games found and the missing files')
     ap.add_argument('--rebuild', action='store_true', help='rebuild also the games that are up to date')
     ap.add_argument('-j', '--jobs', type=int, default=os.cpu_count() or 4)
+    ap.add_argument('--prepare', action='store_true',
+                    help='no prompt at the end, "progress 0.4 text" lines (RecompLauncher)')
+    ap.add_argument('--play', metavar='GAME', help='start a game built here, with the other arguments')
     a = ap.parse_args()
+    global PREPARE
+    PREPARE = a.prepare
     log(f"Konami Viper setup, version {version()}")
 
     ids = a.games or game.ids()
@@ -386,6 +443,7 @@ def main():
         comp = Compiler(a.jobs)
         if not os.path.exists(os.path.join(DATA, 'build', 'chdextract' + EXE)):
             log('Preparing the tools (the first time only, a few seconds)...')
+            progress(0, 'Preparing the tools')
         os.environ['VIPER_CHDEXTRACT'] = comp.chdextract()
 
     wanted = {f['name'].lower() for g in games for f in g['files'].values()}
@@ -411,9 +469,9 @@ def main():
             "'viper-setup --list' shows what each game needs.")
         sys.exit(1)
     built = []
-    for g, files in ready:
+    for n, (g, files) in enumerate(ready):
         try:
-            built.append(build_game(g, files, comp, a.rebuild))
+            built.append(build_game(g, files, comp, a.rebuild, (n / len(ready), (n + 1) / len(ready))))
         except (RuntimeError, SystemExit) as e:
             log(f"\n{g['title']}: the build failed.\n{e}")
             sys.exit(1)
@@ -459,7 +517,7 @@ if __name__ == '__main__':
     try:
         main()
     finally:
-        if started_from_explorer():
+        if started_from_explorer() and '--prepare' not in sys.argv[1:]:
             input('\nPress Enter to close this window.')
         if was_quick_edit:
             console_quick_edit(True)
