@@ -5,6 +5,16 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Added
+
+- **RecompLauncher support:** the packages carry a `recomplauncher.json`, so
+  [RecompLauncher](https://recomplauncher.com) can install the port, build Thrill Drive 2 and
+  GTI Club 2 from the player's folder of MAME files, and start each game from its own tile, in
+  the enhanced or the classic mode. For it, `viper-setup` has two new options: `--prepare`
+  (progress lines, no prompt at the end) and `--play GAME` (starts a game it built).
+
 ## [0.15.1] - 2026-11-17
 
 ### Fixed

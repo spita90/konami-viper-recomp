@@ -8,7 +8,7 @@
 #
 # Needs: Python 3 with PyInstaller, curl; on Linux and macOS cmake (and on Linux SDL2's build
 # dependencies, see the workflow). Nothing in it comes from the games: the launcher builds them
-# on the player's computer.
+# on the player's computer. recomplauncher.json, at the top, lets RecompLauncher install it.
 set -eu
 
 VERSION=${1:-$(git describe --tags --always --dirty)}
@@ -142,6 +142,10 @@ cp -R "$OUT/pyinstaller-dist/viper-setup/." "$DIR/"
 mkdir -p "$DIR/roms"
 cp "$ROOT/dist/README.txt" "$DIR/README.txt"
 cp "$ROOT/LICENSE" "$DIR/LICENSE.txt"
+# RecompLauncher's profile: its setup step runs again when prepare.version changes, so each new
+# version rebuilds the games, as running viper-setup after an update does
+sed "s/\"version\": \"dev\"/\"version\": \"$VERSION\"/" "$ROOT/dist/recomplauncher.json" > "$DIR/recomplauncher.json"
+grep -q "\"version\": \"$VERSION\"" "$DIR/recomplauncher.json"
 ( cd "$ROOT" && $PY -c "
 import sys; sys.path.insert(0, 'tools'); import game
 for i in game.ids():

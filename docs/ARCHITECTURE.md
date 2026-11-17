@@ -1574,6 +1574,11 @@ Notes:
 3. CMake builds for Windows and Linux, CI.
 4. Distributable package: done for Windows x86-64, Linux x86-64 and macOS arm64 (`dist/`,
    `viper-setup` builds the games on the player's computer from their CHD).
+   RecompLauncher: `dist/recomplauncher.json` goes at the top of each package (with
+   `prepare.version` set to the release version, so an update rebuilds the games). Its setup
+   step runs `viper-setup --prepare --roms <player's folder> thrild2 gticlub2` ("progress"
+   lines, no prompt); each game's tile starts `viper-setup --play <set> [args]`, which execs the
+   built executable before importing the build modules, or exits with 66 if it is not built.
 
 ## 8. Usage
 

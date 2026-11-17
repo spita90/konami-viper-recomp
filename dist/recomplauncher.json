@@ -1,0 +1,57 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Konami Viper Recomp: Thrill Drive 2 & GTI Club 2",
+  "repo": "spita90/konami-viper-recomp",
+  "min": "0.90.0-beta.36",
+  "game": {
+    "kind": "folder",
+    "label": "Your folder of MAME files: the Viper BIOS kviper (941b01.u25, ds2430.u3) with thrild2 (a41b02.chd, a41ebb_nvram.u39) and/or gticlub2 (941b02.chd, 941jab_nvram.u39), loose or in MAME's zips, in any layout. Keep it where it is: the games read the CHDs from it."
+  },
+  "prepare": {
+    "program": ["viper-setup.exe", "viper-setup"],
+    "args": ["--prepare", "--roms", "{game}", "thrild2", "gticlub2"],
+    "label": "Building the games from your files, about a minute each",
+    "timeout": 1800,
+    "version": "dev"
+  },
+  "start": {
+    "program": ["viper-setup.exe", "viper-setup"]
+  },
+  "games": [
+    {
+      "id": "td2",
+      "name": "Thrill Drive 2",
+      "args": ["--play", "thrild2"],
+      "saves": ["{install}/td2_*nvram.bin", "{install}/td2_*settings.ini"]
+    },
+    {
+      "id": "gticlub2",
+      "name": "GTI Club: Corso Italiano",
+      "args": ["--play", "gticlub2"],
+      "saves": ["{install}/gticlub2_*nvram.bin", "{install}/gticlub2_*settings.ini"]
+    }
+  ],
+  "settings": [
+    {
+      "id": "mode",
+      "label": "Mode",
+      "in": "args",
+      "help": "Enhanced plays like a PC game, with menus, options and pause. Classic is the arcade cabinet: coins, attract mode and TEST MODE, at 30 fps.",
+      "choices": [
+        { "label": "Enhanced", "args": [] },
+        { "label": "Classic (arcade cabinet)", "args": ["--classic"] }
+      ]
+    }
+  ],
+  "folders": {
+    "saves": [{ "path": "{install}" }],
+    "logs": [{ "path": "{install}" }]
+  },
+  "actions": [
+    { "id": "saves", "label": "Saves", "help": "The games' NVRAM (rankings, options, calibration) and the port's settings.", "open": "saves" }
+  ],
+  "exit_codes": {
+    "66": "This game isn't built: your folder didn't have all its files. Add them (see Required files in the README) and pick your folder again."
+  }
+}

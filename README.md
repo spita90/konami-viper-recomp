@@ -1,5 +1,7 @@
 # Konami Viper — static recompilation
 
+<a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 Native PC ports of Konami's **Viper** arcade games: **Thrill Drive 2** and **GTI Club 2**
 (_GTI Club: Corso Italiano_ / _Driving Party: Racing in Italy_).
 
@@ -30,7 +32,9 @@ about a minute, the first time only.
    `./gticlub2`, ... on Linux and macOS. After an update, or on another computer, run the setup
    again.
 
-You can also [build from the sources](#build-from-the-sources).
+[RecompLauncher](https://recomplauncher.com) can do all of this for you: pick your folder of
+MAME files, and it builds the games and starts them, with one tile each. You can also
+[build from the sources](#build-from-the-sources).
 
 ## Two ways to play
 
