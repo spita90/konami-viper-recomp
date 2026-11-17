@@ -744,7 +744,7 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
-       T_OTHER_VERSION, T_EXTRA, T_COUNT };
+       T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -774,6 +774,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "IN THE SESSION AS PLAYER", "IN SESSIONE COME GIOCATORE" },
     { "THE HOST HAS ANOTHER VERSION", "L HOST HA UN ALTRA VERSIONE" },
     { "EXTRA", "EXTRA" },
+    { "THE HOST PLAYS ANOTHER GAME VERSION", "L HOST GIOCA UN ALTRA VERSIONE DEL GIOCO" },
 };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
@@ -1280,7 +1281,7 @@ static void draw_net(uint32_t *fb, int w, int h) {
     } else if (st.result && st.result != NET_RES_LEFT) {
         int msg = st.result == NET_RES_FULL ? T_FULL : st.result == NET_RES_CLOSED ? T_CLOSED :
                   st.result == NET_RES_PORT ? T_PORT_FAIL : st.result == NET_RES_BADCODE ? T_BAD_CODE :
-                  st.result == NET_RES_VERSION ? T_OTHER_VERSION : T_NO_ANSWER;
+                  st.result == NET_RES_VERSION ? T_OTHER_VERSION : st.result == NET_RES_GAME ? T_OTHER_GAME : T_NO_ANSWER;
         draw_centered(fb, w, h, zs, y, T(msg), red);
         y += font_height(zs);
     }

@@ -964,10 +964,17 @@ uses the same Konami link library).
   for a START), length, 32-bit sequence (one per frame; a frame sent again keeps it), then the
   slot with zero runs coded as 0x00 count (a race packet is a few hundred bytes). What goes to one
   node in one cycle travels in one datagram, up to 1200 bytes (no IP fragments; a frame longer
-  than that goes alone). Control `"VPLC"`, type, ID, protocol version (2), 32-bit token.
+  than that goes alone). Control `"VPLC"`, type, ID, protocol version (2), 32-bit token, the
+  game's set (`GAME_ID`, 16 bytes, zero-padded).
   - **Another version** of the port does not link (version 1 sent a datagram per cycle and per
     frame relayed): the host ignores its `JOIN` and logs it; a node whose host answers with
     another version leaves with "THE HOST HAS ANOTHER VERSION".
+  - **Another game or version of the game** (Thrill Drive 2 EBB and JAA, or GTI Club 2): the
+    games check the region byte of each packet, so each would ignore the other's and race alone,
+    while the port's link (which does not read the packets) showed LINKED in the lobby (issue
+    #19). The host answers a `JOIN` naming another set with `GAME`, and the node leaves with
+    "THE HOST PLAYS ANOTHER GAME VERSION". A `JOIN` without the set (a port older than 0.15.1) is
+    let in as before.
   - **Marked** as interactive voice: DSCP EF (`IP_TOS`), and on macOS the service type
     `NET_SERVICE_TYPE_VO`, which also picks the Wi-Fi voice queue (WMM). The Internet mostly
     ignores the mark; the Wi-Fi of a home router uses it. Windows ignores `IP_TOS` without a QoS

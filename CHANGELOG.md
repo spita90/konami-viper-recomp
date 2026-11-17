@@ -12,6 +12,11 @@ version can change the build, the profiles or the command-line options.
 - **Thrill Drive 2, EXTRA modes SPEED and POLICE:** on SELECT A CAR the brake switched to the
   special cars, getting around the mode's car (the bus, the police car). The brake is now held
   released there, like the steering.
+- **Multiplayer between different versions of a game** (for example Thrill Drive 2 EBB and
+  JAA, issue #19): the lobby showed the player as linked, but the games ignored each other and
+  each raced alone, on its own course. The host now refuses a player with another version, who
+  sees THE HOST PLAYS ANOTHER GAME VERSION. All the players need the same version of the port
+  too.
 
 ## [0.15.0] - 2026-11-13
 

@@ -61,8 +61,11 @@
  * mode, ready for a START from the lobby), 16-bit length, 32-bit sequence (one per frame; a frame
  * sent again keeps it), then the slot with zero runs coded as 0x00 count (1-255); a datagram stays
  * within 1200 bytes, unless one frame alone is longer. Control "VPLC", type, ID, protocol version
- * (NET_PROTO), 0, 32-bit token: a node of another version is not let in (the joining node is told
- * when the host is the other one). Big-endian. Marked as interactive voice (DSCP EF; on macOS the
+ * (NET_PROTO), 0, 32-bit token, the game's set (GAME_ID, 16 bytes, zero-padded): a node of
+ * another version of the port is not let in (the joining node is told when the host is the other
+ * one), nor one of another game or version of the game (the games would ignore each other's
+ * packets, which check the region, and each would race alone: GAME, to the joining node; a
+ * datagram without the set, from an older version of the port, is let in). Big-endian. Marked as interactive voice (DSCP EF; on macOS the
  * service type), which the Wi-Fi of most home routers sends first.
  *
  * Tests: RT_NET_DELAY="ms,jitter_ms,loss%" holds the outgoing datagrams for ms plus a uniform
@@ -117,7 +120,8 @@
 #define HOST_GONE_CYCLES 300        /* ~5 s of LANC cycles with no data from the host: it is gone */
 
 enum { ROLE_OFF, ROLE_HOST, ROLE_JOINING, ROLE_MEMBER };
-enum { C_JOIN = 1, C_WELCOME, C_FULL, C_LEAVE, C_CLOSE, C_START, C_FIND, C_HERE };
+enum { C_JOIN = 1, C_WELCOME, C_FULL, C_LEAVE, C_CLOSE, C_START, C_FIND, C_HERE, C_GAME };
+#define GAME_TAG 16                 /* the game's set (GAME_ID) after a control datagram's 12 bytes */
 enum { M_FREE, M_RESERVED, M_ACTIVE };
 
 typedef struct { struct sockaddr_storage a; socklen_t len; } Addr;
@@ -230,9 +234,10 @@ static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (u
 static uint32_t get32(const uint8_t *p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
 
 static void control(const Addr *to, int type, int id, uint32_t token) {
-    uint8_t p[12] = { 'V', 'P', 'L', 'C', (uint8_t)type, (uint8_t)id, NET_PROTO, 0 };
+    uint8_t p[12 + GAME_TAG] = { 'V', 'P', 'L', 'C', (uint8_t)type, (uint8_t)id, NET_PROTO, 0 };
     put32(p + 8, token);
-    send_to(to, p, 12);
+    strncpy((char *)p + 12, GAME_ID, GAME_TAG);
+    send_to(to, p, sizeof p);
 }
 
 /* ------------------------------------------------------------------ slots */
@@ -548,7 +553,15 @@ static void found_here(const Addr *from, uint32_t ip) {
     rt_log("net: the host is on the local network, at %s\n", s);
 }
 
-static void host_control(const Addr *from, int type, int id, uint32_t token) {
+/* the game's set a control datagram names, NULL if it names none (an older version of the port) */
+static const char *game_tag(const uint8_t *buf, ssize_t n, char *tag) {
+    if (n < 12 + GAME_TAG) return NULL;
+    memcpy(tag, buf + 12, GAME_TAG);
+    tag[GAME_TAG] = 0;
+    return tag;
+}
+
+static void host_control(const Addr *from, int type, int id, uint32_t token, const char *game) {
     if (type == C_FIND) {                           /* a node next to us looks for its host */
         uint32_t mine = public_ip();
         if (!mine || mine == token) {
@@ -556,6 +569,12 @@ static void host_control(const Addr *from, int type, int id, uint32_t token) {
             if (!same_addr(&last, from)) { last = *from; rt_log("net: a node on the local network looks for this host\n"); }
             control(from, C_HERE, 1, mine);
         }
+        return;
+    }
+    if (type == C_JOIN && game && strcmp(game, GAME_ID)) {     /* another game or version: no link */
+        static Addr last;                           /* logged once per node */
+        if (!same_addr(&last, from)) { last = *from; rt_log("net: a node of another game version (%s) tries to join\n", game); }
+        control(from, C_GAME, 0, 0);
         return;
     }
     if (type == C_JOIN) {
@@ -582,7 +601,7 @@ static void host_control(const Addr *from, int type, int id, uint32_t token) {
     }
 }
 
-static void member_control(int type, int id, uint32_t token) {
+static void member_control(int type, int id, uint32_t token, const char *game) {
     if (type == C_WELCOME && g_role == ROLE_JOINING) {
         if (!g_hot_id) rt_log("net: given NETWORK ID %d, taking it in the attract mode\n", id);
         g_hot_id = id;
@@ -594,6 +613,9 @@ static void member_control(int type, int id, uint32_t token) {
     } else if (type == C_FULL) {
         rt_log("net: the session is full\n");
         end_session_r("full", NET_RES_FULL);
+    } else if (type == C_GAME && g_role == ROLE_JOINING) {
+        rt_log("net: the host plays another game version (%s, this is %s)\n", game ? game : "?", GAME_ID);
+        end_session_r("another game version", NET_RES_GAME);
     } else if (type == C_CLOSE) end_session_r("closed by the host", NET_RES_CLOSED);
     else if (type == C_START && g_role == ROLE_MEMBER && now_s() - g_start_time > 2) {
         g_start_time = now_s();
@@ -659,8 +681,10 @@ static void receive(void) {
             int type = buf[4], id = buf[5];
             if (buf[6] != NET_PROTO) { other_version(&from); continue; }
             if (type == C_HERE) { found_here(&from, get32(buf + 8)); continue; }
-            if (g_role == ROLE_HOST) host_control(&from, type, id, get32(buf + 8));
-            else if (same_addr(&from, &g_hostaddr)) { g_host_silent = 0; member_control(type, id, get32(buf + 8)); }
+            char tag[GAME_TAG + 1];
+            const char *game = game_tag(buf, n, tag);
+            if (g_role == ROLE_HOST) host_control(&from, type, id, get32(buf + 8), game);
+            else if (same_addr(&from, &g_hostaddr)) { g_host_silent = 0; member_control(type, id, get32(buf + 8), game); }
             continue;
         }
         if (memcmp(buf, "VPL2", 4)) continue;

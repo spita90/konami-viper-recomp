@@ -75,6 +75,8 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
   - No server and nothing to install. If the router does not open the port (UPnP and NAT-PMP
     off, or a provider's CGNAT), the lobby says so: open UDP port 24700 by hand to host.
     Joining needs nothing on your side.
+  - Everyone plays the same game version (the same executable, for example `td2` with `td2`):
+    different versions do not link, and the lobby says so.
   - While a session is open, the lobby is the main menu, and there is no pause. A player whose
     connection drops stays on the track standing still (GTI Club 2) or leaves the race
     (Thrill Drive 2), and races on if the connection comes back.

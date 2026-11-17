@@ -142,6 +142,9 @@ Up to four players race together over the Internet, as linked cabinets did (enha
 
 - **Host:** MULTIPLAYER → HOST A GAME, then send the 7-character **session code** to the others.
 - **Join:** MULTIPLAYER → JOIN A GAME, then type or paste the code.
+- **Same version for everyone:** all players run the same executable (for example `./td2` with
+  `./td2`, not with `./td2j`) from the same release of the port. Different versions do not race
+  together.
 
 No server and nothing to install: the host's game opens its port on the router by itself. If
 the router does not allow it, the lobby says so: open UDP port 24700 by hand to host. More in
