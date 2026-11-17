@@ -5,7 +5,7 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
-## [Unreleased]
+## [0.16.0] - 2026-11-17
 
 ### Added
 
@@ -543,6 +543,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[0.16.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/spita90/konami-viper-recomp/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.13.0...v0.14.0
