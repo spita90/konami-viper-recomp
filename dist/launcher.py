@@ -74,7 +74,14 @@ def play(args):
     cmd = [exe] + args[:i] + args[i + 2:]
     if SYSTEM == 'Windows':             # no exec there: wait, and pass the exit code on
         sys.exit(subprocess.call(cmd))
-    os.execv(exe, cmd)
+    env = dict(os.environ)
+    if FROZEN:      # PyInstaller's bootloader put engine/ first on it: not for the game's SDL2
+        orig = env.pop('LD_LIBRARY_PATH_ORIG', None)
+        if orig is None:
+            env.pop('LD_LIBRARY_PATH', None)
+        else:
+            env['LD_LIBRARY_PATH'] = orig
+    os.execve(exe, cmd, env)
 
 
 if __name__ == '__main__' and '--play' in sys.argv[1:]:
