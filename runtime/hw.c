@@ -232,7 +232,12 @@ static uint8_t i2c_read(uint32_t off) {
             int pos = g_analog[i2c.addr_latch & 3];
             /* an EXTRA mode holds the car (modes.c): accelerator released, brake pressed */
             if (UNLIKELY(g_mode_hold) && (i2c.addr_latch & 3) && (i2c.addr_latch & 3) < 3) pos = (i2c.addr_latch & 3) == 1 ? -200 : 200;
-            if (UNLIKELY(g_mode_steer_hold) && (i2c.addr_latch & 3) == 0) pos = 0;
+            /* a mode's car on SELECT A CAR: steering centred, brake released (the brake switches
+             * to the special cars' row) */
+            if (UNLIKELY(g_mode_steer_hold)) {
+                if ((i2c.addr_latch & 3) == 0) pos = 0;
+                else if ((i2c.addr_latch & 3) == 2) pos = -200;
+            }
             int d = (i2c.addr_latch & 4) ? -pos : pos;        /* CH+ - CH-, or reversed */
             res = (uint8_t)(d < 0 ? 0 : d > 255 ? 255 : d);
             static int i2clog = -1;

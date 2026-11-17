@@ -1301,8 +1301,9 @@ of every frame of the screen (`0x80c94`), puts the mode's car (bus 6, police car
 screen) on the carousel and, once the screen is choosing, cuts the countdown to 72 game frames (2.5 s,
 the TIME shows 3, 2, 1): time to pick the automatic or manual transmission with the shift
 lever, then the game takes that car (`car_select` in the profile). Meanwhile the steering is held
-at the centre (`g_mode_steer_hold`, at the ADC read in hw.c, released a few frames after the
-screen's last hook), so the carousel does not turn; tested by turning the wheel all along.
+at the centre and the brake released (`g_mode_steer_hold`, at the ADC read in hw.c, released a
+few frames after the screen's last hook), so the carousel does not turn nor switch to the special
+cars' row (the brake does that, +0x4c); tested by turning the wheel all along.
 
 **The race's cars** (`cars`, `car_stride`, `car_count`, `car_pos`, `car_prev`, `car_vel`): an
 array with one entry per car, the player's first, then the CPU cars. In GTI Club 2 a CPU car's

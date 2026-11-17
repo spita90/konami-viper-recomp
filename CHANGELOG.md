@@ -5,6 +5,14 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Fixed
+
+- **Thrill Drive 2, EXTRA modes SPEED and POLICE:** on SELECT A CAR the brake switched to the
+  special cars, getting around the mode's car (the bus, the police car). The brake is now held
+  released there, like the steering.
+
 ## [0.15.0] - 2026-11-13
 
 ### Changed

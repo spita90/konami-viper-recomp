@@ -1025,8 +1025,8 @@ void modes_car_draw(PPCContext *c) {
  * confirmation; car_select is {register holding the screen's struct, offset of the car index,
  * offset of the choice's countdown, offset of the screen's state, the choosing state, the
  * countdown left}: the mode's car on the carousel, the countdown cut to that while choosing (time
- * to pick the transmission), and the steering held at the centre (hw.c, g_mode_steer_hold) so the
- * carousel does not turn. */
+ * to pick the transmission), and the steering held at the centre and the brake released (hw.c,
+ * g_mode_steer_hold) so the carousel does not turn nor switch to the special cars' row. */
 volatile int g_mode_steer_hold;
 
 static int mode_car(int mode) {            /* the car index a mode drives, -1 any */

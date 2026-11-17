@@ -15,7 +15,7 @@ void modes_car_select(struct PPCContext *c);           /* hook: the car select s
 void modes_car_draw(struct PPCContext *c);             /* hook: a car is about to be drawn */
 void modes_car_effect(struct PPCContext *c);           /* hook: a car's smoke/fire effect flag is read */
 extern volatile int g_mode_hold;                       /* hw.c: the car is held (pedals) */
-extern volatile int g_mode_steer_hold;                 /* hw.c: the steering is held at the centre */
+extern volatile int g_mode_steer_hold;                 /* hw.c: steering centred, brake released */
 
 /* enhanced.c: the game font on the overlay, in logical units (x < 0: centred) */
 enum { ENH_FONT_LARGE, ENH_FONT_MEDIUM, ENH_FONT_SMALL };
