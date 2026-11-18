@@ -12,26 +12,31 @@ static int test_rumble(SDL_GameController *pad, Uint16 low, Uint16 high, Uint32 
     (void)pad; calls++; last_low = low; last_high = high; last_duration = duration; return fail ? -1 : 0;
 }
 int main(void) {
-    assert(controller_motor_strength(0x0f,1) == 0);
-    assert(controller_motor_strength(0x80,1) == 0);
-    assert(controller_motor_strength(0x8f,1) == 65535);
-    assert(controller_motor_strength(0x9f,1) == 65535); /* direction has no vibration equivalent */
-    assert(controller_motor_strength(0x8f,.5) == 32768);
-    assert(controller_motor_strength(0x8f,0) == 0);
-    assert(controller_motor_strength(0x84,2) > controller_motor_strength(0x84,1));
-    assert(controller_motor_strength(0x8f,2) == 65535);
-    assert(controller_motor_strength(0x8f,100) == 65535);
-    assert(controller_motor_strength(0x8f,NAN) == 0);
-    /* Default gain preserves proportional torque, without boosting weak forces. */
-    assert(controller_motor_strength(0x83,.5) == 6554);
-    assert(controller_motor_strength(0x85,.5) == 10923);
+    Uint16 lo, hi;
+    assert(controller_motor_strength(0x0f,.5) == 0);          /* motor off */
+    assert(controller_motor_strength(0x80,.5) == 0);          /* no torque */
+    assert(controller_motor_strength(0xa0,.5) == 0);          /* bit 5, no torque: GTI Club 2 */
+    /* the torque band the games use, 3..11, spans 25-100% at 1.0X (gain .5) */
+    assert(controller_motor_strength(0x83,.5) == 16384);
+    assert(controller_motor_strength(0x85,.5) == 28672);
+    assert(controller_motor_strength(0x87,.5) == 40959);
+    assert(controller_motor_strength(0x8b,.5) == 65535);
+    assert(controller_motor_strength(0x8f,.5) == 65535);
+    assert(controller_motor_strength(0x81,.5) == 6554 && controller_motor_strength(0x82,.5) == 13107);
     Uint16 previous = 0;
-    for (int torque=1; torque<=15; torque++) {
+    for (int torque=1; torque<=11; torque++) {
         Uint16 strength = controller_motor_strength((uint8_t)(0x80 | torque),.5);
         assert(strength > previous);
-        assert(abs((int)controller_motor_strength((uint8_t)(0x80 | torque),1) - 2*(int)strength) <= 1);
         previous = strength;
     }
+    /* the user's gain scales it: 0.5X halves, 2.0X doubles up to the pad's maximum */
+    assert(abs((int)controller_motor_strength(0x87,.25) * 2 - (int)controller_motor_strength(0x87,.5)) <= 1);
+    assert(controller_motor_strength(0x85,1) == 57343 && controller_motor_strength(0x87,1) == 65535);
+    assert(controller_motor_strength(0x8f,0) == 0 && controller_motor_strength(0x8f,NAN) == 0);
+    assert(controller_motor_strength(0x8f,100) == 65535);
+    /* direction: left (bit 4 clear) leads with the heavy low-frequency motor, right with the light one */
+    controller_motor_rumble(0x87,.5,&lo,&hi); assert(lo == 40959 && hi == 14336);
+    controller_motor_rumble(0x97,.5,&lo,&hi); assert(hi == 40959 && lo == 14336);
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "0");
     assert(SDL_Init(SDL_INIT_GAMECONTROLLER) == 0);
     SDL_VirtualJoystickDesc desc = {0};
@@ -45,7 +50,7 @@ int main(void) {
     assert(pad);
     ControllerRumble state = { .id = -1 };
     controller_rumble_update(&state,pad,0x8f,1,1,100);
-    assert(calls == 1 && last_low == 65535 && last_high == 65535 && last_duration == 100);
+    assert(calls == 1 && last_low == 65535 && last_high == 22937 && last_duration == 100);
     controller_rumble_update(&state,pad,0x8f,1,1,120); assert(calls == 1);
     controller_rumble_update(&state,pad,0x8f,1,0,121);
     assert(calls == 2 && last_low == 0 && last_high == 0);
@@ -69,8 +74,8 @@ int main(void) {
     fail=0;controller_rumble_update(&state,pad,0x8f,1,0,2400);
     assert(!state.failed && last_low==0);
     controller_rumble_update(&state,pad,0x8f,.25,1,2401);assert(last_low==0);
-    controller_rumble_update(&state,pad,0x8f,.25,1,2450);assert(last_low==16384);
-    controller_rumble_update(&state,pad,0x8f,.5,1,2500);assert(last_low==32768);
+    controller_rumble_update(&state,pad,0x87,.25,1,2450);assert(last_low==20480);
+    controller_rumble_update(&state,pad,0x87,.5,1,2500);assert(last_low==40959);
     controller_rumble_update(&state,pad,0x8f,1,1,2550);assert(last_low==65535);
     controller_rumble_update(&state,pad,0x8f,0,1,2551);assert(last_low==0);
     state = (ControllerRumble){ .id = -1 };
@@ -91,7 +96,7 @@ int main(void) {
         Uint32 now=6000 + pulse*2000;
         count=calls;
         assert(controller_rumble_pulse(&state,pad,.5,now)==0);
-        assert(calls==count+1 && last_low==32768 && last_high==32768 && last_duration==1000);
+        assert(calls==count+1 && last_low==65535 && last_high==65535 && last_duration==1000);
         controller_rumble_update(&state,pad,0,0,0,now+1000);
         assert(last_low==0);
     }
