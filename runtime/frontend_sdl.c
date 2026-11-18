@@ -13,8 +13,9 @@
  *   letters, Backspace deletes, Enter ends, Left/Right and the D-pad step through the letters;
  *   in the course select (and GTI Club 2's transmission select) Left/Right, A/D, the D-pad
  *   and the stick step through the choices, and the wheel stays on the chosen one)
- *   Gamepad: left stick = steering, R2/L2 = gas/brake, R1/L1 = shift up/down,
- *            X = handbrake, Start = start, Back = coin
+ *   Gamepad: left stick or D-pad = steering, R2/L2 = gas/brake, R1/L1 = shift up/down,
+ *            X = handbrake, Start = start, Back = coin (enhanced: pause, as Guide, which
+ *            Steam and the consoles often keep for themselves)
  *   F11 fullscreen, Esc quit
  */
 #include "runtime.h"
@@ -201,8 +202,10 @@ static void apply_inputs(double dt) {
     hold(&ctl.gas, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_A));
     hold(&ctl.brake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_B));
     hold(&ctl.handbrake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_X));
+    hold(&ctl.steer_left, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
+    hold(&ctl.steer_right, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
 
-    /* keyboard steering: ramp towards target */
+    /* keyboard and D-pad steering: ramp towards target */
     int wsel = enh_wheel_select_active();
     double target = wsel ? enh_wheel_select_pos() : !!ctl.steer_right - !!ctl.steer_left;
     double speed = 4.0 * SDL_min(dt, 0.05);
@@ -334,6 +337,8 @@ static void pad_button(int b, int down) {
     case SDL_CONTROLLER_BUTTON_A: hold(&ctl.gas, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_B: hold(&ctl.brake, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_X: hold(&ctl.handbrake, SRC_PAD, down); break;
+    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: hold(&ctl.steer_left, SRC_PAD, down); break;
+    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: hold(&ctl.steer_right, SRC_PAD, down); break;
     default: break;
     }
 }
@@ -532,6 +537,8 @@ int frontend_run(int scale, int scale_explicit) {
                 else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
                     if (!enh_escape()) { running = 0; rt_log("frontend: Guide button, quit\n"); }  /* Home: pause/back in play, quit from main menu. */
                 }
+                else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && g_enhanced)
+                    enh_escape();       /* pause / back, as Guide, without quitting: no coins in the enhanced mode */
                 else if (enh_name_entry_active() && !enh_paused() && (ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
                                                                        ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
                     enh_name_step(ev.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT ? -1 : 1);

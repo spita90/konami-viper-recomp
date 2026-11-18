@@ -111,7 +111,7 @@ The files are checked by their SHA1 before the build; the list is in the
 
 | Action                                                 | Keyboard                                      | Gamepad              |
 | ------------------------------------------------------ | --------------------------------------------- | -------------------- |
-| Steer                                                  | ← / → or A / D                                | Left stick           |
+| Steer                                                  | ← / → or A / D                                | Left stick or D-pad  |
 | Accelerator                                            | ↑ or W                                        | R2 (or A)            |
 | Brake                                                  | ↓ or S                                        | L2 (or B)            |
 | Handbrake (GTI Club 2 JAB, Thrill Drive 2 JAA and AAA) | Space                                         | X                    |
@@ -119,7 +119,7 @@ The files are checked by their SHA1 before the build; the list is in the
 | Start                                                  | 1                                             | Start                |
 | Change view (in a race, as on the cabinet)             | 1 (Start)                                     | Start                |
 | Menus (enhanced)                                       | Arrows or WASD, Enter or 1, Backspace         | D-pad, A or Start, B |
-| Pause (enhanced)                                       | Esc                                           | Guide                |
+| Pause (enhanced)                                       | Esc                                           | Back or Guide        |
 | Ranking name (enhanced)                                | Type it; Backspace, Enter ends; ← / → browse  | D-pad ← / →, then R2 |
 | Insert coin (classic)                                  | 5                                             | Back                 |
 | Test / Service (classic)                               | F2 / 9                                        | —                    |

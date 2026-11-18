@@ -19,7 +19,7 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | **Starting a game** | START GAME from the menu                                                                                           | Insert coins, press START |
 | **Main screen**     | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                                        | Attract mode              |
 | **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, renderer, fps counter | None                      |
-| **Pause**           | Esc: RESUME or MAIN MENU (not in multiplayer)                                                                      | None                      |
+| **Pause**           | Esc, or Back on a gamepad: RESUME, CONTROLS or MAIN MENU (not in multiplayer)                                      | None                      |
 | **Ranking name**    | Typed on the keyboard                                                                                              | Chosen with the wheel     |
 | **Multiplayer**     | MULTIPLAYER: up to 4 players over the Internet, with a session code                                                | Linked cabinets only      |
 | **Resolution**      | 512×384 or 1024×768 (1X or 2X)                                                                                     | 512×384, as the original  |
@@ -59,9 +59,11 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
   a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
   (`--settings FILE` to use another file).
-- **Pause:** Esc, or the gamepad's Guide button, pauses a game, with RESUME and MAIN MENU. MAIN
-  MENU brings the game back to the attract mode in a few seconds, behind a loading screen. In the
-  attract menu, Esc goes back from a submenu, and quits from the main menu.
+- **Pause:** Esc, or the gamepad's Back (Select, View) or Guide button, pauses a game, with
+  RESUME, CONTROLS and MAIN MENU. Back is there because Steam and the consoles often keep Guide
+  for themselves; it never quits. MAIN MENU brings the game back to the attract mode in a few
+  seconds, behind a loading screen. In the attract menu, Esc goes back from a submenu, and quits
+  from the main menu.
 - **Ranking name:** when a result enters the rankings, type the initials on the keyboard
   instead of turning the wheel. Backspace deletes, Enter ends the name early. Left and right
   still browse the letters, and the accelerator (or START) takes the one shown, so a gamepad

@@ -115,6 +115,21 @@ int main(void) {
     frontend_set_stick_response(2); apply_inputs(.016); int extra_soft=g_analog[0];
     assert(linear>soft && soft>extra_soft && extra_soft>0);
     frontend_set_stick_response(99); assert(frontend_stick_response()==2);
+    /* D-pad steering ramps as the keyboard, also from a press the pause consumed */
+    axis(SDL_CONTROLLER_AXIS_LEFTX, 0);
+    paused=1; button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, 1); paused=0;
+    apply_inputs(.05); assert(g_analog[0] < 0 && g_analog[0] > -200);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == -200);
+    button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, 0);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 0);
+    button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 1); pad_button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 1);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 200);
+    button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0); pad_button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 0);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 0);
     close_pad();
     assert(SDL_JoystickDetachVirtual(index) == 0);
     SDL_Quit();
