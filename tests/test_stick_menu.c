@@ -3,6 +3,8 @@
 static int stick_response=2;
 int frontend_stick_response(void) { return stick_response; }
 void frontend_set_stick_response(int v) { stick_response = v>=0 && v<=2 ? v : 2; }
+int frontend_rumble_multiplier(void) { return 100; }
+void frontend_set_rumble_multiplier(int v) { (void)v; }
 uint8_t *g_ram;
 void voodoo_set_scale(int n) {(void)n;}
 void voodoo_set_wide(int n) {(void)n;}
@@ -15,7 +17,8 @@ int main(int argc, char **argv) {
  assert(frontend_stick_response()==2);
  g_frame=g_attract_frame=100;g_screen=SCREEN_PAGE;g_page=PAGE_CONTROLS;
  int rows[MAX_GAME_OPTIONS+2], n=page_rows(PAGE_CONTROLS,rows);
- int cursor=n>1 ? n : 0; /* last item in combined Controls; first when standalone */
+ int cursor=0; while (rows[cursor] != -9) cursor++;   /* the STICK RESPONSE row, also in the pause menu */
+ assert(cursor<n);
  g_page_cursor=cursor;
  enh_menu_action(ENH_LEFT);assert(frontend_stick_response()==1);
  enh_menu_action(ENH_LEFT);assert(frontend_stick_response()==0);

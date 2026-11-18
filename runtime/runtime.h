@@ -98,6 +98,7 @@ void nvram_save(void);
 void rt_pace_vblank(void);
 void audio_frontend_push(const uint8_t *blk);
 int frontend_run(int scale, int scale_explicit);     /* --scale given: its size, not the saved one */
+void frontend_set_motor(uint8_t command); /* guest -> host, atomic cabinet motor output */
 uint32_t hw_read(uint32_t ea, int size);
 void hw_write(uint32_t ea, int size, uint32_t v);
 
@@ -178,3 +179,5 @@ static inline uint32_t le_bus_write(uint32_t old, int k, int size, uint32_t v) {
 
 int frontend_stick_response(void); /* 0 linear, 1 soft, 2 extra soft */
 void frontend_set_stick_response(int response);
+int frontend_rumble_multiplier(void); /* 100 = default strength, range 0..400 */
+void frontend_set_rumble_multiplier(int percent);

@@ -88,3 +88,5 @@ int main(int argc, char **argv) {
 
 int frontend_stick_response(void) { return 2; }
 void frontend_set_stick_response(int v) { (void)v; }
+int frontend_rumble_multiplier(void) { return 100; }
+void frontend_set_rumble_multiplier(int v) { (void)v; }

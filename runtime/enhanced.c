@@ -465,6 +465,7 @@ static void settings_load(void) {
             else if (!strcmp(key, "renderer")) g_set.renderer = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
+            else if (!strcmp(key, "rumble_multiplier")) frontend_set_rumble_multiplier(v);
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
             else for (int i = 0; i < 4; i++) if (!strcmp(key, k_win_key[i])) g_set.win[i] = v;
         }
@@ -479,6 +480,7 @@ static void settings_save(void) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "stick_response = %d\n", frontend_stick_response());
+        fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());
         fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
         fprintf(f, "# 0 = hardware (GPU, when this computer has OpenGL 3.3), 1 = software\nrenderer = %d\n", g_set.renderer);
     }
@@ -746,7 +748,7 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
-       T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_COUNT };
+       T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_RUMBLE, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -778,6 +780,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "EXTRA", "EXTRA" },
     { "THE HOST PLAYS ANOTHER GAME VERSION", "L HOST GIOCA UN ALTRA VERSIONE DEL GIOCO" },
     { "STICK RESPONSE", "RISPOSTA STICK" }, { "CONTROLS", "COMANDI" },
+    { "RUMBLE STRENGTH", "VIBRAZIONE" },
 };
 static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
 static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
@@ -866,6 +869,7 @@ int enh_escape(void) {
     if (net_active() && !net_session_over()) return 1;   /* link play: no pause, as on linked cabinets */
     g_paused = 1;
     g_pause_cursor = 0;
+    g_pause_controls = 0;
     return 1;
 }
 
@@ -873,12 +877,26 @@ static void change_stick_response(int dir) {
     frontend_set_stick_response((frontend_stick_response() + dir + 3) % 3);
     settings_save();
 }
+static void change_rumble(int dir) {
+    frontend_set_rumble_multiplier(frontend_rumble_multiplier() + dir * 50);
+    settings_save();
+}
+
+/* the pause menu's CONTROLS: STICK RESPONSE, RUMBLE STRENGTH, BACK */
+enum { PAUSE_CONTROLS_ITEMS = 3 };
 static void pause_action(int action) {
     if (g_pause_controls) {
-        if (action == ENH_BACK || (action == ENH_OK && g_controls_cursor == 1)) g_pause_controls=0;
-        else if (action == ENH_UP || action == ENH_DOWN) g_controls_cursor ^= 1;
-        else if (!g_controls_cursor && (action == ENH_LEFT || action == ENH_RIGHT || action == ENH_OK))
-            change_stick_response(action == ENH_LEFT ? -1 : 1);
+        switch (action) {
+        case ENH_UP: g_controls_cursor = (g_controls_cursor + PAUSE_CONTROLS_ITEMS - 1) % PAUSE_CONTROLS_ITEMS; break;
+        case ENH_DOWN: g_controls_cursor = (g_controls_cursor + 1) % PAUSE_CONTROLS_ITEMS; break;
+        case ENH_BACK: g_pause_controls = 0; break;
+        case ENH_OK: case ENH_LEFT: case ENH_RIGHT:
+            if (g_controls_cursor == 2) { if (action == ENH_OK) g_pause_controls = 0; }
+            else if (g_controls_cursor == 0) change_stick_response(action == ENH_LEFT ? -1 : 1);
+            else change_rumble(action == ENH_LEFT ? -1 : 1);
+            break;
+        default: break;
+        }
         return;
     }
     switch (action) {
@@ -910,7 +928,7 @@ int enh_quit_requested(void) { return g_quit; }
 /* the rows of an options page: game options of that page, or the port options (DISPLAY) */
 static int page_rows(int page, int *rows) {
     int n = 0;
-    if (page == PAGE_CONTROLS) { rows[n++] = -9; return n; }
+    if (page == PAGE_CONTROLS) { rows[n++] = -9; rows[n++] = -5; return n; }
     if (page == PAGE_DISPLAY) {
         rows[n++] = -1;
         rows[n++] = -3;
@@ -927,6 +945,7 @@ static int page_rows(int page, int *rows) {
 
 static void page_change(int row, int dir) {
     if (row == -9) { change_stick_response(dir); return; }
+    if (row == -5) { change_rumble(dir); return; }
     if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     /* the renderer changes with the window's kind: applied by the restart on leaving OPTIONS */
     if (row == -11) { g_set.renderer = !g_set.renderer; settings_save(); g_opt_dirty = 1; return; }
@@ -1204,14 +1223,27 @@ static void net_tick(void) {
 
 static void draw_menu(uint32_t *fb, int w, int h);
 
-static void draw_stick_controls(uint32_t *fb, int w, int h, int cursor) {
-    dim_rect(fb,w,h,0,0,w,h,190);
-    draw_centered(fb,w,h,FONT_LARGE,24,T(T_CONTROLS),0xffd800);
-    uint32_t color=cursor==0 ? 0xffd800 : 0xffffff;
-    const char *value=k_stick_response_name[frontend_stick_response()];
-    draw_text(fb,w,h,FONT_MEDIUM,40,90,T(T_STICK_RESPONSE),color);
-    draw_text(fb,w,h,FONT_SMALL,w-40-text_width(FONT_SMALL,value),90,value,color);
-    draw_centered(fb,w,h,FONT_MEDIUM,150,T(T_BACK),cursor==1 ? 0xffd800 : 0xffffff);
+static const char *rumble_text(char *buf, size_t n) {
+    if (!frontend_rumble_multiplier()) return T(T_OFF);
+    snprintf(buf, n, "%.1fX", frontend_rumble_multiplier() / 100.0);
+    return buf;
+}
+
+/* the pause menu's CONTROLS, drawn as an options page */
+static void draw_pause_controls(uint32_t *fb, int w, int h, int cursor) {
+    const int z = FONT_MEDIUM, step = font_height(z) + 4, left = 40, right = w - 40;
+    char buf[16];
+    const char *labels[2] = { T(T_STICK_RESPONSE), T(T_RUMBLE) };
+    const char *values[2] = { k_stick_response_name[frontend_stick_response()], rumble_text(buf, sizeof buf) };
+    dim_rect(fb, w, h, 0, 0, w, h, 190);
+    draw_centered(fb, w, h, FONT_LARGE, 24, T(T_CONTROLS), 0xffd800);
+    int y = 90;
+    for (int i = 0; i < 2; i++, y += step) {
+        uint32_t col = i == cursor ? 0xffd800 : 0xffffff;
+        draw_text(fb, w, h, z, left, y, labels[i], col);
+        draw_text(fb, w, h, z, right - text_width(z, values[i]), y, values[i], col);
+    }
+    draw_text(fb, w, h, z, left, y + step / 2, T(T_BACK), cursor == 2 ? 0xffd800 : 0xffffff);
 }
 
 void enh_draw_overlay(uint32_t *fb, int w, int h) {
@@ -1227,7 +1259,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         return;
     }
     if (!enh_menu_active()) modes_draw(fb, w, h);  /* an EXTRA mode's HUD, under the pause */
-    if (g_paused) {
+    if (g_paused && !g_pause_controls) {
         const int z = FONT_MEDIUM, step = font_height(z) + 8;
         static const int items[3] = { T_RESUME, T_CONTROLS, T_MAIN_MENU };
         dim_rect(fb, w, h, 0, 0, w, h, 160);
@@ -1235,7 +1267,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         for (int i = 0; i < 3; i++)
             draw_centered(fb, w, h, z, h / 2 - 10 + i * step, T(items[i]), i == g_pause_cursor ? 0xffd800 : 0xffffff);
     }
-    if (g_paused && g_pause_controls) draw_stick_controls(fb,w,h,g_controls_cursor);
+    if (g_paused && g_pause_controls) draw_pause_controls(fb, w, h, g_controls_cursor);
     if (enh_menu_active()) draw_menu(fb, w, h);
     if (g_notice_frames > 0 && !g_returning && g_font) {      /* the session ended: say why */
         int const z = FONT_MEDIUM, y = 34;
@@ -1343,7 +1375,6 @@ static void draw_net(uint32_t *fb, int w, int h) {
 }
 
 static void draw_menu(uint32_t *fb, int w, int h) {
-    if (g_screen == SCREEN_PAGE && g_page == PAGE_CONTROLS) { draw_stick_controls(fb,w,h,g_page_cursor); return; }
     const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0;
     if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { draw_net(fb, w, h); return; }
     int lang = menu_language();
@@ -1380,7 +1411,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
         dim_rect(fb, w, h, 0, 0, w, h, 190);
         draw_centered(fb, w, h, FONT_LARGE, 36, T(T_OPTIONS), yellow);
         for (int i = 0; i <= N_PAGES; i++)
-            draw_centered(fb, w, h, z, 120 + i * step + (i == N_PAGES ? step / 2 : 0), T(items[i]), i == g_opt_cursor ? yellow : white);
+            draw_centered(fb, w, h, z, 95 + i * step + (i == N_PAGES ? step / 2 : 0), T(items[i]), i == g_opt_cursor ? yellow : white);
     } else if (g_screen == SCREEN_PAGE) {
         static const int titles[N_PAGES] = { T_GAME, T_SOUND, T_DISPLAY, T_CONTROLS };
         const int z = FONT_MEDIUM, step = font_height(z) + 4, left = 40, right = w - 40;
@@ -1396,6 +1427,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             else if (rows[i] == -2) { label = T(T_SHOW_FPS); value = T(g_set.show_fps ? T_ON : T_OFF); }
             else if (rows[i] == -3) { label = T(T_RESOLUTION); value = g_set.scale == 2 ? "2X" : "1X"; }
             else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
+            else if (rows[i] == -5) { label = T(T_RUMBLE); value = rumble_text(buf, sizeof buf); }
             else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }
             else if (rows[i] == -11) { label = T(T_RENDERER); value = k_renderer_name[g_set.renderer]; }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }
