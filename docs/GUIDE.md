@@ -114,6 +114,11 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     for 3 seconds in a row arrests it (the percentage shows how far the arrest is; moving away starts it
     again), and it stops for the rest of the race. With all of them arrested the
     race ends. The course's own police car does not show up in this mode.
+- **Deluxe cabinet:** in every version the enhanced mode declares the cabinet with the
+  force-feedback steering wheel and the handbrake, as Thrill Drive 2 JAA and AAA and GTI Club 2
+  JAB have. Thrill Drive 2 EBB and GTI Club 2 EAA then have the handbrake, and the game sends its
+  force feedback (to nothing yet: wheels and gamepad rumble are still to come). The classic mode
+  keeps each version's own cabinet.
 - **Separate saves:** the enhanced mode keeps its own NVRAM, `<executable>_enhanced_nvram.bin`,
   so it never changes the classic mode's settings. Delete that file to set it up again.
 - **Fast boot:** the game boots at full speed, muted, behind a LOADING screen, until the
@@ -164,6 +169,9 @@ The environment variables for debugging are described in
 
 - Boots like the original board; attract mode, coin-up, menus and TEST MODE work.
 - Fully playable at the original 30 fps, with correct sound.
+- Its cabinet has no handbrake and no force-feedback motor. The enhanced mode declares the JAA and
+  AAA cabinet instead, so there the handbrake works and the game drives the motor (see
+  [Enhanced mode](#enhanced-mode)).
 
 **Thrill Drive 2 JAA and AAA** (`thrild2j`, `thrild2a`)
 
@@ -192,8 +200,9 @@ The environment variables for debugging are described in
   TEST MODE work.
 - MAME notes that this version needs DIP switch SW:3 on, otherwise it shows "GAME MODE LOCKED!
   PLEASE SET THE PASSWORD". The profile sets it.
-- The EAA cabinet has no handbrake: the version code in its NVRAM selects a cabinet
-  configuration without one.
+- The EAA cabinet has no handbrake and no force-feedback motor: the version code in its NVRAM
+  selects a cabinet configuration without them. The enhanced mode declares the JAB cabinet
+  instead, so there the handbrake works and the game drives the motor.
 
 ## Required files and their SHA1
 

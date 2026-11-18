@@ -114,7 +114,7 @@ The files are checked by their SHA1 before the build; the list is in the
 | Steer                                                  | ← / → or A / D                                | Left stick or D-pad  |
 | Accelerator                                            | ↑ or W                                        | R2 (or A)            |
 | Brake                                                  | ↓ or S                                        | L2 (or X)            |
-| Handbrake (GTI Club 2 JAB, Thrill Drive 2 JAA and AAA) | Space                                         | B                    |
+| Handbrake (classic: only GTI Club 2 JAB, TD2 JAA/AAA)  | Space                                         | B                    |
 | Shift up / down                                        | E / Q                                         | R1 / L1              |
 | Start                                                  | 1                                             | Start                |
 | Change view (in a race, as on the cabinet)             | 1 (Start)                                     | Start                |

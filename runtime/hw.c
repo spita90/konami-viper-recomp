@@ -693,13 +693,43 @@ void hw_nvram_options_fix(uint8_t *nv) {
     nv[GAME_NVRAM_OPT_CSUM + 1] = (uint8_t)cs;
 }
 
+/* the NVRAM header block (cabinet flags): the big-endian 16-bit words from GAME_ENH_CAB_HDR_START up
+ * to the checksum word GAME_ENH_CAB_HDR_CSUM (included) sum to 0xffff */
+static uint32_t nvram_header_sum(int to) {
+    uint32_t sum = 0;
+    for (int o = GAME_ENH_CAB_HDR_START; o < to; o += 2) sum += (uint32_t)(g_nvram[o] << 8 | g_nvram[o + 1]);
+    return sum & 0xffff;
+}
+
+/* The enhanced mode declares the deluxe cabinet: the K-type force-feedback motor and a handbrake,
+ * as TD2 JAA/AAA and GTI Club 2 JAB have. The plain versions (TD2 EBB, GTI Club 2 EAA) then
+ * drive the motor and read the handbrake, with the game's own calibration of it, which their
+ * first-run calibration (the cabinet as it is) does not make. Returns 1 if the option block
+ * changed. Only a header whose checksum is valid is touched. */
+static int nvram_boot_cabinet(void) {
+    static const struct { int addr, val; } k_hb_cal[] = GAME_ENH_CAB_HANDBRAKE_CAL;
+    if (!GAME_ENH_CAB_HDR_CSUM || !g_enhanced || nvram_header_sum(GAME_ENH_CAB_HDR_CSUM + 2) != 0xffff) return 0;
+    if (g_nvram[GAME_ENH_CAB_MOTOR] == 1 && g_nvram[GAME_ENH_CAB_HANDBRAKE] == 1) return 0;
+    int options = g_nvram[GAME_ENH_CAB_HANDBRAKE] != 1 && k_hb_cal[0].addr >= 0;
+    if (options)
+        for (int i = 0; k_hb_cal[i].addr >= 0; i++) g_nvram[k_hb_cal[i].addr] = (uint8_t)k_hb_cal[i].val;
+    g_nvram[GAME_ENH_CAB_MOTOR] = 1;
+    g_nvram[GAME_ENH_CAB_HANDBRAKE] = 1;
+    uint16_t cs = (uint16_t)(0xffff - nvram_header_sum(GAME_ENH_CAB_HDR_CSUM));
+    g_nvram[GAME_ENH_CAB_HDR_CSUM] = (uint8_t)(cs >> 8);
+    g_nvram[GAME_ENH_CAB_HDR_CSUM + 1] = (uint8_t)cs;
+    rt_log("NVRAM: deluxe cabinet (force-feedback motor, handbrake)\n");
+    return options;
+}
+
 /* TEST MODE options set at every boot. Only an option block whose checksum is valid is touched;
  * an empty NVRAM gets the factory settings.
  * - The NETWORK ID (NETWORK OPTIONS, bits 6-7 of the profile's network.id_addr, as ID - 1), in
  *   both modes: 1, a single cabinet, or --net-id for a link (net.c). Some dumps come from
  *   cabinet 2 of a linked set, and the race HUD then says PLAYER 2.
  * - FREE PLAY (COIN OPTIONS), in the enhanced mode: it has no coins, and its menu needs the
- *   attract hook, which is on the free-play branch of the credit display. */
+ *   attract hook, which is on the free-play branch of the credit display.
+ * - The deluxe cabinet, in the enhanced mode (nvram_boot_cabinet). */
 static void nvram_boot_options(void) {
     extern int g_net_id;
     if (!GAME_NVRAM_OPT_CSUM || getenv("RT_NVRAM_NOFORCE")) return;
@@ -721,6 +751,7 @@ static void nvram_boot_options(void) {
         changed = 1;
         rt_log("NVRAM: FREE PLAY on\n");
     }
+    if (nvram_boot_cabinet()) changed = 1;
     if (changed) hw_nvram_options_fix(g_nvram);
 }
 

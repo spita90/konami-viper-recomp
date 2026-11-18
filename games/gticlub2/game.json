@@ -148,6 +148,13 @@
     "The calibration is TD2's script plus the motor-driven steering test (about 50 s, needs RT_FFB_WHEEL, set automatically by the first-run calibration) and the HAND BRAKE step."
   ],
   "enhanced": {
+    "cabinet": {
+      "header": { "start": "0x10", "checksum": "0x80" },
+      "motor": "0x74",
+      "handbrake": "0x78",
+      "handbrake_calibration": { "0xcc": "0x26", "0xcd": "0x13", "0xd2": "0x00", "0xd3": "0x00", "0xd6": "0xab", "0xd7": "0x55" },
+      "note": "The cabinet the enhanced mode declares, at every boot: the deluxe one, with the K-type force-feedback motor and a handbrake. The header block of the NVRAM (big-endian 16-bit words from header.start to the checksum word, included, sum to 0xffff) holds the cabinet flags: motor = MOTOR TYPE (0 not installed, 1 K-TYPE), handbrake = 1 with a handbrake. Where the handbrake flag was 0, handbrake_calibration (the values the first-run calibration gives the deluxe versions) is written into the option block too. Checked headless: with the flags the plain versions drive the motor in a race, and a pulled handbrake changes the race (EAA: GK941, motor and handbrake off; JAB, GE941, already has this cabinet)"
+    },
     "free_play": {
       "addr": "0x94",
       "mask": "0x80",

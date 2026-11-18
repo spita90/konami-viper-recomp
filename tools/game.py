@@ -320,6 +320,7 @@ def write_config_header(g, out):
     # enhanced ("conversion") mode, runtime/enhanced.c: optional, absent for unverified versions
     enh = g.get('enhanced') or {}
     free_play = enh.get('free_play') or {}
+    cab = enh.get('cabinet') or {}
     blanks = enh.get('blank_strings') or []
     lines += [
         f"#define GAME_HAS_ENHANCED {1 if enh else 0}",
@@ -328,6 +329,14 @@ def write_config_header(g, out):
         # TEST MODE FREE PLAY in the NVRAM option block, set at every boot of the enhanced mode (mask 0: none)
         f"#define GAME_ENH_FREE_PLAY_ADDR 0x{int(free_play.get('addr', '0'), 16):x}",
         f"#define GAME_ENH_FREE_PLAY_MASK 0x{int(free_play.get('mask', '0'), 16):02x}",
+        # the deluxe cabinet (force-feedback motor, handbrake), declared at every boot of the enhanced
+        # mode in the NVRAM header block (0: none), and the handbrake calibration it needs
+        f"#define GAME_ENH_CAB_HDR_START 0x{int((cab.get('header') or {}).get('start', '0'), 16):x}",
+        f"#define GAME_ENH_CAB_HDR_CSUM 0x{int((cab.get('header') or {}).get('checksum', '0'), 16):x}",
+        f"#define GAME_ENH_CAB_MOTOR 0x{int(cab.get('motor', '0'), 16):x}",
+        f"#define GAME_ENH_CAB_HANDBRAKE 0x{int(cab.get('handbrake', '0'), 16):x}",
+        "#define GAME_ENH_CAB_HANDBRAKE_CAL {" + "".join(f"{{0x{int(a, 16):x}, 0x{int(v, 16):02x}}}, "
+                                                        for a, v in (cab.get('handbrake_calibration') or {}).items()) + "{-1, 0}}",
         # named hooks (the recompiler inserts rt_hook() there): GAME_ENH_HOOK_<NAME> = address for
         # a name used once, and GAME_ENH_HOOKS lists them all (a name may mark several addresses)
         *[f"#define GAME_ENH_HOOK_{name.upper()} 0x{int(a, 16):08x}u"

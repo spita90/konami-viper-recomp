@@ -63,6 +63,9 @@ The profile fields:
   available (every current profile has it):
   - `free_play`: the TEST MODE FREE PLAY option in the NVRAM (`addr`, `mask`), set at every
     boot of the enhanced mode;
+  - `cabinet`: the deluxe cabinet, declared at every boot of the enhanced mode (section 5a):
+    the NVRAM `header` block (`start`, `checksum`), the bytes of its `motor` and `handbrake`
+    flags, and the `handbrake_calibration` bytes written where the handbrake flag was 0;
   - `blank_strings`: game strings to empty in RAM (`addr`, `text`);
   - `hooks`: `{module: {"0xADDR": name}}`. The recompiler inserts `rt_hook(c, addr)` before the
     instruction at each address; `GAME_ENH_HOOK_<NAME>` gives the runtime the address;
@@ -520,6 +523,27 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
     that pass failed (it happened on a Windows PC), the game stayed without free play and so
     without a menu, for good: the file was then written by the game, and the pass never ran
     again. Forcing it at boot also repairs those NVRAMs.
+- **Deluxe cabinet:** also at every boot (`nvram_boot_cabinet()`), the enhanced mode declares
+  the cabinet of TD2 JAA/AAA and GTI Club 2 JAB, with the K-type force-feedback motor and a
+  handbrake, in every version (`enhanced.cabinet`).
+  - The cabinet flags are in a header block of the NVRAM: the big-endian 16-bit words from
+    `0x10` to the checksum word `0x80`, included, sum to `0xFFFF` (both games). `0x74` is MOTOR
+    TYPE (0 not installed, 1 K-TYPE) and `0x78` the handbrake: `00 01 01 01 00 02 01` in TD2 EBB
+    and GTI Club 2 EAA, `01 01 01 01 01 02 01` in the deluxe versions. The version code just
+    before (`GKA41-EB`, `GEA41-JA`; `GK941`, `GE941`) does not override them: the game keeps
+    the flags it finds.
+  - A handbrake needs its calibration, which the first-run calibration (the cabinet as it is)
+    does not make on the plain versions: where the handbrake flag was 0, the values the deluxe
+    versions get are written into the option block (TD2 `0xD0`, `0xD6`, `0xDA`; GTI Club 2 four
+    bytes earlier), and the option checksum is fixed. With the flags the calibration area is
+    byte for byte the deluxe versions'.
+  - Checked headless, in races driven by `RT_INPUT`: TD2 EBB and GTI Club 2 EAA write the motor
+    (517 and 27–58 changes, none without the flags; TD2 JAA 532, AAA 507, GTI Club 2 JAB 1132),
+    and a handbrake pulled at 50 s makes the race differ from 50 s on, while with the plain
+    cabinet the two runs stay identical.
+  - The motor is still unused in play (no wheel or rumble output yet). The classic mode keeps
+    each version's own cabinet, and TEST MODE (locked in the enhanced mode) never runs the
+    motor test there.
 - **Hidden captions:** `enh_on_frame()` runs at every published frame, on the guest thread. For
   each `blank_strings` entry, if the RAM still holds the original text, it writes a NUL at the
   first byte, so the game draws an empty string. The check repeats every frame, which also

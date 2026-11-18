@@ -240,7 +240,9 @@ static void apply_inputs(double dt) {
     }
     g_analog[1] = (int16_t)(-ANALOG_RANGE + gas * 2 * ANALOG_RANGE);
     g_analog[2] = (int16_t)(-ANALOG_RANGE + brake * 2 * ANALOG_RANGE);
-    if (GAME_HAS_HANDBRAKE) g_analog[3] = (int16_t)(ctl.handbrake ? ANALOG_RANGE : -ANALOG_RANGE);
+    /* the enhanced mode declares a cabinet with a handbrake in every version (hw.c) */
+    if (GAME_HAS_HANDBRAKE || (g_enhanced && GAME_ENH_CAB_HANDBRAKE))
+        g_analog[3] = (int16_t)(ctl.handbrake ? ANALOG_RANGE : -ANALOG_RANGE);
     uint8_t in3 = 0xff, in4 = 0xff;
     if (ctl.service && !g_enhanced) in3 &= ~0x01;
     if (ctl.test && !g_enhanced) in3 &= ~0x02;
