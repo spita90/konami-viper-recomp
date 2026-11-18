@@ -5,6 +5,29 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [0.19.0] - 2026-11-18
+
+### Added
+
+- **Gamepad rumble** (pull request #5): in the enhanced mode the gamepad vibrates with the
+  force-feedback motor of the cabinet's steering wheel. The motor's force is stretched over the
+  pad's range where the games use it (forces 3 to 11 span 25% to 100% at 1.0X), and the side
+  the wheel pulls to leads on the pad's motor of that side. RUMBLE STRENGTH, OFF to 4.0X, is in
+  OPTIONS → CONTROLS and in the pause menu, next to STICK RESPONSE. F8 (or Capture on a Switch
+  Pro controller) tests it. On Linux some pads expose rumble only in their Xbox (XInput) mode:
+  see the guide.
+- **Enhanced mode, deluxe cabinet:** every version declares the cabinet with the
+  force-feedback steering wheel and the handbrake, as Thrill Drive 2 JAA and AAA and GTI Club 2
+  JAB have. Thrill Drive 2 EBB and GTI Club 2 EAA now have the handbrake (B, Space) and drive
+  the motor, so they rumble too. Saves from earlier versions get it at the next launch; the
+  classic mode keeps each version's own cabinet.
+
+### Changed
+
+- **Thrill Drive 2 (ver AAA):** the attract mode has sound by default, as ver EBB since 0.17.0
+  (`calibration.nvram_set` `0x94` = `0x8A`, music volume kept). Ver JAA's starting NVRAM already
+  has it. An NVRAM saved before this version keeps its setting.
+
 ## [0.18.0] - 2026-11-18
 
 ### Added
@@ -604,6 +627,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[0.19.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.1...v0.16.2
