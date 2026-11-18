@@ -297,8 +297,16 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
       A real cabinet without the motor fails the same way unless the wheel is turned by hand.
     - With `RT_FFB_WHEEL=1`, which the first-run calibration sets, the virtual wheel follows the
       motor. Above a breakaway torque of 3 it turns at 60 units/s per extra step, up to the end
-      stops at ±200. Without it the motor is ignored and the frontend alone positions the
-      wheel;
+      stops at ±200. Without it the motor does not move the wheel, and the frontend alone
+      positions it;
+    - In play the motor becomes gamepad rumble (`frontend_set_motor()`, an atomic byte read by
+      the host thread; `controller_rumble.h`). Measured in scripted races, the games send torque
+      5–7 (GTI Club 2) or 7–9 (TD2) most of the time and little above 11, plus `0xA0` (bit 5,
+      no torque) in both: proportionally that is 17–30% and feels constant, so torque 3..11 is
+      stretched over 25–100% (1 and 2: 10%, 20%). The side the wheel pulls to (bit 4) leads on
+      the pad's motor of that side (left: low frequency, right: high frequency), the other at
+      35%. Changes are sent at most every 50 ms (a Switch Pro controller over Bluetooth
+      disconnects otherwise), stops at once. Off in the menus, the pause, out of focus;
   - **K056230 LANC** (registers and 8 KB of RAM, needed by the boot self-test);
   - 16552 UART (output goes to the log);
   - serial port at `0xFF300000`;

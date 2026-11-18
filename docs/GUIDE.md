@@ -53,8 +53,9 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     smoothing. The filtering of distant textures and the mipmaps stay the game's.
   - **Controls:** the stick response: LINEAR, SOFT (quadratic) or EXTRA SOFT (cubic, the
     default). With EXTRA SOFT, half of the stick's travel turns the wheel an eighth, for finer
-    steering near the centre; full travel is still full lock. Also in the pause menu, and it
-    applies at once.
+    steering near the centre; full travel is still full lock. And the rumble strength, from
+    OFF to 4.0X (1.0X by default; see [Rumble](#rumble)). Also in the pause menu, and they
+    apply at once.
 - **Saving the options:** game and sound options are the game's own TEST MODE settings, stored
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
   a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
@@ -159,6 +160,34 @@ everything held. These variables tune it (classic mode too), for example
 | `RT_STEER_SPEED`      | `4`     | 1–100 | steering travel per second, centre to full lock          |
 
 F9 logs the raw stick and the steering sent to the game, ten times a second.
+
+### Rumble
+
+In the enhanced mode the gamepad vibrates with the force-feedback motor of the cabinet's
+steering wheel: the game drives the motor (in every version, since the enhanced mode declares
+the cabinet that has it), and its force becomes vibration.
+
+- **Strength:** the motor's force, 0 to 15, is stretched where the games use it: forces 3 to
+  11 span 25% to 100% of the pad's vibration at 1.0X, so the changes in a race can be felt.
+  RUMBLE STRENGTH (OPTIONS → CONTROLS, or the pause menu) scales it: 0.5X halves it, 2.0X
+  doubles it up to the pad's maximum, OFF turns it off. `RT_RUMBLE=0` to `2` sets the same
+  value at launch (`0.5` is 1.0X).
+- **Direction:** when the wheel pulls to the left the pad's left motor (the heavy one) leads,
+  to the right its right motor (the light one); the other follows at 35%.
+- **When:** in a race. It stops in the menus, in the pause, when the window loses the focus
+  and on exit.
+- **Test:** F8 (or Capture on a Switch Pro controller) vibrates for a second at full strength
+  on both motors, with the chosen RUMBLE STRENGTH, and logs the motor and the output for
+  30 seconds.
+- **No vibration?** The pad must expose rumble to the system. On Linux some pads in their
+  generic mode do not (the log says "Controller rumble failed … not supported"), while their
+  Xbox (XInput) mode does: on a GameSir Nova Lite, for example, hold Menu + View for 2 seconds,
+  on the USB receiver or the cable, until the system sees an Xbox 360 controller. Launched
+  from Steam, Steam Input handles the rumble itself. Also check the pad's own vibration
+  setting, which some pads keep.
+- **macOS:** SDL drives the rumble, also on Switch Pro controllers. `RT_RUMBLE_BACKEND=apple`
+  tries Apple's GameController/CoreHaptics instead, for one Switch Pro controller; it exists
+  only in a build from the sources with `make`.
 
 The environment variables for debugging are described in
 [ARCHITECTURE.md](ARCHITECTURE.md).
