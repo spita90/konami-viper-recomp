@@ -1577,8 +1577,12 @@ Notes:
    RecompLauncher: `dist/recomplauncher.json` goes at the top of each package (with
    `prepare.version` set to the release version, so an update rebuilds the games). Its setup
    step runs `viper-setup --prepare --roms <player's folder> thrild2 gticlub2` ("progress"
-   lines, no prompt); each game's tile starts `viper-setup --play <set> [args]`, which execs the
-   built executable before importing the build modules, or exits with 66 if it is not built.
+   lines, no prompt). Play runs `viper-setup --play` (`start.args`, always passed) followed by the
+   tile's set name (`games[].args`) and the Mode setting's args, in an order the spec leaves open:
+   `--play` takes the first argument that is a set name, wherever it is (none: thrild2, else the
+   first set built), passes the others on, and execs the built executable before importing the
+   build modules, or exits with 66 if it is not built. (In 0.16.0 `--play <set>` was in the tile's
+   args only, and a Play that did not pass them ran the setup.)
 
 ## 8. Usage
 

@@ -16,19 +16,20 @@
     "version": "dev"
   },
   "start": {
-    "program": ["viper-setup.exe", "viper-setup"]
+    "program": ["viper-setup.exe", "viper-setup"],
+    "args": ["--play"]
   },
   "games": [
     {
       "id": "td2",
       "name": "Thrill Drive 2",
-      "args": ["--play", "thrild2"],
+      "args": ["thrild2"],
       "saves": ["{install}/td2_*nvram.bin", "{install}/td2_*settings.ini"]
     },
     {
       "id": "gticlub2",
       "name": "GTI Club: Corso Italiano",
-      "args": ["--play", "gticlub2"],
+      "args": ["gticlub2"],
       "saves": ["{install}/gticlub2_*nvram.bin", "{install}/gticlub2_*settings.ini"]
     }
   ],

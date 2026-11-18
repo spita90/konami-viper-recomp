@@ -59,19 +59,28 @@ NOT_BUILT = 66                      # --play: the game is not built (EX_NOINPUT;
 
 
 def play(args):
-    """--play GAME [ARGS]: starts the executable the setup built for GAME (a MAME set name) with
-    the other arguments, as RecompLauncher's Play does (one program for all the games). Before
-    the build modules are imported: they take about a second."""
-    i = args.index('--play')
-    gid = args[i + 1] if i + 1 < len(args) else ''
-    p = os.path.join(PYROOT, 'games', gid, 'game.json')
-    if not gid.isalnum() or not os.path.exists(p):
-        raise SystemExit(f"viper-setup: --play wants a game (thrild2, gticlub2, ...), not '{gid}'")
-    exe = os.path.join(HOME, json.load(open(p))['binary'] + EXE)
-    if not os.path.exists(exe):
-        print(f"viper-setup: {gid} is not built: run the setup with its files", file=sys.stderr)
+    """--play [GAME] [ARGS]: starts the executable the setup built for GAME (a MAME set name)
+    with the other arguments, as RecompLauncher's Play does (one program for all the games).
+    GAME may be anywhere among the arguments (RecompLauncher puts --play in start.args and the
+    game in the tile's args, with the settings' args in between or not); without one, the first
+    game built, thrild2 first. Before the build modules are imported: they take about a second."""
+    def binary(gid):
+        p = os.path.join(PYROOT, 'games', gid, 'game.json')
+        if not gid.isalnum() or not os.path.exists(p):
+            return None
+        return os.path.join(HOME, json.load(open(p))['binary'] + EXE)
+    rest = [a for a in args if a != '--play']
+    gid = next((a for a in rest if binary(a)), None)
+    if gid:
+        rest.remove(gid)
+        exe = binary(gid)
+    else:
+        sets = sorted(os.listdir(os.path.join(PYROOT, 'games')), key=lambda s: (s != 'thrild2', s))
+        exe = next((e for e in map(binary, sets) if e and os.path.exists(e)), None)
+    if not exe or not os.path.exists(exe):
+        print(f"viper-setup: {gid or 'no game'} is not built: run the setup with its files", file=sys.stderr)
         sys.exit(NOT_BUILT)
-    cmd = [exe] + args[:i] + args[i + 2:]
+    cmd = [exe] + rest
     if SYSTEM == 'Windows':             # no exec there: wait, and pass the exit code on
         sys.exit(subprocess.call(cmd))
     env = dict(os.environ)
