@@ -32,7 +32,7 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 - **Menus:** drawn with each game's own font, in English or Italian. They follow the language
   chosen in the game; with Japanese they are in English.
-- **Options**, on three pages. Left and right change a value.
+- **Options**, on four pages. Left and right change a value (held, they repeat).
   - **Game:** the difficulty of each course, the language (English or Italian; Thrill
     Drive 2 JAA and AAA also offer Japanese), and the speedometer, km/h or mph.
   - **Sound:** attract sound, music in game, music and effects volume.
@@ -51,6 +51,10 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
   - **Texture filter:** ORIGINAL (the game's original bilinear filtering) or NEAREST, which turns off the
     filtering of enlarged textures, for hard texel edges, and scales the window without
     smoothing. The filtering of distant textures and the mipmaps stay the game's.
+  - **Controls:** the stick response: LINEAR, SOFT (quadratic) or EXTRA SOFT (cubic, the
+    default). With EXTRA SOFT, half of the stick's travel turns the wheel an eighth, for finer
+    steering near the centre; full travel is still full lock. Also in the pause menu, and it
+    applies at once.
 - **Saving the options:** game and sound options are the game's own TEST MODE settings, stored
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
   a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
@@ -129,6 +133,22 @@ calibration, delete that file.
 ./td2 --frames DIR --frame-every 60  dump video frames as PPM (with --headless)
 ./td2 --help             all options
 ```
+
+**Gamepad:** the left stick steers, with a deadzone rescaled so the travel past it is all
+used. The right stick is a second pair of pedals, proportional (up accelerates, down brakes),
+for controllers whose triggers are digital (Nintendo Switch Pro). Of the triggers, the right
+stick and the buttons, the strongest pedal wins. Only one controller is read: unplugging it
+releases its controls and takes the next one, and the window losing the focus releases
+everything held. These variables tune it (classic mode too), for example
+`RT_STICK_CURVE=1 RT_STICK_DEADZONE=0.08 ./td2`:
+
+| Variable              | Default | Range | Effect                                                   |
+| --------------------- | ------- | ----- | -------------------------------------------------------- |
+| `RT_STICK_DEADZONE`   | `0.10`  | 0–0.5 | stick deadzone, rescaled to keep the full travel         |
+| `RT_STICK_CURVE`      | `3.0`   | 1–3   | steering exponent: 3 cubic (EXTRA SOFT), 1 linear        |
+| `RT_TRIGGER_DEADZONE` | `0.03`  | 0–0.5 | trigger deadzone                                         |
+
+F9 logs the raw stick and the steering sent to the game, ten times a second.
 
 The environment variables for debugging are described in
 [ARCHITECTURE.md](ARCHITECTURE.md).
