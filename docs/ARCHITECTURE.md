@@ -55,8 +55,8 @@ The profile fields:
 - **`calibration`:** the scripted first-run calibration (`RT_INPUT` syntax) and its length in
   emulated seconds, or `null`. `nvram_set` (`{"0xADDR": "0xVALUE"}`) lists NVRAM bytes written
   after it, for settings TEST MODE cannot change (TD2 JAA's currency) or defaults of the port
-  (GTI Club 2's promotion mode, TD2 EBB's attract sound); the option block checksum is then
-  fixed.
+  (GTI Club 2's promotion mode, TD2 EBB's and AAA's attract sound); the option block checksum
+  is then fixed.
 - **`nvram_options`:** the TEST MODE option block of the NVRAM, `start` and `checksum` (section
   5a), used by `calibration.nvram_set` and by the enhanced mode.
 - **`enhanced`:** data for the enhanced mode (section 5a), or `null` where it is not
@@ -575,8 +575,9 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
     2 Italian: JAPANESE is not offered by EBB), bit 5 speedometer, bit 2 record saving;
     `0x89` currency (0 Japanese yen, 1 U.S. dollar, 2 U.K. pound, 3 euro, 4 lire, 5 H.K. dollar;
     6 and 7 break the boot); `0x94` bits 6–5 attract sound (0 all the time, 1 once every 4 cycles,
-    2 complete off; the EBB starting NVRAM has complete off, and the port sets all the time after
-    the first-run calibration) and bits 4–0 music volume (0–30); `0x95` bits 7–3 effects volume;
+    2 complete off; the EBB and AAA starting NVRAMs have complete off, `0xC3` and `0xCA`, and the
+    port sets all the time after the first-run calibration; JAA's has all the time, `0x94`) and
+    bits 4–0 music volume (0–30); `0x95` bits 7–3 effects volume;
     `0x97` bit 6 music in game, bit 5 scream, bit 4 siren.
   - GTI Club 2 fields: difficulty `0x8A`–`0x8D` (TOWN, COAST, MOUNTAIN, PROMOTION); `0x84` bit 5
     speedometer, bits 4–3 motor power, bit 2 record saving; `0x85` bit 7 promotion mode (on by
@@ -1512,8 +1513,8 @@ Open:
   (street lights, trees, embankments) and GTI Club 2. Next, catalogue whatever glitches are
   left in play;
 - cabinet settings stored in the starting NVRAM: "SOUND IN ATTRACT MODE: COMPLETE OFF" (TD2
-  EBB: set to ALL THE TIME after the first-run calibration; JAA and AAA not checked yet), and
-  BGM/SE volume at 3. This is why the default audio gain is ×16;
+  EBB and AAA: set to ALL THE TIME after the first-run calibration; JAA has it already), and
+  BGM/SE volume at 3 (EBB; AAA 10, JAA 20). This is why the default audio gain is ×16;
 - Windows: the release package builds the games on Windows itself (below).
 
 ### Windows

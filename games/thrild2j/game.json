@@ -43,7 +43,7 @@
       "0x89": "0x00",
       "0x94": null
     },
-    "nvram_note": "written after the calibration: CURRENCY DISPLAY = JAPANESE YEN (the starting NVRAM has U.S. DOLLAR, and TEST MODE cannot change it). 0x89: 0 yen, 1 U.S. dollar, 2 U.K. pound, 3 euro, 4 lire, 5 H.K. dollar"
+    "nvram_note": "written after the calibration: CURRENCY DISPLAY = JAPANESE YEN (the starting NVRAM has U.S. DOLLAR, and TEST MODE cannot change it). 0x89: 0 yen, 1 U.S. dollar, 2 U.K. pound, 3 euro, 4 lire, 5 H.K. dollar. 0x94 (attract sound) is not written: the starting NVRAM already has ALL THE TIME (0x94)"
   },
   "notes": [
     "Japanese version.",
