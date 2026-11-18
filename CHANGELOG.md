@@ -5,6 +5,41 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [0.18.0] - 2026-11-18
+
+### Added
+
+- **Gamepad, stick response** (pull request #7): OPTIONS → CONTROLS, and CONTROLS in the
+  pause menu, choose how the left stick turns the wheel: LINEAR, SOFT (quadratic) or EXTRA
+  SOFT (cubic, the default: half of the stick's travel turns the wheel an eighth). The
+  deadzone is rescaled, so the wheel no longer jumps when the stick leaves it. Saved in
+  `<executable>_enhanced_settings.ini`.
+- **Gamepad, right stick as pedals** (pull request #7): up accelerates and down brakes,
+  proportionally, for controllers with digital triggers (Nintendo Switch Pro). Of the
+  triggers, the right stick and the buttons, the strongest pedal wins.
+- **Gamepad, D-pad steering:** left and right steer, ramping as the keyboard does.
+- **Gamepad, Back pauses** in the enhanced mode (and goes back in the menus), as Guide does:
+  Steam and the consoles often keep Guide for themselves. Back never quits; in the classic
+  mode it is still COIN.
+- `RT_STICK_DEADZONE`, `RT_STICK_CURVE`, `RT_TRIGGER_DEADZONE` and `RT_STEER_SPEED` tune the
+  gamepad; F9 logs the stick and the steering sent to the game.
+
+### Changed
+
+- **Gamepad, steering speed:** the stick turns the wheel at the keyboard's speed, centre to
+  full lock in a quarter of a second, as a real wheel turns. It set the wheel at once, so a
+  quick flick to full lock flipped GTI Club 2's car over.
+- **Gamepad, brake and handbrake buttons:** X brakes and B is the handbrake (they were B and
+  X). The triggers are unchanged, and B still goes back in the menus.
+- **Menus:** left and right repeat while held (pull request #7).
+
+### Fixed
+
+- **Gamepad, held buttons** (pull request #7): an accelerator or brake button pressed while a
+  menu or the pause took the press now counts once play resumes. Only one controller is read;
+  unplugging it releases its controls and takes the next one, and the window losing the focus
+  releases everything held.
+
 ## [0.17.0] - 2026-11-18
 
 ### Changed
@@ -569,6 +604,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[0.18.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.0...v0.16.1
