@@ -5,6 +5,16 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [0.17.0] - 2026-11-18
+
+### Changed
+
+- **Thrill Drive 2 (ver EBB):** the attract mode has sound by default, in the classic and the
+  enhanced mode. The starting NVRAM has SOUND IN ATTRACT MODE: COMPLETE OFF; the first-run
+  calibration sets ALL THE TIME (`calibration.nvram_set` `0x94` = `0x83`, music volume kept).
+  TEST MODE or OPTIONS → SOUND can still change it. An NVRAM saved before this version keeps
+  its setting. Versions JAA and AAA are unchanged for now.
+
 ## [0.16.2] - 2026-11-18
 
 ### Changed
@@ -559,6 +569,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[0.17.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.15.1...v0.16.0
