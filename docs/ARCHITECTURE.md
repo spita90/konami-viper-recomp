@@ -397,10 +397,11 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
-| Steer | ← → or A D | left stick |
-| Accelerator / brake | ↑ / ↓ or W / S | R2 / L2 (or A / B) |
+| Steer | ← → or A D | left stick or D-pad |
+| Accelerator / brake | ↑ / ↓ or W / S | R2 / L2 (or A / X) |
+| Handbrake | Space | B |
 | Shift up / down | E / Q | R1 / L1 |
-| Coin / Start | 5 / 1 | Back / Start |
+| Coin / Start | 5 / 1 | Back / Start (enhanced: Back pauses) |
 | Test / Service | F2 / 9 | — |
 | Fullscreen / Quit | F11 / Esc | — |
 

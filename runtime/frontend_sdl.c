@@ -14,7 +14,7 @@
  *   in the course select (and GTI Club 2's transmission select) Left/Right, A/D, the D-pad
  *   and the stick step through the choices, and the wheel stays on the chosen one)
  *   Gamepad: left stick or D-pad = steering, R2/L2 = gas/brake, R1/L1 = shift up/down,
- *            X = handbrake, Start = start, Back = coin (enhanced: pause, as Guide, which
+ *            X = brake, B = handbrake, Start = start, Back = coin (enhanced: pause, as Guide, which
  *            Steam and the consoles often keep for themselves)
  *   F11 fullscreen, Esc quit
  */
@@ -151,6 +151,7 @@ static Uint32 g_menu_repeat_at;
 static int g_controller_log;
 static Uint32 g_controller_log_tick;
 static double g_stick_deadzone = 0.10, g_stick_curve = 3.0, g_trigger_deadzone = 0.03;
+static double g_steer_speed = 4.0;      /* steering travel per second, centre to full lock */
 int frontend_stick_response(void) { return (int)lround(g_stick_curve) - 1; }
 void frontend_set_stick_response(int response) {
     g_stick_curve = response >= 0 && response <= 2 ? response + 1.0 : 3.0;
@@ -200,15 +201,21 @@ static void apply_inputs(double dt) {
      * represent held state, so reconcile them with the device every frame. */
     int pad_active = g_pad && g_input_focus;
     hold(&ctl.gas, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_A));
-    hold(&ctl.brake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_B));
-    hold(&ctl.handbrake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_X));
+    hold(&ctl.brake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_X));
+    hold(&ctl.handbrake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_B));
     hold(&ctl.steer_left, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
     hold(&ctl.steer_right, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
 
-    /* keyboard and D-pad steering: ramp towards target */
+    /* every steering source ramps towards its target, as a wheel turns: a stick flicked to full
+     * lock in one frame flips GTI Club 2's car over */
     int wsel = enh_wheel_select_active();
     double target = wsel ? enh_wheel_select_pos() : !!ctl.steer_right - !!ctl.steer_left;
-    double speed = 4.0 * SDL_min(dt, 0.05);
+    if (g_pad && g_input_focus && !wsel) {
+        double stick = controller_axis(SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_LEFTX),
+                                       g_stick_deadzone, g_stick_curve);
+        if (stick != 0) target = stick;
+    }
+    double speed = g_steer_speed * SDL_min(dt, 0.05);
     if (ctl.steer < target) ctl.steer = SDL_min(target, ctl.steer + speed);
     else if (ctl.steer > target) ctl.steer = SDL_max(target, ctl.steer - speed);
     double steer = ctl.steer;
@@ -216,9 +223,6 @@ static void apply_inputs(double dt) {
      * fully held key/button. Right-stick Y supplies proportional pedals on Switch Pro. */
     double gas = ctl.gas ? 1.0 : 0.0, brake = ctl.brake ? 1.0 : 0.0;
     if (g_pad && g_input_focus) {
-        double stick = controller_axis(SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_LEFTX),
-                                       g_stick_deadzone, g_stick_curve);
-        if (stick != 0 && !wsel) steer = stick;
         double pedals = controller_axis(SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTY),
                                         g_stick_deadzone, 1.0);
         gas = fmax(gas, fmax(-pedals, controller_trigger(
@@ -335,8 +339,8 @@ static void pad_button(int b, int down) {
     case SDL_CONTROLLER_BUTTON_START: hold(&ctl.start, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_BACK: hold(&ctl.coin, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_A: hold(&ctl.gas, SRC_PAD, down); break;
-    case SDL_CONTROLLER_BUTTON_B: hold(&ctl.brake, SRC_PAD, down); break;
-    case SDL_CONTROLLER_BUTTON_X: hold(&ctl.handbrake, SRC_PAD, down); break;
+    case SDL_CONTROLLER_BUTTON_X: hold(&ctl.brake, SRC_PAD, down); break;
+    case SDL_CONTROLLER_BUTTON_B: hold(&ctl.handbrake, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_DPAD_LEFT: hold(&ctl.steer_left, SRC_PAD, down); break;
     case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: hold(&ctl.steer_right, SRC_PAD, down); break;
     default: break;
@@ -437,6 +441,7 @@ int frontend_run(int scale, int scale_explicit) {
     g_stick_deadzone = controller_option("RT_STICK_DEADZONE", 0.10, 0.0, 0.5);
     g_stick_curve = controller_option("RT_STICK_CURVE", g_stick_curve, 1.0, 3.0);
     g_trigger_deadzone = controller_option("RT_TRIGGER_DEADZONE", 0.03, 0.0, 0.5);
+    g_steer_speed = controller_option("RT_STEER_SPEED", 4.0, 1.0, 100.0);
     open_pad();
 
     g_pace_freq = (double)SDL_GetPerformanceFrequency();

@@ -137,7 +137,9 @@ calibration, delete that file.
 ```
 
 **Gamepad:** the left stick steers, with a deadzone rescaled so the travel past it is all
-used. The right stick is a second pair of pedals, proportional (up accelerates, down brakes),
+used. The wheel follows the stick as fast as it follows the keys (a quarter of a second from the
+centre to full lock), as a real wheel turns: a stick flicked to full lock in one frame flipped
+GTI Club 2's car over. The right stick is a second pair of pedals, proportional (up accelerates, down brakes),
 for controllers whose triggers are digital (Nintendo Switch Pro). Of the triggers, the right
 stick and the buttons, the strongest pedal wins. Only one controller is read: unplugging it
 releases its controls and takes the next one, and the window losing the focus releases
@@ -149,6 +151,7 @@ everything held. These variables tune it (classic mode too), for example
 | `RT_STICK_DEADZONE`   | `0.10`  | 0–0.5 | stick deadzone, rescaled to keep the full travel         |
 | `RT_STICK_CURVE`      | `3.0`   | 1–3   | steering exponent: 3 cubic (EXTRA SOFT), 1 linear        |
 | `RT_TRIGGER_DEADZONE` | `0.03`  | 0–0.5 | trigger deadzone                                         |
+| `RT_STEER_SPEED`      | `4`     | 1–100 | steering travel per second, centre to full lock          |
 
 F9 logs the raw stick and the steering sent to the game, ten times a second.
 

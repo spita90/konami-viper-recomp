@@ -65,6 +65,7 @@ int main(void) {
     assert(index >= 0);
     open_pad();
     assert(g_pad);
+    g_steer_speed = 1e9;    /* the stick's mapping first, without the ramp */
     assert(pad_matches(g_pad_id));
     assert(!pad_matches(g_pad_id + 1));
     /* A press consumed by Pause/Resume must still count as held accelerator. */
@@ -79,9 +80,9 @@ int main(void) {
     button(SDL_CONTROLLER_BUTTON_A, 1); /* menu handles this press, so no pad_button down */
     paused=0;apply_inputs(.016);assert(g_analog[1]==200);
     button(SDL_CONTROLLER_BUTTON_A, 0);apply_inputs(.016);assert(g_analog[1]==-200);
-    button(SDL_CONTROLLER_BUTTON_B, 1);paused=1;apply_inputs(.016);
+    button(SDL_CONTROLLER_BUTTON_X, 1);paused=1;apply_inputs(.016);
     paused=0;apply_inputs(.016);assert(g_analog[2]==200);
-    button(SDL_CONTROLLER_BUTTON_B, 0);apply_inputs(.016);assert(g_analog[2]==-200);
+    button(SDL_CONTROLLER_BUTTON_X, 0);apply_inputs(.016);assert(g_analog[2]==-200);
     /* SDL's virtual joystick maps -32768..32767 to controller trigger 0..32767. */
     axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768);
     axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768);
@@ -115,8 +116,22 @@ int main(void) {
     frontend_set_stick_response(2); apply_inputs(.016); int extra_soft=g_analog[0];
     assert(linear>soft && soft>extra_soft && extra_soft>0);
     frontend_set_stick_response(99); assert(frontend_stick_response()==2);
+    /* a stick flicked to full lock for one frame turns the wheel only a little, then it ramps */
+    g_steer_speed = 4.0;
+    axis(SDL_CONTROLLER_AXIS_LEFTX, 0);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 0);
+    axis(SDL_CONTROLLER_AXIS_LEFTX, -32768); apply_inputs(.016);
+    assert(g_analog[0] < 0 && g_analog[0] >= -13);
+    axis(SDL_CONTROLLER_AXIS_LEFTX, 0);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 0);
+    axis(SDL_CONTROLLER_AXIS_LEFTX, 32767);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
+    assert(g_analog[0] == 200);
     /* D-pad steering ramps as the keyboard, also from a press the pause consumed */
     axis(SDL_CONTROLLER_AXIS_LEFTX, 0);
+    for (int i = 0; i < 5; i++) apply_inputs(.05);
     paused=1; button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, 1); paused=0;
     apply_inputs(.05); assert(g_analog[0] < 0 && g_analog[0] > -200);
     for (int i = 0; i < 5; i++) apply_inputs(.05);
