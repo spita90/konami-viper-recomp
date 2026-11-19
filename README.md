@@ -45,7 +45,7 @@ MAME files, and it builds the games and starts them, with one tile each. You can
 ```
 
 The default, also when you double-click the executable. Menus, options and pause instead of
-coins and operator menus: 2X resolution, widescreen up to 21:9, graphics drawn by the GPU,
+coins and operator menus: resolution up to 6X (4K), widescreen up to 21:9, graphics drawn by the GPU,
 course difficulty, language, [extra modes](#extra-modes) with new rules, and
 [multiplayer](#multiplayer) over the Internet.
 

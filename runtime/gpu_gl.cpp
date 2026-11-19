@@ -1358,6 +1358,14 @@ const char *gpu_gl_name(void)
 	return X.name;
 }
 
+// the largest texture side the GPU takes (the render targets are (512 + 2M)·N wide)
+int gpu_gl_max_texture(void)
+{
+	GLint v = 0;
+	G.GetIntegerv(GL_MAX_TEXTURE_SIZE, &v);
+	return int(v);
+}
+
 void gpu_gl_shutdown(void)
 {
 	if (!X.ctx)

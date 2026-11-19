@@ -772,9 +772,21 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
 - **Cost.** About N² in the rasteriser, which takes ~80% of the host time. At 2× that is roughly
   2× real time on Apple Silicon; 3× is borderline.
 
-**Implemented: scaled render targets** (enhanced mode, DISPLAY → RESOLUTION, 1X = 512×384 or
-2X = 1024×768; `render_scale` in the settings file). The Voodoo core supports N = 1–4; the menu offers
-1 and 2.
+**Implemented: scaled render targets** (enhanced mode, DISPLAY → RESOLUTION, N × 512×384;
+`resolution` in the settings file: 0 = AUTO, 1–6). The Voodoo core supports N = 1–6; the software
+renderer offers up to 2X (the rasterizer's cost grows as N²), the GPU renderer up to 6X.
+- **AUTO** (the default; `enh_set_display`): the frontend reports the picture's height on screen
+  in pixels (the drawable, letterboxed to the frame's aspect ratio) after the window is created,
+  0.5 s after it last moved or resized (fullscreen included), and when the aspect ratio changes.
+  N is the smallest scale whose 384·N lines cover that height, 16 lines of slack (1080 → 3X,
+  1440 → 4X, 2160 → 6X), clamped to the renderer's largest. The software renderer reports no
+  height, so AUTO is 1X there. The largest GPU scale is 6, lower if `GL_MAX_TEXTURE_SIZE` cannot
+  hold a 21:9 target ((512 + 2·199)·N wide).
+- Settings written before AUTO had `render_scale`, always saved, 1 by default: 2 is kept as 2X,
+  1 becomes AUTO.
+- **Overlay.** With the GPU renderer the overlay layer is at most 768 lines high (as at 2X) and
+  stretched over the picture: the game's fonts are low-resolution anyway, and a layer at 6X 21:9
+  would be a 50 MB upload each frame while the fps counter is on.
 - **Which buffers.** A colour buffer that has been displayed (`update_common` records the front
   buffer) gets a render target N× wider and taller in host memory, with its own depth buffer.
   TD2's off-screen targets, which it uses as textures (the rear-view mirror), are never displayed

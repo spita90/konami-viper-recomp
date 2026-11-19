@@ -70,6 +70,7 @@ int enh_want_fullscreen(void);
 void enh_set_fullscreen(int on);
 int enh_want_window(int *r);                           /* both modes: x, y, w, h; 0 if none */
 void enh_set_window(const int *r);
+void enh_set_display(int picture_h, int max_scale);     /* AUTO resolution: picture height on screen, px */
 int enh_menu_active(void);                             /* attract menu on screen */
 void enh_menu_action(int action);
 int enh_code_entry_active(void);                       /* MULTIPLAYER: typing a session code */

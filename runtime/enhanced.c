@@ -36,8 +36,8 @@ static int g_attract, g_enh_log = -1;
 
 int enh_in_attract(void) { return g_attract; }
 
-/* port settings (<binary>_enhanced_settings.ini, see below) */
-static struct { int fullscreen, show_fps, scale, aspect, texture_filter, renderer, win[4]; } g_set = { 0, 0, 1, 0, 0, 0, { 0 } };
+/* port settings (<binary>_enhanced_settings.ini, see below); scale: 0 = AUTO, 1-6 = 1X-6X */
+static struct { int fullscreen, show_fps, scale, aspect, texture_filter, renderer, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, { 0 } };
 
 /* ================================================================== widescreen */
 /* The games draw a 512x384 picture through Konami's gl library, which keeps its state at fixed
@@ -450,6 +450,26 @@ static Glyph g_glyph[FONT_NSIZES][128];
 void voodoo_set_scale(int n);
 void voodoo_set_texture_filter(int mode);
 static char g_settings_path[1024];
+
+/* the render scale: the option, or for AUTO the smallest N whose 384·N lines cover the picture's
+ * height on screen (a few lines short still count: a slight enlargement costs less than N + 1).
+ * The frontend reports that height and the largest scale its renderer takes (software: 2X). */
+#define MAX_SCALE 6
+static int g_disp_h, g_max_scale = 2, g_scale_applied;
+static int effective_scale(void) {
+    int n = g_set.scale ? g_set.scale : g_disp_h > 0 ? (g_disp_h + 384 - 1 - 16) / 384 : 1;
+    return n < 1 ? 1 : n > g_max_scale ? g_max_scale : n;
+}
+static void apply_scale(void) {             /* the only place the render scale is set */
+    int n = effective_scale();
+    if (n != g_scale_applied) { g_scale_applied = n; voodoo_set_scale(n); }
+}
+void enh_set_display(int picture_h, int max_scale) {
+    if (!g_enhanced) return;
+    g_disp_h = picture_h;
+    g_max_scale = max_scale < 1 ? 1 : max_scale > MAX_SCALE ? MAX_SCALE : max_scale;
+    apply_scale();
+}
 static const char *const k_win_key[4] = { "window_x", "window_y", "window_width", "window_height" };
 
 static void settings_load(void) {
@@ -464,7 +484,9 @@ static void settings_load(void) {
             else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "renderer")) g_set.renderer = v == 1;
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
-            else if (!strcmp(key, "render_scale")) g_set.scale = v < 1 ? 1 : v > 2 ? 2 : v;
+            else if (!strcmp(key, "resolution")) g_set.scale = v < 0 || v > MAX_SCALE ? 0 : v;
+            /* before AUTO: 1X was the default, so only a 2X is a choice to keep */
+            else if (!strcmp(key, "render_scale")) g_set.scale = v == 2 ? 2 : 0;
             else if (!strcmp(key, "rumble_multiplier")) frontend_set_rumble_multiplier(v);
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
             else for (int i = 0; i < 4; i++) if (!strcmp(key, k_win_key[i])) g_set.win[i] = v;
@@ -477,7 +499,8 @@ static void settings_save(void) {
     if (!f) { rt_log("enhanced: cannot write %s\n", g_settings_path); return; }
     fprintf(f, "# " GAME_TITLE "%s: port settings\n", g_enhanced ? ", enhanced mode" : "");
     if (g_enhanced) {
-        fprintf(f, "fullscreen = %d\nshow_fps = %d\nrender_scale = %d\n", g_set.fullscreen, g_set.show_fps, g_set.scale);
+        fprintf(f, "fullscreen = %d\nshow_fps = %d\n", g_set.fullscreen, g_set.show_fps);
+        fprintf(f, "# 0 = AUTO (from the window's height), 1-6 = 1X-6X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "stick_response = %d\n", frontend_stick_response());
         fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());
@@ -513,7 +536,7 @@ void enh_init(const char *work, const char *settings) {
     settings_load();                     /* also in classic mode: its own file, the window */
     if (!g_enhanced) return;
     count_game_options();
-    voodoo_set_scale(g_set.scale);       /* the only place the render scale is set */
+    apply_scale();
     set_aspect(g_set.aspect);
     voodoo_set_texture_filter(enh_texture_filter());
     const char *file = GAME_ENH_FONT_FILE;
@@ -951,7 +974,11 @@ static void page_change(int row, int dir) {
     if (row == -11) { g_set.renderer = !g_set.renderer; settings_save(); g_opt_dirty = 1; return; }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
-    if (row == -3) { g_set.scale = g_set.scale == 1 ? 2 : 1; voodoo_set_scale(g_set.scale); settings_save(); return; }
+    if (row == -3) {                         /* AUTO, 1X ... the renderer's largest */
+        int k = g_max_scale + 1, v = g_set.scale > g_max_scale ? g_max_scale : g_set.scale;
+        g_set.scale = ((v + dir) % k + k) % k;
+        apply_scale(); settings_save(); return;
+    }
     if (row == -4) { g_set.aspect = (g_set.aspect + dir + N_ASPECTS) % N_ASPECTS; set_aspect(g_set.aspect); settings_save(); return; }
     const GameOption *o = &k_game_options[row];
     int v = g_opt_value[row] + dir, span = o->max - o->min + 1;
@@ -1425,7 +1452,12 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             char buf[64];
             if (rows[i] == -1) { label = T(T_DISPLAY); value = T(g_set.fullscreen ? T_FULLSCREEN : T_WINDOW); }
             else if (rows[i] == -2) { label = T(T_SHOW_FPS); value = T(g_set.show_fps ? T_ON : T_OFF); }
-            else if (rows[i] == -3) { label = T(T_RESOLUTION); value = g_set.scale == 2 ? "2X" : "1X"; }
+            else if (rows[i] == -3) {
+                label = T(T_RESOLUTION);
+                if (g_set.scale) snprintf(buf, sizeof buf, "%dX", effective_scale());
+                else snprintf(buf, sizeof buf, "AUTO %dX", effective_scale());
+                value = buf;
+            }
             else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
             else if (rows[i] == -5) { label = T(T_RUMBLE); value = rumble_text(buf, sizeof buf); }
             else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }

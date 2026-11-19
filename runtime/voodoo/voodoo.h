@@ -493,7 +493,7 @@ protected:
 public:
 	// recomp: render the displayed colour buffers at N times the resolution (applied at the next
 	// buffer swap); hires_frame() gives the last scaled picture, if the front buffer had one
-	void set_render_scale(int n) { m_hires_pending = n < 1 ? 1 : n > 4 ? 4 : n; }
+	void set_render_scale(int n) { m_hires_pending = n < 1 ? 1 : n > 6 ? 6 : n; }
 	// recomp: widescreen, a margin of M native pixels left and right of the displayed buffers
 	// (the game draws at x from -M to width + M); applied at the next buffer swap
 	void set_wide_margin(int m) { m_wide_pending = m < 0 ? 0 : m > 512 ? 512 : m; }

@@ -22,7 +22,7 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | **Pause**           | Esc, or Back on a gamepad: RESUME, CONTROLS or MAIN MENU (not in multiplayer)                                      | None                      |
 | **Ranking name**    | Typed on the keyboard                                                                                              | Chosen with the wheel     |
 | **Multiplayer**     | MULTIPLAYER: up to 4 players over the Internet, with a session code                                                | Linked cabinets only      |
-| **Resolution**      | 512×384 or 1024×768 (1X or 2X)                                                                                     | 512×384, as the original  |
+| **Resolution**      | AUTO (the default) or 1X to 6X: 512×384 to 3072×2304 (with the software renderer, up to 2X)                        | 512×384, as the original  |
 | **Aspect ratio**    | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                                        | 4:3, as the original      |
 | **Graphics**        | Drawn by the GPU (OpenGL 3.3), or by the CPU as in classic                                                         | Drawn by the CPU          |
 | **TEST MODE**       | None (TEST, SERVICE and COIN are ignored)                                                                          | F2                        |
@@ -37,10 +37,14 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     Drive 2 JAA and AAA also offer Japanese), and the speedometer, km/h or mph.
   - **Sound:** attract sound, music in game, music and effects volume.
   - **Display:** window or fullscreen (F11 also switches it), the rendering resolution, and an
-    fps counter. 2X renders the 3D scenes and the HUD at 1024×768. With the software renderer it
-    needs about twice the CPU time, so be sure to check the fps counter on slower machines.
+    fps counter. RESOLUTION renders the 3D scenes and the HUD at N times 512×384: 2X is
+    1024×768, 3X fits 1080p, 4X 1440p, 6X 4K. AUTO, the default, picks the smallest one that
+    covers the picture's height in the window or on the screen, and follows the window when it
+    changes (the menu shows which, e.g. AUTO 3X). 3X to 6X need the HARDWARE renderer, and each
+    step costs the GPU more (6X draws 36 times the pixels of 1X); on a slow GPU check the fps
+    counter. With the SOFTWARE renderer AUTO stays at 1X, and 2X needs about twice the CPU time.
   - **Renderer:** HARDWARE (the default) draws the 3D graphics on the GPU, with OpenGL 3.3, on the
-    dedicated GPU of a laptop that has two: much less CPU time, and 2X costs the same as 1X.
+    dedicated GPU of a laptop that has two: much less CPU time, and 2X costs about the same as 1X.
     SOFTWARE draws them on the CPU, as the classic mode, pixel for pixel as the original
     hardware. The pictures are the same, except translucent surfaces, whose colours can differ
     slightly. Changing it restarts the game; a computer without OpenGL 3.3 stays on SOFTWARE.

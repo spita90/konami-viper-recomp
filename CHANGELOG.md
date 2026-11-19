@@ -5,6 +5,23 @@ All notable changes to this project are listed here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is below 1.0.0, a new minor
 version can change the build, the profiles or the command-line options.
 
+## [Unreleased]
+
+### Added
+
+- **Enhanced mode, resolution up to 6X** (issues #16 and #22): DISPLAY → RESOLUTION now offers
+  AUTO and 1X to 6X with the HARDWARE renderer (3X fits 1080p, 4X 1440p, 6X 4K); the SOFTWARE
+  renderer stays at 1X–2X. AUTO, the new default, picks the smallest scale that covers the
+  picture's height in the window or on the screen and follows resizes and fullscreen; with the
+  SOFTWARE renderer it is 1X. The settings key is now `resolution` (0 = AUTO); a saved
+  `render_scale = 2` is kept as 2X, the old default 1X becomes AUTO.
+
+### Changed
+
+- **Enhanced mode, GPU renderer:** the menu and fps-counter layer is drawn at most 768 lines
+  high and stretched over the picture, so higher resolutions do not upload a huge layer every
+  frame.
+
 ## [0.19.0] - 2026-11-18
 
 ### Added
@@ -627,6 +644,7 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
+[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.19.0...HEAD
 [0.19.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.2...v0.17.0

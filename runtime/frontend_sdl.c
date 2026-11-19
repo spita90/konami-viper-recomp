@@ -67,6 +67,7 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
 void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest);
 void gpu_gl_shutdown(void);
 const char *gpu_gl_name(void);
+int gpu_gl_max_texture(void);
 
 static int16_t sat16(int64_t v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
 static int g_frontend_active;
@@ -440,6 +441,18 @@ static void save_window(SDL_Window *win) {
     enh_set_window(r);
 }
 
+/* the picture's height on screen, in pixels (letterboxed in the window), for the AUTO resolution;
+ * the largest scale: software 2X, GPU 6X if its textures take the widest target (21:9) */
+static void report_display(SDL_Window *win, int gpu, int max_tex, int tw, int th) {
+    int dw = 0, dh = 0;
+    if (gpu) SDL_GL_GetDrawableSize(win, &dw, &dh);   /* software: AUTO stays 1X (2X doubles the CPU time) */
+    long ph = (long)dw * th / tw;
+    if (ph > dh) ph = dh;
+    int max_scale = 2;
+    if (gpu) for (max_scale = 6; max_scale > 2 && (512 + 2 * 199) * max_scale > max_tex; max_scale--) {}
+    enh_set_display((int)ph, max_scale);
+}
+
 int frontend_run(int scale, int scale_explicit) {
 #ifdef VIPER_NATIVE_HAPTICS
     const char *rumble_backend = getenv("RT_RUMBLE_BACKEND");
@@ -518,6 +531,8 @@ int frontend_run(int scale, int scale_explicit) {
         tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 512, 384);
     }
     int tw = 512, th = 384, overlay_drawn = 0;
+    int max_tex = gpu ? gpu_gl_max_texture() : 0;
+    report_display(win, gpu, max_tex, tw, th);
     int window_filter_applied = SDL_ScaleModeLinear;   /* the textures are made linear (the hint) */
 
     SDL_AudioSpec want = {0}, have;
@@ -689,17 +704,23 @@ int frontend_run(int scale, int scale_explicit) {
                     window_filter_applied = SDL_ScaleModeLinear;
                     SDL_RenderSetLogicalSize(ren, w, h);
                 }
+                int new_ratio = (long)w * th != (long)h * tw;
                 tw = w; th = h;
+                if (new_ratio) report_display(win, gpu, max_tex, tw, th);
                 overlay_drawn = 1;          /* the layer below is cleared at the new size */
             }
         }
         if (gpu) {
             /* the menus on a layer of their own, cleared only after something was drawn on it */
-            if (overlay_drawn) memset(frame, 0, (size_t)tw * th * 4);
-            overlay_drawn = g_enhanced && last_frame && enh_draw_overlay_layer(frame, tw, th);
-            gpu_gl_frame(win, overlay_drawn ? frame : NULL, tw, th, enh_texture_filter());   /* vsync paces */
+            /* the layer is at most 768 lines high (as at 2X): the game's fonts are low-resolution
+             * anyway, and a larger one would cost a big upload each frame with the fps counter on */
+            int oh = th > 768 ? 768 : th, ow = (int)((long)tw * oh / th);
+            if (overlay_drawn) memset(frame, 0, (size_t)ow * oh * 4);
+            overlay_drawn = g_enhanced && last_frame && enh_draw_overlay_layer(frame, ow, oh);
+            gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, enh_texture_filter());   /* vsync paces */
             if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {
                 save_window(win);
+                report_display(win, gpu, max_tex, tw, th);
                 window_dirty = 0;
             }
             continue;
@@ -722,6 +743,7 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_RenderPresent(ren);       /* vsync paces this loop */
         if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {
             save_window(win);
+            report_display(win, gpu, max_tex, tw, th);
             window_dirty = 0;
         }
     }
