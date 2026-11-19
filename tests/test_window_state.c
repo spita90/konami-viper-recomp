@@ -14,7 +14,6 @@ void hw_nvram_options_fix(uint8_t *nv) { (void)nv; }
 void nvram_save(void) {}
 void voodoo_set_scale(int n) { (void)n; }
 void voodoo_set_wide(int n) { (void)n; }
-void voodoo_set_texture_filter(int n) { (void)n; }
 unsigned long long voodoo_swap_count(void) { return 0; }
 
 static char g_text[4096];
@@ -77,15 +76,34 @@ int main(int argc, char **argv) {
     enh_set_window((const int[4]){ 50, 60, 1366, 768 });
     t = read_file(path);
     assert(t && strstr(t, "enhanced mode") && strstr(t, "fullscreen = 1\n") && strstr(t, "show_fps = 1\n"));
-    assert(strstr(t, "render_scale = 2\n") && strstr(t, "aspect = 2\n") && strstr(t, "window_width = 1366\n"));
+    assert(strstr(t, "resolution = 2\n") && strstr(t, "aspect = 2\n") && strstr(t, "window_width = 1366\n"));
     g_set.fullscreen = g_set.aspect = 0;
     reload();
     assert(g_set.fullscreen == 1 && g_set.aspect == 2);
     assert(enh_want_window(r) && r[0] == 50 && r[1] == 60 && r[2] == 1366 && r[3] == 768);
+
+    /* values out of range: the resolution AUTO, the frame rate as it was */
+    g_set.scale = 2; g_set.frame_rate = 60;
+    write_file(path, "resolution = 6\nframe_rate = 144\n");
+    settings_load();
+    assert(g_set.scale == 0 && g_set.frame_rate == 60);
+    write_file(path, "frame_rate = 120\n");
+    settings_load();
+    assert(g_set.frame_rate == 120);
+    /* AUTO stops at 3X (2160 lines would be 6X), a chosen scale at the renderer's largest */
+    enh_set_display(2160, 6);
+    assert(effective_scale() == 3);
+    enh_set_display(1080, 6);
+    assert(effective_scale() == 3);
+    enh_set_display(768, 6);
+    assert(effective_scale() == 2);
+    g_set.scale = 4; assert(effective_scale() == 4);
+    enh_set_display(2160, 2); assert(effective_scale() == 2);
     remove(path);
     puts("window fitting and port settings (classic, enhanced, out of range): passed");
 }
 
+int interp_supported(void) { return 0; }   /* interp.c, not linked here */
 int frontend_stick_response(void) { return 2; }
 void frontend_set_stick_response(int v) { (void)v; }
 int frontend_rumble_multiplier(void) { return 100; }

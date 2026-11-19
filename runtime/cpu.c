@@ -82,6 +82,9 @@ static void dispatch_miss(PPCContext *c, uint32_t target) {
 
 /* Export stubs built in RAM by the kernel for loaded modules:
  *   mflr r0; stw r2,12(r1); stw r0,16(r1); lwz r2,0x2c(0); bl F; lwz r0,16(r1); lwz r2,12(r1); mtlr r0; blr */
+static int g_sandboxed, g_sandbox_stopped;   /* a sandbox: see rt_sandbox_enter */
+static int sandbox_stop(PPCContext *c, const char *why, uint32_t at);
+
 static int run_kernel_stub(PPCContext *c, uint32_t a) {
     static const uint32_t tmpl[9] = {0x7c0802a6, 0x9041000c, 0x90010010, 0x8040002c, 0,
                                      0x80010010, 0x8041000c, 0x7c0803a6, 0x4e800020};
@@ -161,6 +164,7 @@ void rt_call(PPCContext *c, uint32_t target) {
     RtFn fn = rt_lookup(target);
     if (UNLIKELY(!fn)) {
         if (run_kernel_stub(c, target)) return;
+        if (sandbox_stop(c, "a jump nowhere", target)) return;
         if (target >= 0xfff00000u) {
             rt_log("FATAL: jump into BIOS %08x (lr=%08x srr0=%08x srr1=%08x)\n", target, c->lr, c->srr0, c->srr1);
             rt_fatal("bios");
@@ -281,6 +285,7 @@ enum { MSR_EE = 0x8000, MSR_PR = 0x4000, MSR_FP = 0x2000, MSR_ME = 0x1000, MSR_F
 static uint64_t g_exc_count[0x20];
 
 static int take_exception(PPCContext *c, uint32_t vector, uint32_t resume_pc, int is_sc) {
+    if (UNLIKELY(sandbox_stop(c, "exception", resume_pc))) return 0;
     Fiber *f = g_cur;
     if (f->npend >= MAX_PEND) rt_fatal("exception nesting too deep");
     int idx = f->npend++;
@@ -354,6 +359,7 @@ void rt_rfi(PPCContext *c) {
 }
 
 int rt_sc(PPCContext *c, uint32_t next_pc) {
+    if (UNLIKELY(g_sandboxed)) { sandbox_stop(c, "system call", next_pc); return 0; }
     static int sclog = -1;
     if (sclog < 0) sclog = getenv("RT_SC_LOG") != NULL;
     if (sclog) rt_log("SC r5=%x r3=%08x r4=%08x lr=%08x\n", c->r[5], c->r[3], c->r[4], c->lr);
@@ -380,6 +386,36 @@ static void rearm(PPCContext *c) {
 void rt_eat_cycles(uint32_t n) { g_ctx.budget -= n; }
 
 uint64_t rt_now(void) { return g_ctx.cycles + (uint64_t)(g_slice - g_ctx.budget); }
+
+/* A sandbox (frames in between, interp.c): guest code run outside the emulated time. The slice
+ * and the budget grow by the same amount, so rt_now() does not move and no checkpoint comes
+ * (no interrupt, no device event); leaving puts the whole context back. Code that would leave
+ * the sandbox's world (a system call, an exception, a jump nowhere, the budget spent: a list
+ * pointing at data the game has since replaced, as when TD2 starts loading) stops it instead:
+ * the generated code unwinds back to the caller, which drops what it was drawing. */
+#define SANDBOX_BUDGET ((int64_t)1 << 31)
+static int sandbox_stop(PPCContext *c, const char *why, uint32_t at) {
+    if (!g_sandboxed) return 0;
+    static int logged;
+    if (!g_sandbox_stopped && logged++ < 5) rt_log("cpu: frame in between stopped: %s at %08x\n", why, at);
+    g_sandbox_stopped = 1;
+    c->unwind = 1;
+    return 1;
+}
+int rt_sandbox_stopped(void) { return g_sandbox_stopped; }
+void rt_sandbox_enter(PPCContext *c, RtSandbox *s) {
+    g_sandboxed = 1;
+    g_sandbox_stopped = 0;
+    s->ctx = *c;
+    s->slice = g_slice;
+    c->budget += SANDBOX_BUDGET;
+    g_slice += SANDBOX_BUDGET;
+}
+void rt_sandbox_leave(PPCContext *c, const RtSandbox *s) {
+    g_sandboxed = 0;
+    *c = s->ctx;
+    g_slice = s->slice;
+}
 
 /* Idle loop skipping (profile hint "idle", recomp/recomp.py). The game's idle task polls a table
  * in RAM that only interrupts and other tasks change, and those run only at a time checkpoint:
@@ -463,6 +499,7 @@ void rt_profile_dump(void) {
 }
 
 void rt_check(PPCContext *c, uint32_t pc) {
+    if (UNLIKELY(g_sandboxed)) { sandbox_stop(c, "budget spent", pc); return; }
     if (UNLIKELY(g_prof_start != -1)) {
         if (g_prof_start == -2) g_prof_start = getenv("RT_PROFILE") ? atof(getenv("RT_PROFILE")) : -1;
         if (g_prof_start >= 0 && (double)c->cycles / CPU_HZ >= g_prof_start) prof_add(pc, (uint64_t)(g_slice - c->budget));
@@ -476,6 +513,7 @@ void rt_check(PPCContext *c, uint32_t pc) {
 void rt_mtmsr(PPCContext *c, uint32_t v, uint32_t next_pc) {
     uint32_t old = c->msr;
     c->msr = v;
+    if (g_sandboxed) return;            /* no interrupt in a sandbox */
     if ((v & MSR_EE) && !(old & MSR_EE)) {
         sync_time(c);
         rt_sched_run(c->cycles);

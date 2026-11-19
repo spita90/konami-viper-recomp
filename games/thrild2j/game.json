@@ -1,5 +1,10 @@
 {
   "inherits": "thrild2",
+  "nvram_options": {
+    "volume": {
+      "factory": [20, 20]
+    }
+  },
   "network": {
     "hot": {
       "options_ram": "0x704520",

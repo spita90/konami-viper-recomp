@@ -17,6 +17,10 @@ extern "C" int enh_turbo(void);
 
 using namespace voodoo;
 
+// shadow render targets (frames in between) are keyed by the buffer offset with this bit, and
+// the slot in bits 24-28 (the VRAM is 8 MB)
+static constexpr u32 SHADOW = 0x80000000u;
+
 namespace {
 
 // lists recorded and not executed yet, and executed ones whose buffers can be reused; never
@@ -176,6 +180,14 @@ struct voodoo_1_device::gpu_state
 	std::unordered_map<u64, u32> lut_by_hash;
 	u32 lut_next = 0;
 	bool warned_depth_source = false, warned_lfb = false;
+	// frames in between: drawing into shadow targets (offset | SHADOW | slot << 24)
+	bool shadow = false;
+	u32 shadow_slot = 0, sandbox_runs = 0;
+	// the shadow targets this frame in between drew, and where: the one shown is the largest
+	// (Thrill Drive 2 draws into a texture after its picture, so the last one is not the picture)
+	struct run_target { u32 color; s32 x0, y0, x1, y1; };
+	run_target run_targets[8];
+	u32 run_ntargets = 0;
 	// colour buffers the GPU drew into: what it drew (native) since the VRAM copy last got it
 	struct target_info { u32 rowpixels = 0; s32 x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool dirty = false, unsnapped = false; };
 	std::unordered_map<u32, target_info> targets;
@@ -371,6 +383,125 @@ u32 voodoo_1_device::gpu_lut(u32 const *data)
 //  per-list state: scale, render target
 //-------------------------------------------------
 
+//-------------------------------------------------
+//  frames in between: the device draws a frame's commands again into shadow targets
+//-------------------------------------------------
+
+// the state at a flush of the game's command list, to run it again from there
+void voodoo_1_device::gpu_keep(int slot)
+{
+	if (size_t(slot) >= m_kept.size())
+		m_kept.resize(slot + 1);
+	snapshot(m_kept[slot]);
+}
+
+// in the sandbox: run what the FIFOs hold (the packets run as they arrive, but a list can end
+// with a packet the next words complete)
+void voodoo_1_device::gpu_sandbox_drain()
+{
+	for (int i = 0; i < 1 << 20 && execute_fifos() != 0; i++) {}
+}
+
+// what this list has set is no longer what is set
+void voodoo_1_device::gpu_forget()
+{
+	auto &g = *m_gpu;
+	g.color = ~0u;
+	g.have_state = false;
+	for (auto &t : g.tmu)
+		t = gpu_state::tmu_cache();
+}
+
+// in the sandbox: the next frame in between, drawn into shadow slot `slot` from a kept state
+void voodoo_1_device::gpu_sandbox_load(int state, int slot)
+{
+	auto &g = *m_gpu;
+	if (size_t(state) >= m_kept.size() || m_kept[state].empty())
+		return;
+	if (g.sandbox_runs++)
+		gpu_sandbox_drain();                // the previous one, to the end (not the guest's own packets)
+	restore(m_kept[state]);
+	g.shadow_slot = u32(slot) & 31;
+	g.run_ntargets = 0;
+	gpu_forget();
+}
+
+// in the sandbox: the frame just drawn is shown from emulated time `when` on
+void voodoo_1_device::gpu_sandbox_show(u64 when)
+{
+	auto &g = *m_gpu;
+	gpu_sandbox_drain();
+	u32 color = g.color;
+	s64 best = -1;
+	for (u32 i = 0; i < g.run_ntargets; i++)
+	{
+		auto const &t = g.run_targets[i];
+		s64 const area = s64(t.x1 - t.x0) * (t.y1 - t.y0);
+		if (area >= best)
+			best = area, color = t.color;
+	}
+	if (color != ~0u && (color & SHADOW))
+		g.list.cmds.push_back({ vgpu::CMD_SHOW, color, u32(when), u32(when >> 32), 0, 0 });
+}
+
+// the list so far to the frontend now, without a display: the frames in between it holds are
+// shown before the next vblank
+void voodoo_1_device::gpu_handover()
+{
+	auto &g = *m_gpu;
+	if (s_cap.on || g.list.empty())
+		return;
+	{
+		std::unique_lock<std::mutex> lock(s_lock);
+		s_cv.wait(lock, [] { return s_pending_bytes < MAX_PENDING_BYTES || !s_want.load(); });
+		if (s_want.load())
+		{
+			s_pending_bytes += g.list.bytes();
+			s_pending.push_back(std::move(g.list));
+		}
+		g.list = vgpu::frame_list();
+		if (!s_free.empty())
+		{
+			g.list = std::move(s_free.back());
+			s_free.pop_back();
+		}
+	}
+	g.color = g.aux = ~0u;
+	g.rowpixels = 0;
+	g.last_copy = ~size_t(0);
+	g.scale = g.margin = g.dispw = -1;
+	g.have_state = false;
+}
+
+void voodoo_1_device::gpu_sandbox(bool on)
+{
+	auto &g = *m_gpu;
+	if (on)
+	{
+		snapshot(m_sandbox_state);
+		m_sandbox_eager = true;
+		g.shadow = true;
+		g.sandbox_runs = 0;
+		gpu_forget();                       // the next draw names its (shadow) target
+		return;
+	}
+	gpu_sandbox_drain();
+	m_sandbox_eager = false;
+	restore(m_sandbox_state);               // registers, FIFOs, renderer; the TMUs recompute
+	if (getenv("RT_INTERP_CHECK"))
+	{
+		std::vector<u8> now;
+		snapshot(now);
+		size_t bad = 0;
+		for (size_t i = 0; i < now.size(); i++)
+			bad += now[i] != m_sandbox_state[i];
+		if (bad)
+			rt_log("voodoo: CHECK %zu bytes of the device state differ after the sandbox\n", bad);
+	}
+	g.shadow = false;
+	gpu_forget();
+}
+
 void voodoo_1_device::gpu_scale()
 {
 	auto &g = *m_gpu;
@@ -387,8 +518,10 @@ void voodoo_1_device::gpu_target(u16 const *dest, u16 const *depth)
 {
 	auto &g = *m_gpu;
 	gpu_scale();
-	u32 const color = u32((u8 const *)dest - m_fbram);
-	u32 const aux = depth ? u32((u8 const *)depth - m_fbram) : ~0u;
+	// shadow targets: one per slot (frames waiting to be shown), one depth buffer for all
+	u32 const shadow = g.shadow ? SHADOW : 0;
+	u32 const color = u32((u8 const *)dest - m_fbram) | (shadow ? SHADOW | g.shadow_slot << 24 : 0);
+	u32 const aux = depth ? u32((u8 const *)depth - m_fbram) | shadow : ~0u;
 	u32 const rowpixels = m_renderer->rowpixels();
 	g.targets[color].rowpixels = rowpixels;
 	if (color != g.color || aux != g.aux || rowpixels != g.rowpixels)
@@ -439,6 +572,20 @@ void voodoo_1_device::gpu_drawn(s32 x0, s32 y0, s32 x1, s32 y1)
 	y1 = std::min(y1, s32(vgpu::NATIVE_ROWS));
 	if (x1 <= x0 || y1 <= y0)
 		return;
+	if (g.shadow)                           // where this frame in between drew
+	{
+		u32 i = 0;
+		while (i < g.run_ntargets && g.run_targets[i].color != g.color)
+			i++;
+		if (i == g.run_ntargets && i < std::size(g.run_targets))
+			g.run_targets[g.run_ntargets++] = { g.color, x0, y0, x1, y1 };
+		else if (i < g.run_ntargets)
+		{
+			auto &r = g.run_targets[i];
+			r.x0 = std::min(r.x0, x0); r.y0 = std::min(r.y0, y0);
+			r.x1 = std::max(r.x1, x1); r.y1 = std::max(r.y1, y1);
+		}
+	}
 	t.unsnapped = true;
 	if (!t.dirty)
 	{

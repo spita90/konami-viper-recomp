@@ -17,12 +17,12 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 |                     | Enhanced                                                                                                           | Classic                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | **Starting a game** | START GAME from the menu                                                                                           | Insert coins, press START |
-| **Main screen**     | Menu: START GAME, MULTIPLAYER, OPTIONS, CREDITS, QUIT over the attract mode                                        | Attract mode              |
-| **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, aspect ratio, renderer, fps counter | None                      |
+| **Main screen**     | Menu: START GAME, MULTIPLAYER, OPTIONS, SUPPORT, QUIT over the attract mode                                        | Attract mode              |
+| **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, frame rate, aspect ratio, renderer, fps counter | None                      |
 | **Pause**           | Esc, or Back on a gamepad: RESUME, CONTROLS or MAIN MENU (not in multiplayer)                                      | None                      |
 | **Ranking name**    | Typed on the keyboard                                                                                              | Chosen with the wheel     |
 | **Multiplayer**     | MULTIPLAYER: up to 4 players over the Internet, with a session code                                                | Linked cabinets only      |
-| **Resolution**      | AUTO (the default) or 1X to 6X: 512×384 to 3072×2304 (with the software renderer, up to 2X)                        | 512×384, as the original  |
+| **Resolution**      | AUTO (the default, up to 3X) or 1X to 4X: 512×384 to 2048×1536 (with the software renderer, up to 2X)            | 512×384, as the original  |
 | **Aspect ratio**    | 4:3, 16:10, 16:9 or 21:9 (the 3D scene widens; the HUD stays in the centre)                                        | 4:3, as the original      |
 | **Graphics**        | Drawn by the GPU (OpenGL 3.3), or by the CPU as in classic                                                         | Drawn by the CPU          |
 | **TEST MODE**       | None (TEST, SERVICE and COIN are ignored)                                                                          | F2                        |
@@ -38,23 +38,35 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
   - **Sound:** attract sound, music in game, music and effects volume.
   - **Display:** window or fullscreen (F11 also switches it), the rendering resolution, and an
     fps counter. RESOLUTION renders the 3D scenes and the HUD at N times 512×384: 2X is
-    1024×768, 3X fits 1080p, 4X 1440p, 6X 4K. AUTO, the default, picks the smallest one that
-    covers the picture's height in the window or on the screen, and follows the window when it
-    changes (the menu shows which, e.g. AUTO 3X). 3X to 6X need the HARDWARE renderer, and each
-    step costs the GPU more (6X draws 36 times the pixels of 1X); on a slow GPU check the fps
-    counter. With the SOFTWARE renderer AUTO stays at 1X, and 2X needs about twice the CPU time.
+    1024×768, 3X fits 1080p, 4X 1440p. AUTO, the default, picks the smallest one that covers
+    the picture's height in the window or on the screen, up to 3X, and follows the window when
+    it changes (the menu shows which, e.g. AUTO 3X). 3X and 4X need the HARDWARE renderer, and
+    each step costs the GPU more (4X draws 16 times the pixels of 1X); on a slow GPU check the
+    fps counter. With the SOFTWARE renderer AUTO stays at 1X, and 2X needs about twice the CPU time.
   - **Renderer:** HARDWARE (the default) draws the 3D graphics on the GPU, with OpenGL 3.3, on the
     dedicated GPU of a laptop that has two: much less CPU time, and 2X costs about the same as 1X.
     SOFTWARE draws them on the CPU, as the classic mode, pixel for pixel as the original
     hardware. The pictures are the same, except translucent surfaces, whose colours can differ
     slightly. Changing it restarts the game; a computer without OpenGL 3.3 stays on SOFTWARE.
+  - **Frame rate**: ORIGINAL (the game's 29 fps), 60 or 120 FPS (120 only with a
+    screen that fast). The pictures come every vsync, every other one or every third, so that
+    they stay evenly spaced: on a 144 Hz screen 120 gives 72 and 60 gives 48; with the screen set
+    to 120 or 60 Hz they are exact. The pictures between two of the game's are made from the same 3D scene
+    with every object moved to where it is at that moment; the game itself, its speed and multiplayer do not change. It
+    needs the HARDWARE renderer, and it shows the game about a frame (35 ms) later. On a screen
+    slower than the rate chosen it follows the screen; moved to another screen, it follows that
+    one within a moment. Each frame in between costs the computer some work (about 1.6 ms of one
+    core on an Apple M4 Pro, and a drawing of the scene on the GPU): at the highest rates and
+    resolutions, check the fps counter.
+  - **Draw distance** (GTI Club 2, not an option): the enhanced mode always draws the scenery
+    twice as far as the original. Its detailed models are kept twice as far before switching to
+    the simpler ones, and its farthest groups of buildings and objects are drawn twice as far.
+    The game's speed does not change. The cars keep their original detail, and the classic
+    mode keeps the original distances.
   - **Aspect ratio:** 4:3 (the original), 16:10, 16:9 or 21:9. A wider format shows more of the
     3D scene on the left and right, with the same vertical field of view; the window widens to
     match. The HUD and the 2D screens keep their 4:3 layout in the centre, and a few 2D effects
     (the noise on Thrill Drive 2's crash screen) cover only that part.
-  - **Texture filter:** ORIGINAL (the game's original bilinear filtering) or NEAREST, which turns off the
-    filtering of enlarged textures, for hard texel edges, and scales the window without
-    smoothing. The filtering of distant textures and the mipmaps stay the game's.
   - **Controls:** the stick response: LINEAR, SOFT (quadratic) or EXTRA SOFT (cubic, the
     default). With EXTRA SOFT, half of the stick's travel turns the wheel an eighth, for finer
     steering near the centre; full travel is still full lock. And the rumble strength, from
@@ -140,7 +152,7 @@ calibration, delete that file.
 ```
 ./td2 --classic          classic mode (the default is the enhanced mode)
 ./td2 --scale 3          window scale (default 2, or the size of the last run)
-./td2 --volume 8         audio gain (default 16)
+./td2 --volume 2         audio gain (default 1)
 ./td2 --headless --seconds 30        no window/audio, runs as fast as possible (testing)
 ./td2 --frames DIR --frame-every 60  dump video frames as PPM (with --headless)
 ./td2 --help             all options

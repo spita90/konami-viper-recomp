@@ -309,6 +309,10 @@ def write_config_header(g, out):
         # TEST MODE option block of the NVRAM: words from start to the checksum word sum to 0xffff
         f"#define GAME_NVRAM_OPT_START {int(nvo.get('start', '0'), 16)}",
         f"#define GAME_NVRAM_OPT_CSUM {int(nvo.get('checksum', '0'), 16)}",
+        # MUSIC/EFFECTS VOLUME bytes and the dump's values: set to 18 at boot while still those (0: none)
+        f"#define GAME_NVRAM_VOL_MUSIC 0x{int((nvo.get('volume') or {}).get('music', '0'), 16):x}",
+        f"#define GAME_NVRAM_VOL_EFFECTS 0x{int((nvo.get('volume') or {}).get('effects', '0'), 16):x}",
+        "#define GAME_NVRAM_VOL_FACTORY {" + ", ".join(str(v) for v in ((nvo.get('volume') or {}).get('factory') or [0, 0])) + "}",
         # TEST MODE NETWORK ID (bits 6-7, ID - 1) in the NVRAM: set at boot to 1 or --net-id (0: none)
         f"#define GAME_NETWORK_ID_ADDR 0x{int((g.get('network') or {}).get('id_addr', '0'), 16):x}",
         *net_ghost_config((g.get('network') or {}).get('ghost')),
@@ -349,6 +353,10 @@ def write_config_header(g, out):
         # widescreen: where the gl library keeps its projection slots and viewport (0: not supported)
         *[f"#define GAME_ENH_WIDE_{k.upper()} 0x{int((enh.get('widescreen') or {}).get(k, '0'), 16):x}u"
           for k in ('proj_matrix', 'proj_frustum', 'proj_slot', 'viewport')],
+        # frames in between: the opcode that calls a model, naming the objects (0: the word after the matrix)
+        f"#define GAME_ENH_INTERP_CALL_OP 0x{int((enh.get('interp') or {}).get('call_op', '0'), 16):x}u",
+        # draw distance: the word that points to the course's scenery table (0: not supported)
+        f"#define GAME_ENH_DRAW_TABLE 0x{int((enh.get('draw_distance') or {}).get('table', '0'), 16):x}u",
         game_options_config(enh.get('game_options')),
         *name_entry_config(enh.get('name_entry')),
         wheel_select_config(enh.get('wheel_select')),

@@ -60,11 +60,11 @@ extern int16_t g_analog[4];
 static int16_t g_ring[AUDIO_RING][2];
 static atomic_uint g_ring_w, g_ring_r;
 static SDL_AudioDeviceID g_audio;
-int g_audio_gain = 16;                    /* samples peak ~1.5% FS; the cabinet has a power amp */
+int g_audio_gain = 1;                     /* the game's samples as they are: volume 18 peaks at 57-81% (hw.c) */
 
 /* GPU renderer (gpu_gl.cpp) */
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest);
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at);
 void gpu_gl_shutdown(void);
 const char *gpu_gl_name(void);
 int gpu_gl_max_texture(void);
@@ -441,15 +441,70 @@ static void save_window(SDL_Window *win) {
     enh_set_window(r);
 }
 
+/* ------------------------------------------------------------------ vsync (frames in between) */
+/* The display's refresh as the GPU path meets it: the time each buffer swap returns (a vsync) and
+ * the median of the last intervals, in emulated time (the pacing's clock), for interp.c to make
+ * the frames in between for the vsyncs to come. Measured, not taken from the display mode: it
+ * follows the screen the system syncs the window to (the one holding most of it), VRR and caps. */
+#define VSYNC_N 31
+static double g_vsync_iv[VSYNC_N];
+static int g_vsync_n, g_vsync_pos;
+static uint64_t g_vsync_last;
+static double g_vsync_period;              /* seconds, 0 = not known yet */
+static uint64_t g_show_at;                  /* the frames in between due at the next vsync: up to this */
+
+/* the highest refresh of the screens connected, for the FRAME RATE values offered */
+static void report_refresh(void) {
+    int best = 0, n = SDL_GetNumVideoDisplays();
+    for (int i = 0; i < n; i++) {
+        SDL_DisplayMode m;
+        if (SDL_GetCurrentDisplayMode(i, &m) == 0 && m.refresh_rate > best) best = m.refresh_rate;
+    }
+    enh_set_refresh(best);
+}
+
+static void vsync_reset(void) { g_vsync_n = g_vsync_pos = 0; g_vsync_last = 0; }
+
+static int cmp_double(const void *a, const void *b) {
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+/* after a swap returned: returns the emulated time up to which a frame in between is shown at
+ * the next vsync, halfway to the one after (0: not known). The frames' times fall on the vsyncs
+ * measured, so the line between two is the middle: a swap returning a little late or early
+ * does not move a frame to the next vsync (one shown twice, the next one skipped) */
+static uint64_t vsync_tick(void) {
+    uint64_t now = SDL_GetPerformanceCounter();
+    if (g_vsync_last) {
+        double iv = (double)(now - g_vsync_last) / g_pace_freq;
+        if (iv > 1.0 / 500 && iv < 1.0 / 20) {
+            g_vsync_iv[g_vsync_pos] = iv;
+            g_vsync_pos = (g_vsync_pos + 1) % VSYNC_N;
+            if (g_vsync_n < VSYNC_N) g_vsync_n++;
+        }
+    }
+    g_vsync_last = now;
+    if (g_vsync_n < 8) return 0;
+    double s[VSYNC_N];
+    memcpy(s, g_vsync_iv, sizeof s);
+    qsort(s, (size_t)g_vsync_n, sizeof *s, cmp_double);
+    g_vsync_period = s[g_vsync_n / 2];
+    double e = (double)(int64_t)(now - g_pace_t0) / g_pace_freq;       /* emulated seconds */
+    if (e < 0) return 0;
+    interp_set_display((uint64_t)(e * CPU_HZ), (uint64_t)(g_vsync_period * CPU_HZ));
+    return (uint64_t)((e + 1.5 * g_vsync_period) * CPU_HZ);
+}
+
 /* the picture's height on screen, in pixels (letterboxed in the window), for the AUTO resolution;
- * the largest scale: software 2X, GPU 6X if its textures take the widest target (21:9) */
+ * the largest scale: software 2X, GPU 4X if its textures take the widest target (21:9) */
 static void report_display(SDL_Window *win, int gpu, int max_tex, int tw, int th) {
     int dw = 0, dh = 0;
     if (gpu) SDL_GL_GetDrawableSize(win, &dw, &dh);   /* software: AUTO stays 1X (2X doubles the CPU time) */
     long ph = (long)dw * th / tw;
     if (ph > dh) ph = dh;
     int max_scale = 2;
-    if (gpu) for (max_scale = 6; max_scale > 2 && (512 + 2 * 199) * max_scale > max_tex; max_scale--) {}
+    if (gpu) for (max_scale = 4; max_scale > 2 && (512 + 2 * 199) * max_scale > max_tex; max_scale--) {}
     enh_set_display((int)ph, max_scale);
 }
 
@@ -532,8 +587,8 @@ int frontend_run(int scale, int scale_explicit) {
     }
     int tw = 512, th = 384, overlay_drawn = 0;
     int max_tex = gpu ? gpu_gl_max_texture() : 0;
+    report_refresh();
     report_display(win, gpu, max_tex, tw, th);
-    int window_filter_applied = SDL_ScaleModeLinear;   /* the textures are made linear (the hint) */
 
     SDL_AudioSpec want = {0}, have;
     want.freq = 44100;
@@ -579,6 +634,9 @@ int frontend_run(int scale, int scale_explicit) {
                     g_menu_repeat_button = -1;
                     memset(&ctl, 0, sizeof ctl);
                 } else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) g_input_focus = 1;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+                if (ev.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED) { vsync_reset(); report_refresh(); }
+#endif
                 if (ev.window.event == SDL_WINDOWEVENT_MOVED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     window_dirty = 1;
                     window_changed = SDL_GetTicks();
@@ -682,6 +740,14 @@ int frontend_run(int scale, int scale_explicit) {
         last_tick = now;
         if ((double)(now - last_save) / g_pace_freq > 60.0) { nvram_save(); last_save = now; }
         if (enh_quit_requested()) { running = 0; rt_log("frontend: QUIT from the menu\n"); }
+        if (g_enhanced) {
+            const char *url = enh_take_url();
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+            if (url && SDL_OpenURL(url) != 0) rt_log("frontend: cannot open %s: %s\n", url, SDL_GetError());
+#else
+            if (url) rt_log("frontend: cannot open %s (SDL older than 2.0.14)\n", url);
+#endif
+        }
         if (enh_restart_requested()) { running = 0; restart = 1; rt_log("frontend: restart\n"); }
 
         int w, h;
@@ -701,7 +767,6 @@ int frontend_run(int scale, int scale_explicit) {
                 if (!gpu) {
                     SDL_DestroyTexture(tex);
                     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-                    window_filter_applied = SDL_ScaleModeLinear;
                     SDL_RenderSetLogicalSize(ren, w, h);
                 }
                 int new_ratio = (long)w * th != (long)h * tw;
@@ -717,7 +782,8 @@ int frontend_run(int scale, int scale_explicit) {
             int oh = th > 768 ? 768 : th, ow = (int)((long)tw * oh / th);
             if (overlay_drawn) memset(frame, 0, (size_t)ow * oh * 4);
             overlay_drawn = g_enhanced && last_frame && enh_draw_overlay_layer(frame, ow, oh);
-            gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, enh_texture_filter());   /* vsync paces */
+            gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, g_show_at);   /* vsync paces */
+            g_show_at = vsync_tick();
             if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {
                 save_window(win);
                 report_display(win, gpu, max_tex, tw, th);
@@ -734,11 +800,6 @@ int frontend_run(int scale, int scale_explicit) {
         }
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
-        int window_filter = enh_texture_filter() ? SDL_ScaleModeNearest : SDL_ScaleModeLinear;
-        if (window_filter != window_filter_applied) {
-            SDL_SetTextureScaleMode(tex, (SDL_ScaleMode)window_filter);
-            window_filter_applied = window_filter;
-        }
         SDL_RenderCopy(ren, tex, NULL, NULL);
         SDL_RenderPresent(ren);       /* vsync paces this loop */
         if (window_dirty && (Uint32)(SDL_GetTicks() - window_changed) >= 500) {

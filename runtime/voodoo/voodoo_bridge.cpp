@@ -228,6 +228,8 @@ uint8_t *voodoo_vram_for_write(void)
 }
 
 static int s_scale = 1;          /* kept for voodoo_init when set before the device exists */
+static int s_sandbox;            /* frames in between: running a frame's commands again */
+static unsigned s_sandbox_irqs;
 static int s_wide = 0;
 void voodoo_init(void)
 {
@@ -248,7 +250,11 @@ void voodoo_init(void)
 			rt_pace_vblank();          // real-time pacing (no-op when headless)
 		}
 	});
-	s_dev->pciint_callback().set([](int state) { if (state) epic_raise(4); });
+	s_dev->pciint_callback().set([](int state) {
+		if (!state) return;
+		if (s_sandbox) { s_sandbox_irqs++; return; }   // frames in between: the guest never sees it
+		epic_raise(4);
+	});
 	s_dev->start();
 	s_dev->reset();
 	if (voodoo_1_device::gpu_wanted())
@@ -272,6 +278,40 @@ void voodoo_reg_write(uint32_t off, uint32_t v, uint32_t mask)
 void voodoo_set_scale(int n) { s_scale = n; if (s_dev) s_dev->set_render_scale(n); }
 /* recomp: widescreen margin, native pixels on each side of the displayed buffers (0 = 4:3) */
 void voodoo_set_wide(int m) { s_wide = m; if (s_dev) s_dev->set_wide_margin(m); }
+/* recomp: frames in between (GPU renderer only): on/off around the commands of a frame run again */
+void voodoo_sandbox(int on)
+{
+	if (!s_dev || !s_dev->gpu_active())
+		return;
+	if (on)
+		s_sandbox = 1;
+	s_dev->gpu_sandbox(on != 0);   // off: runs what is left first, still sandboxed
+	if (!on)
+	{
+		s_sandbox = 0;
+		if (s_sandbox_irqs)
+		{
+			static unsigned logged;
+			if (logged++ < 3)
+				rt_log("voodoo: %u PCI interrupts kept from the guest (frame in between)\n", s_sandbox_irqs);
+			s_sandbox_irqs = 0;
+		}
+	}
+}
+/* keep the device's state in a slot (at a flush); in the sandbox, go back to it with the command
+ * FIFO empty at fifo (VRAM offset), where the guest writes next */
+void voodoo_keep_state(int slot) { if (s_dev && s_dev->gpu_active()) s_dev->gpu_keep(slot); }
+void voodoo_load_state(int state, int slot, uint32_t fifo)
+{
+	if (!s_dev || !s_dev->gpu_active())
+		return;
+	s_dev->gpu_sandbox_load(state, slot);
+	s_dev->cmdfifo_restart(fifo);
+}
+/* the frame in between just drawn is shown from emulated time `when` */
+void voodoo_show_between(uint64_t when) { if (s_dev && s_dev->gpu_active()) s_dev->gpu_sandbox_show(when); }
+/* the list so far to the frontend now (frames in between) */
+void voodoo_handover(void) { if (s_dev && s_dev->gpu_active()) s_dev->gpu_handover(); }
 
 uint32_t voodoo_lfb_read(uint32_t off) { s_lfb_reads++; g_fbstats.lfb_read_mb[(off >> 20) & 15]++; return s_dev->read_lfb(off >> 2); }
 void voodoo_lfb_write(uint32_t off, uint32_t v, uint32_t mask) { s_lfb_writes++; g_fbstats.lfb_write_mb[(off >> 20) & 15]++; s_dev->write_lfb(off >> 2, v, mask); }

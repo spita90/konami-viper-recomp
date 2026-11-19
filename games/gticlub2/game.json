@@ -131,6 +131,12 @@
     "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The JAB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {
+    "volume": {
+      "music": "0x90",
+      "effects": "0x91",
+      "factory": [1, 2],
+      "note": "MUSIC VOLUME 0x90 bits 4-0, EFFECTS VOLUME 0x91 bits 7-3 (0-30). Dumps: JAB 1/2, EAA 6/8; set to 18 at boot while still the dump's, as in Thrill Drive 2 (peaks 57% at 18)"
+    },
     "start": "0x84",
     "checksum": "0x120",
     "note": "TEST MODE option block: big-endian 16-bit words from start to the checksum word (included) sum to 0xffff"
@@ -187,8 +193,14 @@
         "0x2178c": "projection",
         "0x28c1c": "projection",
         "0x212e4": "viewport",
-        "0x28e60": "viewport"
+        "0x28e60": "viewport",
+        "0x206e0": "interp_flush",
+        "0x28890": "interp_swap"
       }
+    },
+    "draw_distance": {
+      "note": "the course's scenery: *table = a header (size, block count, block pointers); a block = centre x, z, radius, the distance it is drawn to (0: another kind of block, left alone), a 16-bit group count and the groups' offsets (halfwords from block + 16); a group = the distance it is drawn to (the count of its levels in the low bits: the distances are round numbers, the low 16 bits are counts), centre x, z, radius, per level the distance up to which it is used (its object count in the low bits), then the objects (7 words: position, angles, model). the enhanced mode multiplies those distances by 2 (DRAW_DISTANCE in runtime/enhanced.c).",
+      "table": "0x8c7718"
     },
     "widescreen": {
       "note": "gl state at fixed addresses: projection slots (0x3452 = current) of 6 matrix terms at 0x26dc + 24*slot (row 0 first) and 6 frustum values (left, right, bottom, top, near, far) at 0x270c + 24*slot; viewport x scale 0x2940, x centre 0x2944, y scale 0x2948, y centre 0x294c. The hooks sit right after each write.",

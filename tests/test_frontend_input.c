@@ -160,14 +160,19 @@ double enh_wheel_select_pos(void) { return 0; }
 int enh_code_entry_active(void) { return 0; }
 int enh_text_input_active(void) { return 0; }
 void enh_code_key(int ch) { (void)ch; }
+const char *enh_take_url(void) { return NULL; }
 void enh_code_paste(const char *text) { (void)text; }
 int enh_draw_overlay_layer(uint32_t *fb, int w, int h) { (void)fb; (void)w; (void)h; return 0; }
 const uint8_t *voodoo_vram(uint32_t *size) { (void)size; return NULL; }
 void voodoo_set_gpu(int on) { (void)on; }
 int voodoo_gpu_active(void) { return 0; }
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size) { (void)win; (void)vram_size; return 0; }
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest) {
-    (void)win; (void)overlay; (void)ow; (void)oh; (void)nearest;
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at) {
+    (void)win; (void)overlay; (void)ow; (void)oh; (void)show_at;
 }
 void gpu_gl_shutdown(void) {}
+int gpu_gl_max_texture(void) { return 0; }
+void enh_set_display(int picture_h, int max_scale) { (void)picture_h; (void)max_scale; }
+void enh_set_refresh(int hz) { (void)hz; }
+void interp_set_display(uint64_t vsync, uint64_t period) { (void)vsync; (void)period; }
 const char *gpu_gl_name(void) { return ""; }

@@ -30,6 +30,20 @@ extern "C" void gpu_gl_debug_load(const uint32_t *vram, const uint32_t *luts, in
 extern "C" void gpu_gl_debug_execute(void *list);
 extern "C" double gpu_gl_debug_execute_timed(void *list);
 extern "C" int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h);
+extern "C" int gpu_gl_debug_read_target(uint32_t key, uint32_t *out, int max_pixels, int *w, int *h);
+extern "C" int gpu_gl_debug_take_shows(uint32_t *keys, uint64_t *whens, int max);
+
+static void write_ppm(const char *path, const std::vector<uint32_t> &pix, int w, int h)
+{
+	FILE *o = fopen(path, "wb");
+	fprintf(o, "P6\n%d %d\n255\n", w, h);
+	for (int i = 0; i < w * h; i++)
+	{
+		unsigned char px[3] = { (unsigned char)(pix[i] >> 16), (unsigned char)(pix[i] >> 8), (unsigned char)pix[i] };
+		fwrite(px, 1, 3, o);
+	}
+	fclose(o);
+}
 
 template<typename T> static bool read_vec(FILE *f, std::vector<T> &v, uint32_t words)
 {
@@ -97,6 +111,17 @@ int main(int argc, char **argv)
 		total_ms += ms;
 		lists++;
 		int w, h;
+		// frames in between: each shown target, named by its emulated time (microseconds)
+		uint32_t keys[64];
+		uint64_t whens[64];
+		for (int k = 0, n = gpu_gl_debug_take_shows(keys, whens, 64); k < n; k++)
+			if (gpu_gl_debug_read_target(keys[k], pix.data(), int(pix.size()), &w, &h))
+			{
+				char path[1024];
+				snprintf(path, sizeof path, "%s/show_%012llu.ppm", argv[3], (unsigned long long)(whens[k] / 203.2128));
+				write_ppm(path, pix, w, h);
+				printf("frame %d: show %08x at %.3f ms\n", frame, keys[k], whens[k] / 203212.8);
+			}
 		if (!gpu_gl_debug_read(pix.data(), int(pix.size()), &w, &h))
 			continue;
 		char path[1024];

@@ -518,6 +518,15 @@ public:
 	void gpu_mark(u32 addr, u32 bytes) { if (m_gpu != nullptr) gpu_mark_pages(addr, bytes); }   // the CPU wrote VRAM
 	void gpu_mark_all();
 	void gpu_frame(rectangle const &vis, u32 const *clut);      // at every vblank, recording
+	// frames in between (enhanced mode, GPU renderer): on, the device's state is kept and what
+	// it draws goes to shadow render targets; off, the state is put back
+	void gpu_sandbox(bool on);
+	void gpu_keep(int slot);                                    // keep the state as it is now
+	void gpu_sandbox_load(int state, int slot);                 // in the sandbox: from a kept state, into a slot
+	void gpu_sandbox_show(u64 when);                            // in the sandbox: show that from `when` (emulated)
+	void gpu_sandbox_drain();                                   // in the sandbox: run what the FIFOs hold
+	void gpu_forget();
+	void gpu_handover();                                        // the list so far to the frontend
 	// a 16-bit screen-to-screen blit whose source the GPU drew: recorded (true), else false
 	bool gpu_blit(u32 srcbase, u32 srcstride, s32 sx, s32 sy, u32 dstbase, u32 dststride, s32 x0, s32 y0, s32 w, s32 h);
 	// nominal clock values
@@ -651,7 +660,9 @@ protected:
 	void reset_counters();
 
 	// stall management
-	bool operation_pending() const { return !m_operation_end.is_zero(); }
+	// recomp: in the sandbox (frames in between) the time stands still: never busy, every packet
+	// runs as it arrives
+	bool operation_pending() const { return !m_operation_end.is_zero() && !m_sandbox_eager; }
 	void clear_pending_operation() { m_operation_end = attotime::zero; }
 	void check_stalled_cpu(attotime current_time);
 	void stall_cpu(stall_state state);
@@ -700,6 +711,9 @@ protected:
 	bool blur_quad(voodoo::poly_data const &poly, voodoo::voodoo_renderer::vertex_t const *vert, u16 *target);
 	// recomp: GPU renderer
 	gpu_state *m_gpu = nullptr;
+	std::vector<u8> m_sandbox_state;
+	bool m_sandbox_eager = false;
+	std::vector<std::vector<u8>> m_kept;
 	s32 gpu_triangle(voodoo::poly_data &poly, voodoo::voodoo_renderer::vertex_t const *vert);
 	u32 gpu_fastfill(voodoo::poly_data &poly);
 	void gpu_mark_pages(u32 addr, u32 bytes);

@@ -416,8 +416,47 @@ public:
 	{
 		if (emu_shim::g_log_enabled) rt_log(fmt, emu_shim::fmt_arg(a)...);
 	}
-	template <typename... A> void save_item(A &&...) {}
+	// recomp: the items MAME saves in a save state, kept as memory ranges (save_pointer, the VRAM,
+	// is left out): the device's state without its memory, for snapshot() / restore() (the frames
+	// in between: the device runs a frame's commands again and is put back as it was)
+	template <typename T> void save_item(T &item, const char *)
+	{
+		if constexpr (is_vector<std::remove_cv_t<T>>::value)
+			m_saved.push_back({ item.data(), item.size() * sizeof(item[0]) });
+		else
+		{
+			static_assert(std::is_trivially_copyable_v<T>, "save_item of a non-trivial type");
+			m_saved.push_back({ &item, sizeof(T) });
+		}
+	}
 	template <typename... A> void save_pointer(A &&...) {}
+	size_t snapshot_size() const
+	{
+		size_t n = 0;
+		for (auto const &s : m_saved)
+			n += s.bytes;
+		return n;
+	}
+	void snapshot(std::vector<u8> &out) const
+	{
+		out.resize(snapshot_size());
+		u8 *p = out.data();
+		for (auto const &s : m_saved)
+		{
+			memcpy(p, s.ptr, s.bytes);
+			p += s.bytes;
+		}
+	}
+	void restore(std::vector<u8> const &in)
+	{
+		u8 const *p = in.data();
+		for (auto const &s : m_saved)
+		{
+			memcpy(s.ptr, p, s.bytes);
+			p += s.bytes;
+		}
+		device_post_load();
+	}
 	template <typename C> emu_timer *timer_alloc(void (C::*fn)(s32), const char *, C *obj)
 	{
 		m_timers.push_back(std::make_unique<emu_timer>([obj, fn](s32 p) { (obj->*fn)(p); }));
@@ -432,10 +471,14 @@ protected:
 	virtual void device_reset() {}
 	virtual void device_post_load() {}
 private:
+	template <typename T> struct is_vector : std::false_type {};
+	template <typename T, typename A> struct is_vector<std::vector<T, A>> : std::true_type {};
+	struct saved_range { void *ptr; size_t bytes; };
 	device_type m_type;
 	const char *m_tag;
 	u32 m_clock;
 	std::vector<std::unique_ptr<emu_timer>> m_timers;
+	std::vector<saved_range> m_saved;
 };
 
 struct device_enumerator

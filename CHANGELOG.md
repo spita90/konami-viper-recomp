@@ -7,20 +7,54 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-19
+
 ### Added
 
-- **Enhanced mode, resolution up to 6X** (issues #16 and #22): DISPLAY → RESOLUTION now offers
-  AUTO and 1X to 6X with the HARDWARE renderer (3X fits 1080p, 4X 1440p, 6X 4K); the SOFTWARE
-  renderer stays at 1X–2X. AUTO, the new default, picks the smallest scale that covers the
-  picture's height in the window or on the screen and follows resizes and fullscreen; with the
-  SOFTWARE renderer it is 1X. The settings key is now `resolution` (0 = AUTO); a saved
-  `render_scale = 2` is kept as 2X, the old default 1X becomes AUTO.
+- **Enhanced mode, high frame rates** (issue #20): DISPLAY → FRAME RATE offers ORIGINAL (the
+  games' own 29 fps), 60 or 120 FPS, in Thrill Drive 2 and GTI Club 2, every version, with the
+  HARDWARE renderer. The pictures between two of the game's own are drawn from the same scene
+  with every car, wheel and object moved to where it is at that moment: the game itself, its
+  speed and multiplayer do not change. They come on every vsync, every other one or every third,
+  always evenly spaced: on a 144 Hz screen 120 gives 72 and 60 gives 48, so set the screen to 120
+  or 60 Hz for those rates exactly; 120 is offered when a screen connected is that fast. The
+  picture runs about one game frame (35 ms) behind, and each picture in between costs about
+  1.6 ms of one core on an Apple M4 Pro plus a drawing on the GPU: at 4X, check the fps counter,
+  which counts the pictures shown.
+- **Enhanced mode, resolution up to 4X** (issues #16 and #22): DISPLAY → RESOLUTION offers AUTO
+  and 1X to 4X with the HARDWARE renderer (3X fits 1080p, 4X 1440p); the SOFTWARE renderer stays
+  at 1X–2X. AUTO, the new default, picks the smallest scale that covers the picture's height in
+  the window or on the screen, up to 3X, and follows resizes and fullscreen (with the SOFTWARE
+  renderer it is 1X). A saved 2X is kept; the old default 1X becomes AUTO.
+- **Enhanced mode, GTI Club 2 draws its scenery twice as far:** buildings, trees and roadside
+  objects keep their detailed models twice as far before switching to the simpler ones, and the
+  farthest ones appear twice as far (the distances are in each course's data, scaled once it is
+  loaded). Ver JAB and EAA; the classic mode keeps the original distances, and the cars keep
+  their own detail.
 
 ### Changed
 
+- **The same volumes in every version:** the starting NVRAMs come from cabinets set anywhere
+  from 1 to 20 (Thrill Drive 2 EBB 3, AAA 10, JAA 20; GTI Club 2 JAB 1–2, EAA 6–8), and with the
+  port's ×16 gain AAA, JAA and EAA clipped. Music and effects volume are now 18 (60%) in every
+  version, set at boot while they are still the dump's, and the gain is ×1 (`--volume`): EBB
+  sounds as before, JAB a little louder, the others no longer distort. Volumes changed in
+  OPTIONS → SOUND or in TEST MODE are kept.
+- **GTI Club 2 (ver EAA): sound in the attract mode all the time,** as ver JAB and Thrill Drive
+  2 (its starting NVRAM plays it once every four cycles), after the first-run calibration. An
+  NVRAM saved before this version keeps its setting.
+- **Enhanced mode, SUPPORT in the main menu** (SOSTIENI in Italian), in place of CREDITS: it
+  opens the CREDITS page, which now ends with SUPPORT, opening the project's GitHub Sponsors page
+  in the browser, and BACK.
 - **Enhanced mode, GPU renderer:** the menu and fps-counter layer is drawn at most 768 lines
   high and stretched over the picture, so higher resolutions do not upload a huge layer every
   frame.
+
+### Removed
+
+- **Enhanced mode, DISPLAY → TEXTURE FILTER** (ORIGINAL / NEAREST): textures and the window
+  always take the game's own filtering. A `texture_filter` line left in the port settings is
+  ignored, and the software renderer is about 300 KB smaller.
 
 ## [0.19.0] - 2026-11-18
 
@@ -644,7 +678,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.16.2...v0.17.0

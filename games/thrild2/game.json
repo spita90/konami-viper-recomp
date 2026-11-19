@@ -121,6 +121,12 @@
     "note": "TEST MODE NETWORK OPTIONS, NETWORK ID: bits 6-7, ID - 1, set at every boot to 1 or --net-id. The EBB dump is set to 2 (the race HUD says PLAYER 2). The link: LANC (K056230) at 0xffe98000, runtime/net.c"
   },
   "nvram_options": {
+    "volume": {
+      "music": "0x94",
+      "effects": "0x95",
+      "factory": [3, 3],
+      "note": "MUSIC VOLUME 0x94 bits 4-0, EFFECTS VOLUME 0x95 bits 7-3 (0-30, about 1.6 dB a step). The dumps come from cabinets with their own settings (EBB 3/3, AAA 10/10, JAA 20/20): while both are still the dump's (factory), every boot sets them to 18 (60%), so all versions sound alike and the game's mixer does not clip (peaks 81% at 18, full scale at 20)"
+    },
     "start": "0x88",
     "checksum": "0x124",
     "note": "TEST MODE option block: big-endian 16-bit words from start to the checksum word (included) sum to 0xffff"
@@ -129,9 +135,9 @@
     "script": "12:3=fd,12.5:3=ff,20.00:4=fe,20.30:4=ff,20.80:4=fe,21.10:4=ff,21.60:4=fe,21.90:4=ff,22.40:4=fe,22.70:4=ff,23.20:4=fe,23.50:4=ff,24.00:4=fe,24.30:4=ff,24.80:4=fe,25.10:4=ff,25.60:4=fe,25.90:4=ff,26.40:4=fe,26.70:4=ff,27.70:3=ef,28.00:3=ff,32:3=ef,32.3:3=ff,35:3=ef,35.3:3=ff,36:10=ff38,38:3=ef,38.3:3=ff,39:10=00c8,41:3=ef,41.3:3=ff,42:10=0,45:3=ef,45.3:3=ff,47:4=fe,47.3:4=ff,48.5:3=ef,48.8:3=ff,52:11=00c8,54:3=ef,54.3:3=ff,55:11=ff38,59:3=ef,59.3:3=ff,61:4=fe,61.3:4=ff,62.5:3=ef,62.8:3=ff,66:12=00c8,68:3=ef,68.3:3=ff,69:12=ff38,73:3=ef,73.3:3=ff,75:4=fe,75.3:4=ff,76.5:4=fe,76.8:4=ff,78:3=ef,78.3:3=ff",
     "seconds": 82,
     "nvram_set": {
-      "0x94": "0x83"
+      "0x94": "0x92"
     },
-    "nvram_note": "written after the calibration: SOUND IN ATTRACT MODE = ALL THE TIME (0x94 bits 6-5: 0 all the time, 1 once every 4 cycles, 2 complete off; the starting NVRAM has 0xC3, complete off). The rest of the byte is kept: bit 7 set, music volume 3 in bits 4-0"
+    "nvram_note": "written after the calibration: SOUND IN ATTRACT MODE = ALL THE TIME (0x94 bits 6-5: 0 all the time, 1 once every 4 cycles, 2 complete off; the starting NVRAM has 0xC3, complete off). Bit 7 kept set; music volume 18 in bits 4-0, as nvram_options.volume sets it at boot (written after it, the byte must hold it too)"
   },
   "enhanced": {
     "cabinet": {
@@ -170,8 +176,14 @@
         "0x21b54": "projection",
         "0x2a888": "projection",
         "0x215f4": "viewport",
-        "0x2aac8": "viewport"
+        "0x2aac8": "viewport",
+        "0x20714": "interp_flush",
+        "0x2a34c": "interp_swap"
       }
+    },
+    "interp": {
+      "note": "frames in between (runtime/interp.c): the gl hooks interp_flush and interp_swap above. After a 05 matrix the list sets the material (1d, 1e, 32, 30, 47, 2e, 46) and then calls the model with call_op (3b + list number): an object is named by that call, not by the word after the matrix (always 1d000008)",
+      "call_op": "0x3b"
     },
     "widescreen": {
       "note": "same gl state as GTI Club 2 (see there), with the current slot at 0x3460 and the viewport at 0x2944",

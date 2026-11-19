@@ -28,7 +28,7 @@ int main(int argc,char **argv) {
  remove(g_settings_path);puts("rumble menu navigation, range and saved multiplier: passed");
 }
 
-void voodoo_set_texture_filter(int n) { (void)n; }
+int interp_supported(void) { return 0; }   /* interp.c, not linked here */
 int modes_list(const int **ids) { *ids = NULL; return 0; }
 void modes_select(int mode) { (void)mode; }
 int net_active(void) { return 0; }

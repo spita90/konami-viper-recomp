@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -795,7 +796,13 @@ struct executor
 	bool have_display = false;
 	uint32_t disp_color = 0, disp_clut = 0;
 	int disp_x0 = 0, disp_y0 = 0, disp_w = 0, disp_h = 0;
+	// frames in between, each shown from its emulated time; the one on screen
+	struct show { uint64_t when; uint32_t key; };
+	std::deque<show> shows;
+	uint32_t show_key = ~0u;
+	uint64_t show_when = 0;
 	std::vector<vgpu::frame_list> lists;
+	std::deque<vgpu::frame_list> backlog;   // taken, not run yet (frames in between, ahead of their time)
 	char name[256] = "";            // the GPU chip and the OpenGL version, for the startup line
 } X;
 
@@ -1045,6 +1052,9 @@ void execute(vgpu::frame_list &l)
 		case vgpu::CMD_SNAPSHOT:
 			snapshot(c.a);
 			break;
+		case vgpu::CMD_SHOW:
+			X.shows.push_back({ uint64_t(c.b) | uint64_t(c.c) << 32, c.a });
+			break;
 		case vgpu::CMD_DISPLAY:
 			X.have_display = true;
 			X.disp_color = c.a;
@@ -1163,14 +1173,70 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 
 // run what the device recorded, then show the picture (letterboxed in the window, the overlay
 // over it) and swap; vsync paces the caller
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int nearest)
+// show_at: the emulated time up to which a frame in between goes on screen at the next vsync
+// (halfway to the one after: each shows at the vsync nearest its time)
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at)
 {
+	// the lists, in order. The frames in between of a game frame come all at once: they run
+	// until one is ready for a later vsync, so a vsync runs about one of them, not five (at 4X
+	// five pictures in one vsync miss the next vsyncs)
 	if (voodoo_gpu_take(X.lists))
 	{
 		for (auto &l : X.lists)
-			execute(l);
-		voodoo_gpu_recycle(X.lists);
+			X.backlog.push_back(std::move(l));
+		X.lists.clear();
 	}
+	while (!X.backlog.empty() && (X.shows.empty() || X.shows.back().when <= show_at || X.backlog.size() >= 64))
+	{
+		execute(X.backlog.front());
+		X.lists.push_back(std::move(X.backlog.front()));
+		X.backlog.pop_front();
+	}
+	if (!X.lists.empty())
+		voodoo_gpu_recycle(X.lists);
+	// frames in between: the latest one due by then; none for a tenth of a second (switched
+	// off, paused, a game without them): the displayed buffer again
+	while (!X.shows.empty() && (X.shows.front().when <= show_at || X.shows.size() > 64))
+	{
+		X.show_key = X.shows.front().key;
+		X.show_when = X.shows.front().when;
+		X.shows.pop_front();
+	}
+	if (X.show_key != ~0u && X.shows.empty() && show_at > X.show_when + uint64_t(0.1 * 203212800.0))
+		X.show_key = ~0u;
+	// RT_FPS_STATS=1: each second, the vsyncs, the frames in between shown and how many vsyncs
+	// apart (an even cadence is all in one column)
+	static int stats = -1;
+	if (stats < 0)
+		stats = getenv("RT_FPS_STATS") != nullptr;
+	if (stats)
+	{
+		static uint64_t sec_start, last_when;
+		static unsigned vsyncs, shown, since, gap[5], late;
+		uint64_t const t = SDL_GetPerformanceCounter(), f = SDL_GetPerformanceFrequency();
+		vsyncs++;
+		since++;
+		if (X.show_key != ~0u && X.show_when != last_when)
+		{
+			shown++;
+			gap[since < 5 ? since : 4]++;
+			since = 0;
+			last_when = X.show_when;
+		}
+		late += X.backlog.size() >= 64;
+		if (!sec_start)
+			sec_start = t;
+		else if (t - sec_start >= f)
+		{
+			rt_log("gpu: %u vsyncs, %u frames in between shown, apart 1:%u 2:%u 3:%u 4+:%u vsyncs, backlog full %u\n",
+			       vsyncs, shown, gap[1], gap[2], gap[3], gap[4], late);
+			sec_start = t;
+			vsyncs = shown = late = 0;
+			for (unsigned &g : gap)
+				g = 0;
+		}
+	}
+	uint32_t const disp = X.show_key != ~0u ? X.show_key : X.disp_color;
 
 	G.BindFramebuffer(GL_FRAMEBUFFER, 0);
 	X.cur = nullptr;
@@ -1187,7 +1253,7 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int 
 
 	// the picture keeps its aspect ratio, centred (as SDL_RenderSetLogicalSize)
 	int const pw = (X.disp_w + 2 * X.margin) * X.scale, ph = X.disp_h * X.scale;
-	auto it = X.have_display ? X.targets.find(X.disp_color) : X.targets.end();
+	auto it = X.have_display ? X.targets.find(disp) : X.targets.end();
 	if (pw > 0 && ph > 0)
 	{
 		float const k = std::min(float(dw) / float(pw), float(dh) / float(ph));
@@ -1202,9 +1268,6 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, int 
 			G.Uniform2f(X.d_size, float(t.w), float(t.h));
 			G.ActiveTexture(GL_TEXTURE4);
 			G.BindTexture(GL_TEXTURE_2D, t.color);
-			GLint const filter = nearest ? GL_NEAREST : GL_LINEAR;
-			G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-			G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 			G.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		}
 		if (overlay != nullptr)
@@ -1310,11 +1373,25 @@ double gpu_gl_debug_execute_timed(void *list)
 	return double(ns) / 1e6;
 }
 
-// the displayed picture at the render size, through the CLUT, top row first (0xAARRGGBB)
-int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h)
+// frames in between queued by the lists executed (tools/gpu_replay.cpp), taken off the queue
+int gpu_gl_debug_take_shows(uint32_t *keys, uint64_t *whens, int max)
+{
+	int n = 0;
+	while (!X.shows.empty() && n < max)
+	{
+		keys[n] = X.shows.front().key;
+		whens[n++] = X.shows.front().when;
+		X.shows.pop_front();
+	}
+	return n;
+}
+
+// the displayed picture (key ~0: the displayed buffer, else that render target) at the render
+// size, through the CLUT, top row first (0xAARRGGBB)
+int gpu_gl_debug_read_target(uint32_t key, uint32_t *out, int max_pixels, int *w, int *h)
 {
 	int const pw = (X.disp_w + 2 * X.margin) * X.scale, ph = X.disp_h * X.scale;
-	auto it = X.have_display ? X.targets.find(X.disp_color) : X.targets.end();
+	auto it = X.have_display ? X.targets.find(key != ~0u ? key : X.disp_color) : X.targets.end();
 	if (pw <= 0 || ph <= 0 || pw * ph > max_pixels || it == X.targets.end())
 		return 0;
 	G.ActiveTexture(GL_TEXTURE5);
@@ -1335,6 +1412,8 @@ int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h)
 	G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	G.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);   // as the display reads it
+	G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	std::vector<uint32_t> rgba(size_t(pw) * ph);
 	G.ReadPixels(0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 	for (int y = 0; y < ph; y++)
@@ -1350,6 +1429,11 @@ int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h)
 	*w = pw;
 	*h = ph;
 	return 1;
+}
+
+int gpu_gl_debug_read(uint32_t *out, int max_pixels, int *w, int *h)
+{
+	return gpu_gl_debug_read_target(~0u, out, max_pixels, w, h);
 }
 
 // the GPU chip the context runs on, and the OpenGL version

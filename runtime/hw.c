@@ -729,7 +729,9 @@ static int nvram_boot_cabinet(void) {
  *   cabinet 2 of a linked set, and the race HUD then says PLAYER 2.
  * - FREE PLAY (COIN OPTIONS), in the enhanced mode: it has no coins, and its menu needs the
  *   attract hook, which is on the free-play branch of the credit display.
- * - The deluxe cabinet, in the enhanced mode (nvram_boot_cabinet). */
+ * - The deluxe cabinet, in the enhanced mode (nvram_boot_cabinet).
+ * - MUSIC and EFFECTS VOLUME, in both modes: 18 (60%) while both are still the dump's values (the
+ *   dumps come from cabinets set from 1 to 20; the frontend's gain is x1 for 18). */
 static void nvram_boot_options(void) {
     extern int g_net_id;
     if (!GAME_NVRAM_OPT_CSUM || getenv("RT_NVRAM_NOFORCE")) return;
@@ -752,6 +754,15 @@ static void nvram_boot_options(void) {
         rt_log("NVRAM: FREE PLAY on\n");
     }
     if (nvram_boot_cabinet()) changed = 1;
+#if GAME_NVRAM_VOL_MUSIC
+    static const int factory[2] = GAME_NVRAM_VOL_FACTORY;
+    if ((g_nvram[GAME_NVRAM_VOL_MUSIC] & 0x1f) == factory[0] && g_nvram[GAME_NVRAM_VOL_EFFECTS] >> 3 == factory[1]) {
+        g_nvram[GAME_NVRAM_VOL_MUSIC] = (uint8_t)((g_nvram[GAME_NVRAM_VOL_MUSIC] & 0xe0) | 18);
+        g_nvram[GAME_NVRAM_VOL_EFFECTS] = (uint8_t)((g_nvram[GAME_NVRAM_VOL_EFFECTS] & 0x07) | 18 << 3);
+        changed = 1;
+        rt_log("NVRAM: music and effects volume set to 18 (they were the dump's %d/%d)\n", factory[0], factory[1]);
+    }
+#endif
     if (changed) hw_nvram_options_fix(g_nvram);
 }
 

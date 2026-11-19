@@ -328,10 +328,6 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
     U.S.A.; GTI Club 2 Town, Coast, Mountain). The attract mode alone was not enough: its
     combinations covered only 38% of the pixels of a race in Europe. Each session stays
     covered at 98.5% or more.
-  - TEXTURE FILTER NEAREST (enhanced mode) clears bit 2 of the texture modes in use, which
-    makes different combinations. `RASTERIZER_AND_NEAREST` lists each entry that has the bit
-    set together with its variant without it (136 more instances, about 320 KB of code), so
-    NEAREST keeps the specialised rasterizers.
   - Same arithmetic, so the frames are bit-identical (checked on both games, normal and
     enhanced mode, 1X and 2X). One thread, 90 s of attract on an M4 Pro: TD2 25.1 → 16.9 s,
     GTI Club 2 21.3 → 14.3 s (1.49×). With 4 workers the M4 Pro is bound elsewhere
@@ -380,8 +376,12 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
   - Audio:
     - At every IRQ3, a 0x800-byte block in RAM holds 256 stereo frames of
       `[L int32 BE][R int32 BE]` at 44.1 kHz, as in MAME's `dmadac`.
-    - Levels are low (peaks around 1.5 % of full scale), because the cabinet has an LA4705
-      amplifier. The default gain is therefore ×16 (`--volume`).
+    - The level depends on the TEST MODE volumes, about 1.6 dB a step (0–30). The dumps come
+      from cabinets set from 1 to 20 (TD2 EBB 3/3, AAA 10/10, JAA 20/20; GTI Club 2 JAB 1/2,
+      EAA 6/8); while both are still the dump's, every boot sets music and effects to 18, 60%
+      (`nvram_options.volume`, `nvram_boot_options`). At 18 the attract peaks at 81% of full scale
+      in TD2 and 57% in GTI Club 2, so the gain is ×1 (`--volume`; it was ×16, for EBB's 3/3: AAA,
+      JAA and EAA clipped).
   - Persistent NVRAM in `<executable>_nvram.bin` (`td2_nvram.bin` for TD2); the original dump is never modified.
   - Default paths (`work/<id>`, `roms/…`, the saved NVRAM) are resolved against the
     executable's directory (`_NSGetExecutablePath` on macOS, `/proc/self/exe` on Linux), so a
@@ -569,8 +569,11 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   and the game calls it only while no game is in progress. It does not run during the Konami
   logo (about 4 s), so the menu allows a 300-frame gap. A RAM diff between attract and play gave
   no clean mode variable, which is why the hook is used instead.
-- **Attract menu** (Thrill Drive 2, GTI Club 2): START GAME, OPTIONS (GAME, SOUND, DISPLAY),
-  CREDITS, QUIT, in a compact panel at the lower left.
+- **Attract menu** (Thrill Drive 2, GTI Club 2): START GAME, EXTRA, MULTIPLAYER, OPTIONS (GAME,
+  SOUND, DISPLAY, CONTROLS), SUPPORT, QUIT, in a compact panel at the lower left. SUPPORT (it was
+  CREDITS) shows the CREDITS page, ending with SUPPORT and BACK; SUPPORT there: the menu, on the main thread, leaves the
+  URL (`SUPPORT_URL`, the GitHub Sponsors page) for the frontend, which opens it with
+  `SDL_OpenURL` (`enh_take_url`).
   - The frontend draws it over the frame (`enh_draw_overlay`) with the game's own font, and
     sends the actions (`enh_menu_action`). While the menu is on screen the game gets no input.
   - START GAME holds START for 12 frames. This is done on the guest thread (`menu_tick`), so it
@@ -592,9 +595,7 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   to override), with `fullscreen` and `show_fps`, and the window position and size
   (`window_x`, `window_y`, `window_width`, `window_height`). The classic mode has its own
   `<binary>_settings.ini`, with the window only, as each mode has its own NVRAM.
-  `texture_filter = 1` (NEAREST) clears the magnification filter bit (bit 2) of textureMode in
-  `rasterizer_params::compute`, once per primitive, so the per-texel code is MAME's and ORIGINAL
-  is bit-identical. These are options of the port, not of the game; the game's settings stay
+  These are options of the port, not of the game; the game's settings stay
   in its NVRAM. The OPTIONS page edits them (left and right, or OK), and the frontend applies
   the display mode. F11 also updates the setting.
 - **Game settings (NVRAM):** the TEST MODE options are a block of the NVRAM with a checksum.
@@ -754,6 +755,180 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   double speed, unless every per-frame constant of the physics were found and halved. Frame
   interpolation would need a geometry-level (GPU) backend.
 
+**Research: frames in between, by interpolation** (GTI Club 2 JAB, 2026-11-19, 60 race frames).
+- **The gl command list.** The game fills a list in RAM from `*0x2320` to the write pointer
+  `*0x2328` (buffer up to `*0x2324`); `0x206E0` ends it with `0x49000000` and runs the dispatcher
+  `0x210A8` on it (4 flushes a frame, ~25,000 words). A command word is an opcode byte and a
+  24-bit argument; opcode n runs the 32-byte slot at `0x20720 + 32·n`. The dispatcher writes the
+  Voodoo's command FIFO directly through BAR1 (`*0x2358`, an MMIO address).
+- **Objects.** The 3D scene is pairs of `05` (load a 3×4 matrix: translation, then the 3×3
+  rotation, 12 floats, modelview) and `38` (call display list N, the argument; the lists are in
+  RAM at `0x190000`–`0x4C0000`). The player's car is several of them (the wheels have their own
+  matrices). Between two frames every list number of the first reappears, but in another order
+  and with repeats (trees, cars of the same model), so instances must be paired by position, not
+  by order. `05` + `18` is inline geometry (vertices in the list) with a matrix; `0F` (colour)
+  and `13` runs are the 2D layer.
+- **Cost of drawing a frame again.** The dispatcher takes 1.1–1.6 M cycles a frame (~20% of the
+  emulated CPU) and ~2 ms of host time with the GPU renderer recording (M4 Pro): each frame in
+  between, made by running it again on frame N's list with interpolated matrices, costs about
+  that on the guest thread.
+- **What it writes** (RAM compared around the flushes): the gl state at `0x23DC`–`0x3460`, the
+  FIFO pointer, bytes of the list it runs, its stack, `0xFFF000`–`0xFFFFFF`, and scattered bytes
+  that are likely interrupts and other tasks run at the checkpoints inside it.
+
+**Implemented: frames in between** (enhanced mode, GPU renderer, DISPLAY → FRAME RATE:
+ORIGINAL, 60 or 120 FPS, 120 only with a screen that fast; `frame_rate` in the settings file,
+0 / fps; the rates above 120 and MAX (the screen's refresh) were dropped, `RT_INTERP=1` or
+`RT_INTERP=fps` still gives them; GTI Club 2 JAB and EAA, Thrill Drive 2
+EBB, AAA and JAA, `runtime/interp.c`). The game keeps its 29
+fps and its state; the display gets a picture for each vsync (or at most the rate chosen), each
+the game's scene with every object moved to where it is at that moment, between two frames.
+- **Thrill Drive 2** has a later gl library (225 functions against 196; the same in EBB, AAA
+  and JAA, byte for byte). The flush is the same code (`0x20714`; its list ends with `0x50`
+  instead of `0x49`), the swap the same logic over three buffers instead of two (`0x2A34C`),
+  found by matching the instructions with the immediates masked; the state addresses the hooks
+  read (`0x2320`, `0x2328`, `0x2350`–`0x2364`, all below `0x3500`) are the same.
+  - **Names.** After a `05` matrix TD2 sets the material (`1d` vectors, `1e`, `32`, `30`, `47`,
+    `2e`, `46`) and only then calls the model, `3b` + list number, 10 to 38 words on: the word
+    after the matrix is nearly always `1d000008`, so every object had the same name and the
+    pairing mixed road pieces, shadows and wheels (pieces flying, the near road missing, cars
+    spinning). An object is now named by the first `3b` call with a small list number before the
+    next matrix (`enhanced.interp.call_op` in the profile, `GAME_ENH_INTERP_CALL_OP`; GTI Club
+    2 has none: the word after the matrix). 98.8% paired in a race.
+  - **Same name, same place.** Two of a name at one place (both faces of a sign) differ only
+    by how they turn: the pairing cost adds how much the 3×3 turned (after the anchor's motion,
+    over the model's scale, up to 8 for a half turn, weight 1 unit²), which breaks those ties
+    without overriding the distance.
+  - **The picture shown.** In the sandbox every target is a shadow one, and the one shown was
+    the last drawn: TD2 draws into a texture after its picture, so the frames in between were
+    black but for a corner of clouds (Europe). The one shown is now the one drawn over the
+    largest area in that frame in between (`run_targets`, `gpu_sandbox_show`). When the game starts loading (a new thread at 35 s of attract) a
+  list run again called display lists the loader had already replaced: the library met an
+  unknown command and called the kernel to abort, and the kernel switched threads inside the
+  sandbox. Now anything in a sandbox that would leave it (a system call, an exception, a jump to
+  no known code, the budget spent; `sandbox_stop` in `runtime/cpu.c`, budget 2^31 cycles)
+  unwinds the generated code back to `run_frames`, which drops that game frame's frames in
+  between (`stopped` in the `RT_INTERP_LOG` line): 3 in 90 s of TD2 attract, none in GTI Club 2.
+  With `RT_INTERP_CHECK=1` 60 s of TD2 attract (and of GTI Club 2) and a scripted TD2 race
+  (`RT_ENH_MENU`, `RT_INPUT`: START presses, full throttle, swerves) keep the RAM and the VRAM
+  identical before and after; 98% of the race's objects paired.
+- **Kept at each flush** (hook `interp_flush`, `0x206E0`): the list words and the gl state
+  `0x2000`–`0x3500`; at the frame's first flush also the Voodoo's state (`gpu_keep`: the items
+  MAME saves in a save state, kept as memory ranges by `device_t::save_item`, 11,875 bytes).
+- **Pairing** (at the swap, hook `interp_swap`, `0x28890`, before the swap registers are written):
+  each `05` matrix of the frame, named by the command after it (`38` and its display list, `18`
+  and its header), is paired with one of the same name in the previous frame. Positions are in
+  view space, so a turning camera moves everything (the car select's carousel turns 7.5° a game
+  frame: far objects move 10–30 units), and objects of the same name a unit or two apart (the
+  four wheels of a car, a row of posts) swap places with the nearest one; the list's order does
+  not hold either (the game sorts it, the wheels change places in it). So the previous position
+  is carried forward by the motion of a rigid neighbour, an **anchor**: an object whose name
+  occurs once in each frame (its pair is certain, ~40–50% of them) and whose own matrices give
+  its motion, A_now · A_before⁻¹ (the 3×3 is stored by columns): the camera's for the scenery,
+  the camera's and the car's for a car's wheels. Each candidate is scored by its distance after
+  being carried by either of the object's two nearest anchors, or as it is (whichever is
+  closest), within 12 units; the closest pairs of each name go first. Groups of the same name
+  come from sorting both frames by name (`qsort`), so the cost is tens of µs a frame. On the car
+  select's frames the pairs match a rigid fit of the camera's motion exactly; the old nearest
+  pairing left a third of the scene unpaired while the carousel turned and swapped wheels even
+  with the camera still (the "wheels moving strangely"). Between two matrices the 3×3, as the
+  linear map L it is (stored by columns), is split as L = R·S, a rotation after a stretch (polar
+  decomposition: the models carry a scale), the rotation taken along the shorter arc and S
+  linearly, so each model axis keeps a length between its two; mirrored ones (the wheels of one
+  side) have a column negated first. The first version split the transposed matrix: the same for
+  a rotation times a uniform scale (all of GTI Club 2's cars), but a model squashed along one axis
+  (Thrill Drive 2's shadows on the road, `1d000008`, thousands a race) swelled and sheared
+  halfway when its car turned or rolled over: dark spikes around crashed cars. A `05` word is a
+  matrix only if its 12 words are 0 or floats between 1e-19 and 1e12 (`matrix_like`): TD2's 2D
+  pictures in the lists have `05` bytes. With less than half of the objects paired (a cut, a new
+  screen), the frame is shown as it is.
+- **When** (`schedule`): the moment shown runs behind the game by D, the game's frame interval
+  (smoothed) plus 4 ms, so both ends of a stretch are known before it is shown and the pictures
+  are drawn before their time. At swap N the frames of the stretch N−1 → N are drawn, one for
+  each display time in [S(N−1) + D, S(N) + D) (S = the swap's emulated time), at t = (time − D −
+  S(N−1)) / (S(N) − S(N−1)). Display times are the vsyncs the frontend measures (`vsync_tick`: the
+  time each buffer swap returns and the median of the last 31 intervals, converted to emulated
+  time with the pacing's clock, `interp_set_display`), or a grid at the chosen rate if lower.
+  Measured, not taken from the display mode, they follow the screen the system syncs the window
+  to (the one holding most of it); `SDL_WINDOWEVENT_DISPLAY_CHANGED` starts the measure again.
+- **Drawing them** (`run_frames`), outside the emulated time: `rt_sandbox_enter` grows the slice
+  and the budget by the same amount, so `rt_now()` stands still and no checkpoint comes (no
+  interrupt, no device event); the guest runs on a copy of the RAM, one per swap for all the frames
+  (`g_ram` points at it, the accessors read it at every access), so whatever the gl library writes
+  stays there. For each frame the device goes back to the state of the first flush with its
+  command FIFO empty where the library writes next (`command_fifo::restart`), then each flush runs
+  from its own gl state, except the FIFO words `0x2350`–`0x2363`, which carry on. The device is
+  never busy in the sandbox (`m_sandbox_eager`): every packet runs as it arrives (with the time
+  standing still, a busy device let the library go round the FIFO over packets not run yet). The
+  draws go to a shadow render target (the buffer offset with bit 31 and the slot in bits 24–28;
+  twice the frames of a game frame, one depth buffer for all), `CMD_SHOW` names it with its
+  display time, and the list goes to the frontend at once (`gpu_handover`). The device's PCI
+  interrupt is kept from the guest; the device, the FIFO's VRAM, the CPU context and `g_ram` are
+  put back at the end.
+- **Showing them** (`gpu_gl_frame`): at each vsync the latest frame due by then, the line being
+  halfway to the vsync after (`vsync_tick` returns the next vsync plus half a period): the
+  frames' times fall on the measured vsyncs, and with the line on the vsync itself a swap
+  returning a little late or early moved a frame to the next vsync (one shown twice, the next
+  skipped). The lists taken from the device wait in a backlog and run in order until one
+  holds a frame for a later vsync: the frames of a game frame arrive all at once, and run
+  together (five pictures in one vsync at 4X) they missed the next vsyncs (MAX gave ~120 at 4X
+  on a 144 Hz screen, 144 at 2X). With no frame for a tenth of a second
+  (switched off, paused) the displayed buffer again. The real
+  buffers are never shown then: the game draws over them.
+- **Cadence** (`schedule`): a rate below the screen's runs on every k-th vsync, k whole (the
+  smallest with refresh / k at most the rate, 5% of slack): 120 on a 144 Hz screen gives 72, 60
+  gives 48. Each game frame's frames continue the cadence from the last one (its vsync, rounded
+  on the vsyncs measured). Before, the frames were 1/rate apart from the latest vsync: on 144 Hz,
+  120 fell 1 or 2 vsyncs apart and 60 from 1 to 4, in a pattern that drifted with the game's
+  frame against the screen, smooth for a second and uneven the next (a simulation of the
+  scheduling: 504 gaps of 1 and 175 of 2 in 6 s at "120", all 2 after). `RT_FPS_STATS=1` logs
+  each second the vsyncs, the frames shown and how many vsyncs apart.
+- **Checked** (`RT_INTERP_CHECK=1`, 60 s of attract and race at 60, 120 and 240 fps, up to 5,771
+  frames in between): the RAM, the VRAM outside the FIFO and the device's state identical before
+  and after. With the original matrices a frame in between is the real one, pixel for pixel.
+  Captured at 120 fps (`tools/gpu_replay.cpp` writes the shown frames as `show_<µs>.ppm`): one
+  every 8.333 ms, none missing.
+- **Cost** (M4 Pro, `RT_INTERP_LOG=1`): ~1.6 ms of host time on the guest thread per frame in
+  between (the gl library's work and the recording), so 2.5 ms per game frame at 60 fps, 4.5 at
+  120, 5.4 at 144, 8.7 at 240; the GPU draws the scene once per frame in between.
+- **Not yet:** Thrill Drive 2 (its gl module is at other addresses, and its off-screen targets
+  would need shadows too).
+- **Pitfalls met:** reading the FIFO read pointer through MMIO in the hook changed the device's
+  state (the game crashed later); the PCI interrupt raised by a run reached the guest when the
+  flag was cleared before the last packets ran; matrices with a scale interpolated element by
+  element collapse when they turn fast (the wheels lost their white walls); one copy of the
+  displayed buffer per vblank skipped or doubled pictures (57.5 Hz against the screen's 60).
+
+**Draw distance** (GTI Club 2, enhanced mode, fixed at 2X: `DRAW_DISTANCE` in
+`runtime/enhanced.c`; `enhanced.draw_distance.table` in the profile: JAB `0x8C7718`, EAA
+`0x8C7738`). It was a DISPLAY option (ORIGINAL, 1.5X, 2X, 3X); the user fixed it at 2X and
+dropped the option (beyond 2X there is little more to see).
+- **Where the levels of detail are.** A probe on the routine that emits a `38` (call a display
+  list, `0x3FF24`), logging the list, its caller and the view distance of the matrix before it,
+  showed on the course select's approach to the roundabout pairs of lists swapping to the number
+  one lower as the camera came close (`0x773`→`0x772`, `0x7E4`→`0x7E3`...), each at its own
+  distance (81, 91, 101, 140, 166 units). The models are 16-byte records (flags, radius, list
+  number); an object's draw item (`+0x74`) points to the record of its current level.
+- **The course's scenery** (in RAM after loading, `*table`): a header (size, block count, block
+  pointers). A block: centre x, z, radius, the distance it is drawn to, a 16-bit group count and
+  the groups' offsets (halfwords from block + 16). A group: the distance it is drawn to, centre x,
+  z, radius, per level of detail the distance up to which it is used, then its objects (7 words:
+  position, two angles, a pointer to the model record). The distances are round floats whose low
+  16 bits carry counts (levels per group, objects per level). Blocks with distance 0 are another
+  kind (23 in each course; left alone). The course select has 30 blocks, the town race 81, with
+  detail distances 40–350 and drawn distances 110–450.
+- **Scaling them.** The game reads these distances at every frame, so `draw_distance_tick`
+  multiplies them in place once a course's data is valid (the header's block pointers inside its
+  size), keeping the low 16 bits: with only 4 kept, 1.5X and 3X changed the counts and the game
+  walked the data askew (a dispatch miss at the course select; 2X and 4X change only the
+  exponent). A word it scaled marks the data: a new course, or the same loaded again, is scaled
+  again. Nothing is done per frame otherwise.
+- **Checked** headless (attract over three courses, the course select and a race, JAB and EAA):
+  no fault, the same frames per second; with 2X the roundabout keeps its detailed lists for the
+  whole approach. The frames differ only in the distance (a few hundred pixels at 1X), the
+  objects drawn grow by 5% at 2X and 7% at 4X (fog and the other blocks limit the rest). The cars'
+  level of detail is elsewhere (`0x64BE4`): unchanged.
+
 **Rendering resolution** (`RT_VOODOO_FBSTATS=1`, 90 s of attract and race).
 - **No read-back.** Framebuffer reads are only the boot-time VRAM test. The writes through BAR1
   are the command FIFO (VRAM 0x6xxxxx) and texture uploads.
@@ -773,20 +948,22 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   2× real time on Apple Silicon; 3× is borderline.
 
 **Implemented: scaled render targets** (enhanced mode, DISPLAY → RESOLUTION, N × 512×384;
-`resolution` in the settings file: 0 = AUTO, 1–6). The Voodoo core supports N = 1–6; the software
-renderer offers up to 2X (the rasterizer's cost grows as N²), the GPU renderer up to 6X.
+`resolution` in the settings file: 0 = AUTO, 1–4). The Voodoo
+core supports N = 1–6; the software renderer offers up to 2X (the rasterizer's cost grows as
+N²), the GPU renderer up to 4X (5X and 6X were offered before; dropped, too heavy for what they
+add).
 - **AUTO** (the default; `enh_set_display`): the frontend reports the picture's height on screen
   in pixels (the drawable, letterboxed to the frame's aspect ratio) after the window is created,
   0.5 s after it last moved or resized (fullscreen included), and when the aspect ratio changes.
-  N is the smallest scale whose 384·N lines cover that height, 16 lines of slack (1080 → 3X,
-  1440 → 4X, 2160 → 6X), clamped to the renderer's largest. The software renderer reports no
-  height, so AUTO is 1X there. The largest GPU scale is 6, lower if `GL_MAX_TEXTURE_SIZE` cannot
+  N is the smallest scale whose 384·N lines cover that height, 16 lines of slack (1080 → 3X),
+  at most 3X (`MAX_AUTO_SCALE`; 4X only when chosen) and the renderer's largest. The software
+  renderer reports no height, so AUTO is 1X there. The largest GPU scale is 4, lower if `GL_MAX_TEXTURE_SIZE` cannot
   hold a 21:9 target ((512 + 2·199)·N wide).
 - Settings written before AUTO had `render_scale`, always saved, 1 by default: 2 is kept as 2X,
   1 becomes AUTO.
 - **Overlay.** With the GPU renderer the overlay layer is at most 768 lines high (as at 2X) and
-  stretched over the picture: the game's fonts are low-resolution anyway, and a layer at 6X 21:9
-  would be a 50 MB upload each frame while the fps counter is on.
+  stretched over the picture: the game's fonts are low-resolution anyway, and a layer at 4X 21:9
+  would be a 22 MB upload each frame while the fps counter is on.
 - **Which buffers.** A colour buffer that has been displayed (`update_common` records the front
   buffer) gets a render target N× wider and taller in host memory, with its own depth buffer.
   TD2's off-screen targets, which it uses as textures (the rear-view mirror), are never displayed
@@ -1558,7 +1735,7 @@ Open:
   left in play;
 - cabinet settings stored in the starting NVRAM: "SOUND IN ATTRACT MODE: COMPLETE OFF" (TD2
   EBB and AAA: set to ALL THE TIME after the first-run calibration; JAA has it already), and
-  BGM/SE volume at 3 (EBB; AAA 10, JAA 20). This is why the default audio gain is ×16;
+  BGM/SE volume at 3 (EBB; AAA 10, JAA 20): now set to 18 at boot, with the gain at ×1;
 - Windows: the release package builds the games on Windows itself (below).
 
 ### Windows

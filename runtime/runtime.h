@@ -21,6 +21,10 @@ void rt_dump_state(void);
 #define CPU_HZ 203212800.0
 #define US_TO_CYC(us) ((uint64_t)((us) * (CPU_HZ / 1e6)))
 uint64_t rt_now(void);
+typedef struct { PPCContext ctx; int64_t slice; } RtSandbox;
+void rt_sandbox_enter(PPCContext *c, RtSandbox *s);    /* guest code outside the emulated time */
+void rt_sandbox_leave(PPCContext *c, const RtSandbox *s);
+int rt_sandbox_stopped(void);                          /* the sandbox's code was stopped (cpu.c) */
 uint64_t rt_timebase(void);
 void rt_shorten_slice(uint64_t until);
 
@@ -65,12 +69,17 @@ int enh_in_attract(void);
 int enh_lobby_ready(void);                             /* link play: a START from the lobby is taken now */
 enum { ENH_UP, ENH_DOWN, ENH_LEFT, ENH_RIGHT, ENH_OK, ENH_BACK };
 void enh_init(const char *work, const char *settings); /* fonts, port settings */
-int enh_texture_filter(void); /* 0 original, 1 nearest */
 int enh_want_fullscreen(void);
 void enh_set_fullscreen(int on);
 int enh_want_window(int *r);                           /* both modes: x, y, w, h; 0 if none */
 void enh_set_window(const int *r);
 void enh_set_display(int picture_h, int max_scale);     /* AUTO resolution: picture height on screen, px */
+int interp_hook(PPCContext *c, uint32_t pc);           /* frames in between (interp.c): 1 if pc is its hook */
+int interp_supported(void);                            /* the profile has its hooks */
+unsigned long long interp_frames(void);                /* frames in between drawn so far */
+void interp_set_display(uint64_t vsync, uint64_t period); /* frontend: a vsync and the period, emulated cycles */
+void enh_set_refresh(int hz);                          /* frontend: the fastest screen's refresh (FRAME RATE values) */
+int enh_frame_rate(void);                              /* frames a second at most: 0 original, 60, 120 */
 int enh_menu_active(void);                             /* attract menu on screen */
 void enh_menu_action(int action);
 int enh_code_entry_active(void);                       /* MULTIPLAYER: typing a session code */
@@ -79,6 +88,7 @@ void enh_code_key(int ch);                             /* a character, '\b' dele
 void enh_code_paste(const char *text);                 /* Ctrl/Cmd+V: replaces what was typed */
 int enh_start_held(void);                              /* START GAME: hold START for the game */
 int enh_quit_requested(void);
+const char *enh_take_url(void);                        /* SUPPORT: a page to open in the browser, or NULL */
 void enh_draw_overlay(uint32_t *fb, int w, int h);     /* menu over a 0xAARRGGBB frame */
 int enh_draw_overlay_layer(uint32_t *fb, int w, int h); /* alone, premultiplied; 0: nothing drawn */
 int enh_want_gpu(void);                                 /* enhanced mode, RENDERER = HARDWARE */

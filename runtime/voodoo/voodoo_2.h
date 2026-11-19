@@ -61,6 +61,8 @@ public:
 	void set_address_max(u32 addr) { m_address_max = addr; }
 	void set_depth(u32 depth) { m_depth = depth; }
 	void set_holes(u32 holes) { m_holes = holes; }
+	// recomp: empty, the next word expected at addr (frames in between)
+	void restart(u32 addr) { m_read_index = addr / 4; m_depth = 0; m_holes = 0; m_address_min = m_address_max = addr - 4; }
 
 	// operations
 	u32 execute_if_ready();
@@ -170,6 +172,10 @@ DECLARE_DEVICE_TYPE(VOODOO_2, voodoo_2_device)
 class voodoo_2_device : public voodoo_1_device
 {
 	friend class voodoo::command_fifo;
+
+public:
+	// recomp: the command FIFO empty, the next word expected at addr (frames in between)
+	void cmdfifo_restart(u32 addr) { m_cmdfifo.restart(addr); }
 
 protected:
 	// internal construction

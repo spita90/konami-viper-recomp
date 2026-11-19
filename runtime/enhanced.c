@@ -37,7 +37,86 @@ static int g_attract, g_enh_log = -1;
 int enh_in_attract(void) { return g_attract; }
 
 /* port settings (<binary>_enhanced_settings.ini, see below); scale: 0 = AUTO, 1-6 = 1X-6X */
-static struct { int fullscreen, show_fps, scale, aspect, texture_filter, renderer, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, { 0 } };
+static struct { int fullscreen, show_fps, scale, aspect, renderer, frame_rate, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, { 0 } };
+
+/* FRAME RATE: frames a second at most (0 = the game's own); those above the fastest screen
+ * connected are not offered */
+static const int k_frame_rates[] = { 0, 60, 120 };
+#define N_FRAME_RATES (int)(sizeof k_frame_rates / sizeof k_frame_rates[0])
+static int g_refresh;
+void enh_set_refresh(int hz) { g_refresh = hz; }
+static int frame_rate_offered(int v) { return v == 0 || g_refresh <= 0 || v <= g_refresh + 1; }
+static const char *frame_rate_text(char *buf, size_t n) {
+    if (g_set.frame_rate == 0) return "ORIGINAL";
+    snprintf(buf, n, "%d FPS", g_set.frame_rate);
+    return buf;
+}
+
+/* ================================================================== draw distance */
+/* GTI Club 2 keeps a course's scenery as blocks of groups of objects, each group with the distance
+ * it is drawn to and, per level of detail, the distance up to which that level is used (the
+ * format: games/gticlub2/game.json, draw_distance; docs/ARCHITECTURE.md). The game reads them
+ * from the course data in RAM at every frame, so the enhanced mode multiplies them there by
+ * DRAW_DISTANCE once the data is loaded: the detailed models up to farther, and the groups drawn
+ * farther. Blocks of another kind (drawn distance 0) stay as they are. Fixed, no option (user,
+ * 2026-11-19); the classic mode keeps the game's. */
+#define DRAW_DISTANCE 2.0f
+
+static uint32_t g_dd_hdr, g_dd_mark, g_dd_mark_word;   /* the data scaled, and a word of it as left */
+static int g_dd_done;                                   /* that data is scaled */
+
+/* the course data's blocks are where its header says, its groups within them: anything else is
+ * not (yet) a loaded course */
+static int course_valid(uint32_t hdr) {
+    uint32_t size = LD32(hdr), n = LD32(hdr + 4);
+    if (hdr < 0x1000 || hdr >= RAM_SIZE - 16 || size < 16 || size > 0x100000 || hdr + size > RAM_SIZE) return 0;
+    if (n == 0 || n > 1024 || 8 + 4 * n > size) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t b = LD32(hdr + 8 + 4 * i);
+        if (b < hdr || b + 20 > hdr + size) return 0;
+    }
+    return 1;
+}
+
+/* multiplies the course's distances by k; returns a word scaled. The low 16 bits are counts (the
+ * distances are round numbers, their low mantissa bits 0): kept, so the distance keeps 7 bits of
+ * mantissa (1.5X and 3X change those; with them lost, the game walked the data askew) */
+static uint32_t course_scale(uint32_t hdr, float k) {
+    uint32_t size = LD32(hdr), n = LD32(hdr + 4), mark = 0;
+#define DD_SCALE(a) do { uint32_t w_ = LD32(a), v_; float f_; memcpy(&f_, &w_, 4); f_ *= k; memcpy(&v_, &f_, 4); \
+                         ST32(a, (v_ & ~0xffffu) | (w_ & 0xffffu)); } while (0)
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t b = LD32(hdr + 8 + 4 * i), ng = LD16(b + 16);
+        if (LD32(b + 12) == 0 || b + 18 + 2 * ng > hdr + size) continue;
+        DD_SCALE(b + 12);
+        if (!mark) mark = b + 12;
+        for (uint32_t g = 0; g < ng; g++) {
+            uint32_t a = b + 16 + 2 * LD16(b + 18 + 2 * g), nl = LD32(a) & 0xf;
+            if (a + 16 + 4 * nl > hdr + size) continue;
+            DD_SCALE(a);
+            for (uint32_t l = 0; l < nl; l++) DD_SCALE(a + 16 + 4 * l);
+        }
+    }
+#undef DD_SCALE
+    return mark;
+}
+
+/* every frame: new course data comes as the game has it, and is then scaled once */
+static void draw_distance_tick(void) {
+    if (!GAME_ENH_DRAW_TABLE) return;
+    uint32_t hdr = LD32(GAME_ENH_DRAW_TABLE);
+    if (hdr != g_dd_hdr || (g_dd_mark && LD32(g_dd_mark) != g_dd_mark_word)) {
+        g_dd_hdr = hdr;                      /* another course, or the same loaded again */
+        g_dd_mark = 0;
+        g_dd_done = 0;
+    }
+    if (g_dd_done || !course_valid(hdr)) return;
+    uint32_t mark = course_scale(hdr, DRAW_DISTANCE);
+    g_dd_done = 1;
+    g_dd_mark = mark;
+    g_dd_mark_word = mark ? LD32(mark) : 0;
+    if (g_enh_log) rt_log("enhanced: draw distance x%.1f on the course data at %06x\n", (double)DRAW_DISTANCE, hdr);
+}
 
 /* ================================================================== widescreen */
 /* The games draw a 512x384 picture through Konami's gl library, which keeps its state at fixed
@@ -259,7 +338,9 @@ static int hook_kind(uint32_t pc, int *arg) {
     return HOOK_NONE;
 }
 
+
 void rt_hook(PPCContext *c, uint32_t pc) {
+    if (interp_hook(c, pc)) return;          /* frames in between (interp.c) */
     int arg = 0;
     switch (hook_kind(pc, &arg)) {
     case HOOK_NAME_INDEX: if (g_enhanced) name_index_hook(c); break;
@@ -415,6 +496,7 @@ void enh_on_frame(const uint32_t *buf, int w, int h) {
     g_attract = attract;
     modes_tick(attract);
     wide_tick(g_set.aspect);
+    draw_distance_tick();
     menu_tick();
     net_tick();
     scripted_menu();
@@ -448,16 +530,18 @@ static Glyph g_glyph[FONT_NSIZES][128];
  * the window only): options of the port itself (not of the game, which keeps its own in the
  * NVRAM). One "key = value" per line. */
 void voodoo_set_scale(int n);
-void voodoo_set_texture_filter(int mode);
 static char g_settings_path[1024];
 
 /* the render scale: the option, or for AUTO the smallest N whose 384·N lines cover the picture's
- * height on screen (a few lines short still count: a slight enlargement costs less than N + 1).
- * The frontend reports that height and the largest scale its renderer takes (software: 2X). */
-#define MAX_SCALE 6
+ * height on screen (a few lines short still count: a slight enlargement costs less than N + 1),
+ * at most MAX_AUTO_SCALE. The frontend reports that height and the largest scale its renderer
+ * takes (software: 2X). */
+#define MAX_SCALE 4
+#define MAX_AUTO_SCALE 3
 static int g_disp_h, g_max_scale = 2, g_scale_applied;
 static int effective_scale(void) {
     int n = g_set.scale ? g_set.scale : g_disp_h > 0 ? (g_disp_h + 384 - 1 - 16) / 384 : 1;
+    if (!g_set.scale && n > MAX_AUTO_SCALE) n = MAX_AUTO_SCALE;
     return n < 1 ? 1 : n > g_max_scale ? g_max_scale : n;
 }
 static void apply_scale(void) {             /* the only place the render scale is set */
@@ -481,8 +565,9 @@ static void settings_load(void) {
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
             else if (!strcmp(key, "stick_response")) frontend_set_stick_response(v);
-            else if (!strcmp(key, "texture_filter")) g_set.texture_filter = v == 1;
             else if (!strcmp(key, "renderer")) g_set.renderer = v == 1;
+            else if (!strcmp(key, "frame_rate"))
+                for (int i = 0; i < N_FRAME_RATES; i++) { if (v == k_frame_rates[i]) g_set.frame_rate = v; }
             else if (!strcmp(key, "show_fps")) g_set.show_fps = v != 0;
             else if (!strcmp(key, "resolution")) g_set.scale = v < 0 || v > MAX_SCALE ? 0 : v;
             /* before AUTO: 1X was the default, so only a 2X is a choice to keep */
@@ -500,20 +585,22 @@ static void settings_save(void) {
     fprintf(f, "# " GAME_TITLE "%s: port settings\n", g_enhanced ? ", enhanced mode" : "");
     if (g_enhanced) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\n", g_set.fullscreen, g_set.show_fps);
-        fprintf(f, "# 0 = AUTO (from the window's height), 1-6 = 1X-6X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
+        fprintf(f, "# 0 = AUTO (from the window's height, up to 3X), 1-4 = 1X-4X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "stick_response = %d\n", frontend_stick_response());
         fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());
-        fprintf(f, "texture_filter = %d\n", g_set.texture_filter);
         fprintf(f, "# 0 = hardware (GPU, when this computer has OpenGL 3.3), 1 = software\nrenderer = %d\n", g_set.renderer);
+        if (interp_supported())
+            fprintf(f, "# frames in between (hardware renderer): 0 = original, 60 or 120 = at most that many a second\n"
+                       "frame_rate = %d\n", g_set.frame_rate);
     }
     if (g_set.win[2])
         for (int i = 0; i < 4; i++) fprintf(f, "%s = %d\n", k_win_key[i], g_set.win[i]);
     fclose(f);
 }
 
-int enh_texture_filter(void) { return g_enhanced ? g_set.texture_filter : 0; }
 int enh_want_gpu(void) { return g_enhanced && g_set.renderer == 0; }
+int enh_frame_rate(void) { return g_enhanced ? g_set.frame_rate : 0; }
 int enh_want_fullscreen(void) { return g_enhanced && g_set.fullscreen; }
 void enh_set_fullscreen(int on) { if (g_enhanced && g_set.fullscreen != !!on) { g_set.fullscreen = !!on; settings_save(); } }
 
@@ -538,7 +625,6 @@ void enh_init(const char *work, const char *settings) {
     count_game_options();
     apply_scale();
     set_aspect(g_set.aspect);
-    voodoo_set_texture_filter(enh_texture_filter());
     const char *file = GAME_ENH_FONT_FILE;
     if (!file) return;
     char path[1024];
@@ -684,13 +770,14 @@ void enh_hud_dim(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int
 /* ================================================================== fps counter */
 /* frames the game drew (Voodoo buffer swaps) per real second: 30 on these games at full speed,
  * fewer on a host too slow for it (per emulated second it would always read 30). Distinct
- * pictures would undercount static screens and slow fades. */
+ * pictures would undercount static screens and slow fades. With FRAME RATE, the frames in
+ * between (the only ones shown then). */
 static volatile int g_fps;
 unsigned long long voodoo_swap_count(void);
 
 static void fps_tick(const uint32_t *buf, int w, int h) {
     (void)buf; (void)w; (void)h;
-    static unsigned long long last_swaps;
+    static unsigned long long last_swaps, last_between;
     static double t0 = -1, prev;
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -698,10 +785,13 @@ static void fps_tick(const uint32_t *buf, int w, int h) {
     if (t0 < 0 || t - prev > 1.0) {                 /* start, or no frame for a second (pause) */
         t0 = t;
         last_swaps = voodoo_swap_count();
+        last_between = interp_frames();
     } else if (t - t0 >= 1.0) {
-        unsigned long long n = voodoo_swap_count();
-        g_fps = (int)((double)(n - last_swaps) / (t - t0) + 0.5);
+        unsigned long long n = voodoo_swap_count(), b = interp_frames();
+        /* with frames in between, those are the pictures shown */
+        g_fps = (int)((double)(b != last_between ? b - last_between : n - last_swaps) / (t - t0) + 0.5);
         last_swaps = n;
+        last_between = b;
         t0 = t;
     }
     prev = t;
@@ -767,11 +857,11 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PRESS_START_BACK, T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_TEXTURE_FILTER, T_RENDERER,
+       T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_RENDERER,
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
-       T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_RUMBLE, T_COUNT };
+       T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_RUMBLE, T_FRAME_RATE, T_SUPPORT, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -779,10 +869,10 @@ static const char *const k_text[T_COUNT][2] = {
     { "SHOW FPS", "MOSTRA FPS" }, { "OFF", "NO" }, { "ON", "SI" }, { "LOADING", "CARICAMENTO" },
     { "APPLYING SETTINGS", "APPLICAZIONE IMPOSTAZIONI" }, { "ORIGINAL GAME", "GIOCO ORIGINALE" },
     { "STATIC RECOMPILATION", "RICOMPILAZIONE STATICA" }, { "VOODOO GRAPHICS CORE", "GRAFICA VOODOO" },
-    { "PRESS START TO GO BACK", "PREMI START PER TORNARE" }, { "PAUSE", "PAUSA" },
+    { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
-    { "TEXTURE FILTER", "FILTRO TEXTURE" }, { "RENDERER", "RENDERING" },
+    { "RENDERER", "RENDERING" },
     { "MULTIPLAYER", "MULTIGIOCATORE" }, { "HOST A GAME", "OSPITA UNA PARTITA" },
     { "JOIN A GAME", "UNISCITI A UNA PARTITA" }, { "CLOSE THE SESSION", "CHIUDI LA SESSIONE" },
     { "LEAVE THE SESSION", "ESCI DALLA SESSIONE" }, { "SESSION CODE", "CODICE DELLA SESSIONE" },
@@ -803,11 +893,12 @@ static const char *const k_text[T_COUNT][2] = {
     { "EXTRA", "EXTRA" },
     { "THE HOST PLAYS ANOTHER GAME VERSION", "L HOST GIOCA UN ALTRA VERSIONE DEL GIOCO" },
     { "STICK RESPONSE", "RISPOSTA STICK" }, { "CONTROLS", "COMANDI" },
-    { "RUMBLE STRENGTH", "VIBRAZIONE" },
+    { "RUMBLE STRENGTH", "VIBRAZIONE" }, { "FRAME RATE", "FRAME RATE" },
+    { "SUPPORT", "SOSTIENI" },
 };
 static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
-static const char *const k_texture_filter_name[] = { "ORIGINAL", "NEAREST" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
+
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
 
 static int menu_language(void) {
@@ -822,7 +913,7 @@ int enh_lang(void) { return menu_language(); }
 /* Shown over the attract mode. The frontend (host main thread) sends the actions and draws
  * the overlay; the guest thread updates the attract state. Plain ints are enough: each field
  * has a single writer. */
-enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_CREDITS, SCREEN_NET, SCREEN_NET_JOIN, SCREEN_EXTRA };
+enum { SCREEN_MAIN, SCREEN_OPTIONS, SCREEN_PAGE, SCREEN_SUPPORT, SCREEN_NET, SCREEN_NET_JOIN, SCREEN_EXTRA };
 enum { PAGE_GAME, PAGE_SOUND, PAGE_DISPLAY, PAGE_CONTROLS, N_PAGES };
 /* the main menu: EXTRA only where the game has modes (modes.c) */
 #define MAX_MAIN_ITEMS 6
@@ -833,7 +924,7 @@ static int main_items(int *items) {
     if (modes_list(&ids)) items[n++] = T_EXTRA;
     items[n++] = T_MULTIPLAYER;
     items[n++] = T_OPTIONS;
-    items[n++] = T_CREDITS;
+    items[n++] = T_SUPPORT;
     items[n++] = T_QUIT;
     return n;
 }
@@ -842,6 +933,9 @@ static volatile int g_extra_cursor;
 #define START_HOLD_FRAMES 12
 
 static volatile int g_screen, g_cursor, g_quit;
+#define SUPPORT_URL "https://github.com/sponsors/spita90"
+static const char *g_open_url;
+static volatile int g_support_cursor;
 static volatile int g_opt_cursor, g_page, g_page_cursor;
 static volatile int g_start_hold;          /* frames START is still held for the game */
 static volatile int g_starting;            /* START GAME chosen, waiting for the game to begin */
@@ -947,6 +1041,8 @@ int enh_start_held(void) { return g_start_hold > 0; }
  * with the menu's grace over its gaps, not starting, applying or paused) */
 int enh_lobby_ready(void) { return g_booted && enh_menu_active(); }
 int enh_quit_requested(void) { return g_quit; }
+/* SUPPORT: the page the frontend opens in the browser (both set and taken on the main thread) */
+const char *enh_take_url(void) { const char *u = g_open_url; g_open_url = NULL; return u; }
 
 /* the rows of an options page: game options of that page, or the port options (DISPLAY) */
 static int page_rows(int page, int *rows) {
@@ -956,7 +1052,7 @@ static int page_rows(int page, int *rows) {
         rows[n++] = -1;
         rows[n++] = -3;
         if (GAME_ENH_WIDE_VIEWPORT) rows[n++] = -4;
-        rows[n++] = -10;
+        if (interp_supported()) rows[n++] = -12;
         rows[n++] = -11;
         rows[n++] = -2;
         return n;
@@ -969,9 +1065,16 @@ static int page_rows(int page, int *rows) {
 static void page_change(int row, int dir) {
     if (row == -9) { change_stick_response(dir); return; }
     if (row == -5) { change_rumble(dir); return; }
-    if (row == -10) { g_set.texture_filter = !g_set.texture_filter; voodoo_set_texture_filter(g_set.texture_filter); settings_save(); return; }
     /* the renderer changes with the window's kind: applied by the restart on leaving OPTIONS */
     if (row == -11) { g_set.renderer = !g_set.renderer; settings_save(); g_opt_dirty = 1; return; }
+    if (row == -12) {                        /* the next rate offered */
+        int i = 0;
+        while (i < N_FRAME_RATES - 1 && k_frame_rates[i] != g_set.frame_rate) i++;
+        do i = (i + dir + N_FRAME_RATES) % N_FRAME_RATES; while (!frame_rate_offered(k_frame_rates[i]));
+        g_set.frame_rate = k_frame_rates[i];
+        settings_save();
+        return;
+    }
     if (row == -1) { g_set.fullscreen = !g_set.fullscreen; settings_save(); return; }
     if (row == -2) { g_set.show_fps = !g_set.show_fps; settings_save(); return; }
     if (row == -3) {                         /* AUTO, 1X ... the renderer's largest */
@@ -1108,8 +1211,10 @@ void enh_menu_action(int action) {
         }
         return;
     }
-    if (g_screen == SCREEN_CREDITS) {
-        if (action == ENH_OK || action == ENH_BACK) g_screen = SCREEN_MAIN;
+    if (g_screen == SCREEN_SUPPORT) {        /* CREDITS, then SUPPORT (the browser) and BACK */
+        if (action == ENH_UP || action == ENH_DOWN) g_support_cursor ^= 1;
+        else if (action == ENH_OK && g_support_cursor == 0) g_open_url = SUPPORT_URL;
+        else if (action == ENH_OK || action == ENH_BACK) g_screen = SCREEN_MAIN;
         return;
     }
     if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { net_menu_action(action); return; }
@@ -1140,7 +1245,7 @@ void enh_menu_action(int action) {
         case T_EXTRA: g_screen = SCREEN_EXTRA; g_extra_cursor = 0; break;
         case T_MULTIPLAYER: g_screen = SCREEN_NET; g_net_cursor = 0; break;
         case T_OPTIONS: g_screen = SCREEN_OPTIONS; g_opt_cursor = 0; options_read(); break;
-        case T_CREDITS: g_screen = SCREEN_CREDITS; break;
+        case T_SUPPORT: g_screen = SCREEN_SUPPORT; g_support_cursor = 0; break;
         default: g_quit = 1; break;
         }
         break;
@@ -1460,8 +1565,8 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             }
             else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
             else if (rows[i] == -5) { label = T(T_RUMBLE); value = rumble_text(buf, sizeof buf); }
-            else if (rows[i] == -10) { label = T(T_TEXTURE_FILTER); value = k_texture_filter_name[g_set.texture_filter]; }
             else if (rows[i] == -11) { label = T(T_RENDERER); value = k_renderer_name[g_set.renderer]; }
+            else if (rows[i] == -12) { label = T(T_FRAME_RATE); value = frame_rate_text(buf, sizeof buf); }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }
             else {
                 const GameOption *o = &k_game_options[rows[i]];
@@ -1479,11 +1584,13 @@ static void draw_menu(uint32_t *fb, int w, int h) {
         static const char *const names[] = { "KONAMI", "SPITA90", "MAME" };
         dim_rect(fb, w, h, 0, 0, w, h, 190);
         draw_centered(fb, w, h, FONT_LARGE, 24, T(T_CREDITS), yellow);
-        for (int i = 0, y = 90; i < 3; i++, y += 78) {
+        for (int i = 0, y = 80; i < 3; i++, y += 66) {
             draw_centered(fb, w, h, FONT_SMALL, y, T(heads[i]), grey);
-            draw_centered(fb, w, h, FONT_MEDIUM, y + 26, names[i], white);
+            draw_centered(fb, w, h, FONT_MEDIUM, y + 24, names[i], white);
         }
-        draw_centered(fb, w, h, FONT_SMALL, 340, T(T_PRESS_START_BACK), grey);
+        const int step = font_height(FONT_MEDIUM) + 6, y = h - 24 - 2 * step;
+        draw_centered(fb, w, h, FONT_MEDIUM, y, T(T_SUPPORT), g_support_cursor == 0 ? yellow : white);
+        draw_centered(fb, w, h, FONT_MEDIUM, y + step, T(T_BACK), g_support_cursor == 1 ? yellow : white);
     }
 }
 

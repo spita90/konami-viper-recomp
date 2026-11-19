@@ -350,7 +350,7 @@ static void usage(void) {
             "  --wav FILE      dump game audio\n"
             "  --headless      no window/audio (tests); runs as fast as possible\n"
             "  --scale N       window scale (default 2, or the size of the last run)\n"
-            "  --volume N      audio gain (default 16)\n"
+            "  --volume N      audio gain (default 1)\n"
             "  --nvram-save F  persistent NVRAM file (default: the mode's, see below)\n"
             "  --classic       classic mode, as the cabinet (coins, TEST MODE; NVRAM " GAME_NVRAM_SAVE ")\n"
             "  --enhanced      enhanced mode, the default (free play, menus; NVRAM " GAME_ENH_NVRAM_SAVE ")\n"

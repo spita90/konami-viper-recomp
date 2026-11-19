@@ -86,7 +86,8 @@ enum cmd_type : uint32_t
 	CMD_LUT,                        // a = row, b = blob offset (256 words)
 	CMD_DISPLAY,                    // a = buffer offset, b = x0, c = y0 (native, may be < 0), d = w | h << 16, e = CLUT row
 	CMD_COPY,                       // a = blob offset of the COPY_* words
-	CMD_SNAPSHOT                    // a = colour buffer offset: its render target, kept for TF_BLUR
+	CMD_SNAPSHOT,                   // a = colour buffer offset: its render target, kept for TF_BLUR
+	CMD_SHOW                        // a = shadow target (a frame in between), shown from emulated time b | c << 32
 };
 
 // a copy from a render target into the VRAM copy (a 2D blit, or a target the textures read)
