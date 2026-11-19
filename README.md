@@ -182,10 +182,20 @@ The separate steps, several games side by side and cleaning up are in the
   design, reverse-engineering notes.
 - [CHANGELOG.md](CHANGELOG.md): the changes between versions.
 
+## Support the project
+
+If you enjoy the ports and want to support the work on the recompiler, the runtime and the
+fixes sent back to MAME, you can [sponsor me on GitHub](https://github.com/sponsors/spita90)
+(also from SUPPORT in the enhanced mode's main menu). It is entirely optional: it supports the
+development work only, buys no game or game file, and gives no access to builds or features.
+The project stays free, and the same for everyone.
+
 ## Legal
 
 - This is an unofficial, non-commercial fan project for preservation and research. It is not
   affiliated with, endorsed by, or sponsored by Konami.
+- Voluntary sponsorships support the development of this project's own code. Nothing is sold,
+  and no game, game file or build is offered in exchange.
 - "Konami", "Thrill Drive", "GTI Club" and "Driving Party" are trademarks of Konami Group
   Corporation. All other trademarks belong to their owners.
 - This repository contains **no copyrighted game code, ROM, BIOS, CHD or NVRAM data**. The build

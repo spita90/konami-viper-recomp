@@ -9,8 +9,8 @@ version can change the build, the profiles or the command-line options.
 
 ### Added
 
-- **Sponsor button on the repository** (`.github/FUNDING.yml`), as the SUPPORT page of the
-  enhanced mode.
+- **Sponsor button on the repository** (`.github/FUNDING.yml`) and a "Support the project"
+  section in the README, as the SUPPORT page of the enhanced mode.
 
 ## [0.20.0] - 2026-11-19
 
