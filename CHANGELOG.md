@@ -7,6 +7,11 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Added
+
+- **Sponsor button on the repository** (`.github/FUNDING.yml`), as the SUPPORT page of the
+  enhanced mode.
+
 ## [0.20.0] - 2026-11-19
 
 ### Added
