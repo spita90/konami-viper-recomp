@@ -26,6 +26,14 @@
 #include "voodoo/voodoo_gpu.h"
 
 extern "C" void rt_log(const char *fmt, ...);
+extern "C" double voodoo_gpu_wait_ms_take(void);
+extern "C" double interp_ms_take(void);
+extern "C" void frontend_diag_take(unsigned *audio_short, unsigned *behind_ms, unsigned *resyncs);
+
+// RT_FPS_STATS: the swaps of the last second (how long they took, how far apart they returned)
+static double s_swap_sum, s_swap_max, s_ret_min = 1e9, s_ret_max;
+static unsigned s_swap_n;
+static uint64_t s_swap_last;
 
 namespace {
 
@@ -1305,6 +1313,18 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 		{
 			rt_log("gpu: %u vsyncs, %u frames in between shown, apart 1:%u 2:%u 3:%u 4+:%u vsyncs, backlog full %u\n",
 			       vsyncs, shown, gap[1], gap[2], gap[3], gap[4], late);
+			// where the time goes: a swap returning in bursts (a driver queueing frames) puts the
+			// frames in between on the wrong vsyncs; the game's thread held up by the lists, or
+			// behind real time, breaks the sound up
+			unsigned audio_short, behind, resyncs;
+			frontend_diag_take(&audio_short, &behind, &resyncs);
+			rt_log("gpu: swap avg %.1f max %.1f ms, returns %.1f-%.1f ms apart | game thread: waited for the lists %.0f ms, "
+			       "behind real time up to %u ms, resyncs %u, frames in between %.0f ms CPU | audio short %u frames\n",
+			       s_swap_n ? s_swap_sum / s_swap_n : 0.0, s_swap_max, s_ret_min < 1e9 ? s_ret_min : 0.0, s_ret_max,
+			       voodoo_gpu_wait_ms_take(), behind, resyncs, interp_ms_take(), audio_short);
+			s_swap_sum = s_swap_max = s_ret_max = 0;
+			s_ret_min = 1e9;
+			s_swap_n = 0;
 			sec_start = t;
 			vsyncs = shown = late = 0;
 			for (unsigned &g : gap)
@@ -1372,7 +1392,31 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 		errors++;
 		rt_log("gpu: GL error %04x\n", err);
 	}
+	uint64_t const s0 = SDL_GetPerformanceCounter();
 	SDL_GL_SwapWindow(win);
+	// RT_GL_FINISH=1 (a test): wait for the GPU after the swap, so that the swap returns at the
+	// vsync even where the driver queues frames (as RetroArch's "hard GPU sync")
+	static int finish = -1;
+	if (finish < 0)
+		finish = getenv("RT_GL_FINISH") != nullptr;
+	if (finish)
+		G.Finish();
+	uint64_t const s1 = SDL_GetPerformanceCounter();
+	double const ms_per_tick = 1000.0 / double(SDL_GetPerformanceFrequency());
+	double const swap_ms = double(s1 - s0) * ms_per_tick;
+	s_swap_sum += swap_ms;
+	s_swap_n++;
+	if (swap_ms > s_swap_max)
+		s_swap_max = swap_ms;
+	if (s_swap_last)
+	{
+		double const apart = double(s1 - s_swap_last) * ms_per_tick;
+		if (apart < s_ret_min)
+			s_ret_min = apart;
+		if (apart > s_ret_max)
+			s_ret_max = apart;
+	}
+	s_swap_last = s1;
 	run_ahead(show_at);
 }
 

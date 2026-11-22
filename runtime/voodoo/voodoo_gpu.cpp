@@ -5,6 +5,7 @@
 #include "voodoo_gpu.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <string>
 #include <condition_variable>
@@ -35,6 +36,13 @@ std::atomic<int> s_want{0}, s_active{0};
 // fast boot (many vblanks per window frame) may run ahead up to this much
 constexpr size_t MAX_PENDING_LISTS = 2;
 constexpr size_t MAX_PENDING_BYTES = size_t(128) << 20;
+// RT_FPS_STATS: time the game's thread waited for the frontend to take the lists (microseconds)
+std::atomic<unsigned long long> s_wait_us{ 0 };
+struct wait_timer
+{
+	std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+	~wait_timer() { s_wait_us += (unsigned long long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count(); }
+};
 
 // as voodoo_render.cpp
 s32 fast_log2(double value, int fracbits)
@@ -218,6 +226,12 @@ extern "C" void voodoo_set_gpu(int on)
 extern "C" int voodoo_gpu_active(void)
 {
 	return s_active.load();
+}
+
+// RT_FPS_STATS: milliseconds the game's thread waited for the lists to be taken, since the last call
+extern "C" double voodoo_gpu_wait_ms_take(void)
+{
+	return double(s_wait_us.exchange(0)) / 1000.0;
 }
 
 bool voodoo_gpu_take(std::vector<vgpu::frame_list> &out)
@@ -453,7 +467,10 @@ void voodoo_1_device::gpu_handover()
 		return;
 	{
 		std::unique_lock<std::mutex> lock(s_lock);
-		s_cv.wait(lock, [] { return s_pending_bytes < MAX_PENDING_BYTES || !s_want.load(); });
+		{
+			wait_timer w;
+			s_cv.wait(lock, [] { return s_pending_bytes < MAX_PENDING_BYTES || !s_want.load(); });
+		}
 		if (s_want.load())
 		{
 			s_pending_bytes += g.list.bytes();
@@ -1096,9 +1113,12 @@ void voodoo_1_device::gpu_frame(rectangle const &vis, u32 const *clut)
 	{
 		std::unique_lock<std::mutex> lock(s_lock);
 		bool const turbo = enh_turbo() != 0;
-		s_cv.wait(lock, [turbo] {
-			return (s_pending_bytes < MAX_PENDING_BYTES && (turbo || s_pending.size() < MAX_PENDING_LISTS)) || !s_want.load();
-		});
+		{
+			wait_timer w;
+			s_cv.wait(lock, [turbo] {
+				return (s_pending_bytes < MAX_PENDING_BYTES && (turbo || s_pending.size() < MAX_PENDING_LISTS)) || !s_want.load();
+			});
+		}
 		if (s_want.load())
 		{
 			s_pending_bytes += g.list.bytes();

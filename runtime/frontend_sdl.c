@@ -88,6 +88,15 @@ void audio_frontend_push(const uint8_t *blk) {
     atomic_store_explicit(&g_ring_w, w, memory_order_release);
 }
 
+/* RT_FPS_STATS: audio frames the game had not made in time (the sound breaks up), and how far the
+ * game fell behind real time (ms) and how often it was resynchronized */
+static _Atomic unsigned g_audio_short, g_behind_ms, g_resyncs;
+void frontend_diag_take(unsigned *audio_short, unsigned *behind_ms, unsigned *resyncs) {
+    *audio_short = atomic_exchange(&g_audio_short, 0);
+    *behind_ms = atomic_exchange(&g_behind_ms, 0);
+    *resyncs = atomic_exchange(&g_resyncs, 0);
+}
+
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
     int16_t *out = (int16_t *)stream;
@@ -96,18 +105,20 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     unsigned w = atomic_load_explicit(&g_ring_w, memory_order_acquire);
     static int16_t last[2];
     if (enh_paused()) { memset(stream, 0, (size_t)len); return; }
+    int short_frames = 0;
     for (int i = 0; i < frames; i++) {
         if (r != w) {
             last[0] = g_ring[r % AUDIO_RING][0];
             last[1] = g_ring[r % AUDIO_RING][1];
             r++;
-        }
+        } else short_frames++;
         out[2 * i] = last[0];
         out[2 * i + 1] = last[1];
     }
     /* keep latency bounded: if far behind, skip ahead */
     if (w - r > 44100 / 5) r = w - 44100 / 20;
     atomic_store_explicit(&g_ring_r, r, memory_order_release);
+    if (short_frames) atomic_fetch_add_explicit(&g_audio_short, (unsigned)short_frames, memory_order_relaxed);
 }
 
 /* ------------------------------------------------------------------ pacing (guest thread) */
@@ -148,7 +159,12 @@ void rt_pace_vblank(void) {
         double real = (double)(SDL_GetPerformanceCounter() - g_pace_t0) / g_pace_freq;
         double ahead = virt - real;
         if (ahead <= 0.0005) {
-            if (ahead < -0.25) g_pace_t0 = SDL_GetPerformanceCounter() - (uint64_t)(virt * g_pace_freq); /* resync after stalls */
+            unsigned behind = ahead < 0 ? (unsigned)(-ahead * 1000) : 0;
+            if (behind > atomic_load_explicit(&g_behind_ms, memory_order_relaxed)) atomic_store(&g_behind_ms, behind);
+            if (ahead < -0.25) {            /* resync after stalls */
+                g_pace_t0 = SDL_GetPerformanceCounter() - (uint64_t)(virt * g_pace_freq);
+                atomic_fetch_add(&g_resyncs, 1);
+            }
             return;
         }
         SDL_Delay(ahead > 0.002 ? (Uint32)((ahead - 0.001) * 1000) : 0);

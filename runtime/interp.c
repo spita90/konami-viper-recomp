@@ -21,6 +21,7 @@
 #include "runtime.h"
 #include "game_config.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -74,6 +75,13 @@ static size_t g_cap_out;
 static uint8_t *g_full;                     /* RT_INTERP_CHECK: the whole RAM before */
 static unsigned g_frames, g_runs, g_skipped, g_swaps_run;
 static double g_us;
+static _Atomic unsigned long long g_us_total;     /* RT_FPS_STATS: the same, read by the frontend */
+double interp_ms_take(void) {
+    static unsigned long long last;
+    unsigned long long now = atomic_load(&g_us_total), d = now - last;
+    last = now;
+    return (double)d / 1000.0;
+}
 static int g_slot, g_slots = 4;             /* the next shadow target slot, and how many */
 static uint64_t g_len;                      /* the game's frame interval, smoothed (cycles) */
 static uint64_t g_last_when;                /* the display time of the last frame in between */
@@ -516,7 +524,9 @@ static void run_frames(PPCContext *c, Frame *p, Frame *f, const float *t, const 
             if (v[a] != vram0[a] && (a < flo || a >= fhi)) { if (!bad++) first = a; last = a; }
         if (bad) rt_log("interp: CHECK frame %u: %u VRAM bytes differ, %06x..%06x\n", g_frames, bad, first, last);
     }
-    g_us += now_us() - t0;
+    double const spent = now_us() - t0;
+    g_us += spent;
+    atomic_fetch_add(&g_us_total, (unsigned long long)spent);
     g_runs += (unsigned)n;
     g_swaps_run++;
     if (g_log && g_swaps_run % 60 == 0)
@@ -608,4 +618,5 @@ int interp_supported(void) { return 0; }
 unsigned long long interp_frames(void) { return 0; }
 void interp_set_display(uint64_t vsync, uint64_t period) { (void)vsync; (void)period; }
 int interp_hook(PPCContext *c, uint32_t pc) { (void)c; (void)pc; return 0; }
+double interp_ms_take(void) { return 0; }
 #endif
