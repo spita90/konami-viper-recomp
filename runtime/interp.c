@@ -536,7 +536,7 @@ static void run_frames(PPCContext *c, Frame *p, Frame *f, const float *t, const 
 
 /* the frames in between of frame f (swapped at now, emulated cycles): one for each display
  * time (a vsync, or at most `fps` a second) of the stretch between frames p and f, shown one
- * frame interval later (D): the moment shown runs behind the game by D, evenly */
+ * frame interval and one vsync later (D): the moment shown runs behind the game by D, evenly */
 static void schedule(PPCContext *c, Frame *p, Frame *f, uint64_t now) {
     float t[MAX_BETWEEN];
     uint64_t when[MAX_BETWEEN];
@@ -564,7 +564,10 @@ static void schedule(PPCContext *c, Frame *p, Frame *f, uint64_t now) {
     uint64_t len = paired ? f->swap - p->swap : 0;
     if (paired && len > 0 && len < (uint64_t)(CPU_HZ / 10)) {
         g_len = g_len ? (g_len * 7 + len) / 8 : len;           /* the game's frame interval, smoothed */
-        uint64_t d = g_len + (uint64_t)(CPU_HZ * 0.004);      /* and a margin to draw them */
+        /* and a margin: one vsync and 4 ms to draw them. The frontend takes the lists once a vsync,
+         * when a swap returns: a frame due at the vsync after the game frame came too late for it
+         * and was never shown (at 60 Hz 36 frames a second of 60, the others on uneven vsyncs) */
+        uint64_t d = g_len + per + (uint64_t)(CPU_HZ * 0.004);
         uint64_t a = p->swap + d, b = f->swap + d;
         if (a < now) a = now;
         /* every k-th vsync from the last frame in between (its vsync, on the vsyncs measured), so

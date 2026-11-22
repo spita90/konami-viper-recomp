@@ -54,7 +54,8 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     they stay evenly spaced: on a 144 Hz screen 120 gives 72 and 60 gives 48; with the screen set
     to 120 or 60 Hz they are exact. The pictures between two of the game's are made from the same 3D scene
     with every object moved to where it is at that moment; the game itself, its speed and multiplayer do not change. It
-    needs the HARDWARE renderer, and it shows the game about a frame (35 ms) later. On a screen
+    needs the HARDWARE renderer, and it shows the game about a frame and a vsync later (35 ms
+    plus 17 ms at 60 Hz, plus 8 ms at 120 Hz). On a screen
     slower than the rate chosen it follows the screen; moved to another screen, it follows that
     one within a moment. Each frame in between costs the computer some work (about 1.6 ms of one
     core on an Apple M4 Pro, and a drawing of the scene on the GPU): at the highest rates and

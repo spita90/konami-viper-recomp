@@ -7,6 +7,8 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-22
+
 ### Added
 
 - **Enhanced mode, resolution up to 6X** (issue #22): DISPLAY → RESOLUTION offers 5X and 6X again
@@ -25,9 +27,20 @@ version can change the build, the profiles or the command-line options.
   draws the next frame in between ahead of its time; it was queued to the GPU before the swap,
   so the swap waited for it too. It is now queued after: 5X at 120 FPS on a 180 Hz screen keeps
   every vsync (it missed 3–6 a second), and 6X misses fewer.
+- **`RT_FPS_STATS=1` says where the time goes:** a second line each second gives the swaps (how
+  long, how far apart they return), how long the game's thread waited for the lists, how far it
+  fell behind real time, the CPU time of the frames in between, and the audio frames missing.
+  `RT_GL_FINISH=1` waits for the GPU after each swap, to compare (it made no difference on
+  Windows).
 
 ### Fixed
 
+- **Enhanced mode, frames in between on 60 Hz screens** (issue #20, Windows on a ROG Ally and on
+  a 60 Hz desktop): about 36 pictures a second were shown instead of 60, one or two vsyncs apart.
+  The frontend takes the game's lists once a vsync, and a picture due at the vsync right after its
+  game frame came too late for it. The pictures now run one vsync later (17 ms at 60 Hz, 6 ms at
+  180 Hz) and come on every vsync they are meant for: 60 at 60 Hz, and on faster screens evenly
+  spaced too (120 FPS at 180 Hz: all 2 vsyncs apart).
 - **No crash at the end of a run with frames in between or with `RT_GPU_BENCH`:** when the
   process ended from the game's thread (`--seconds`, a fatal error), `exit()` tore down the
   OpenGL driver while the main thread was still drawing (a segmentation fault, now and then).
@@ -704,7 +717,8 @@ version can change the build, the profiles or the command-line options.
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.17.0...v0.18.0

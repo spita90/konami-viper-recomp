@@ -843,8 +843,12 @@ the game's scene with every object moved to where it is at that moment, between 
   pictures in the lists have `05` bytes. With less than half of the objects paired (a cut, a new
   screen), the frame is shown as it is.
 - **When** (`schedule`): the moment shown runs behind the game by D, the game's frame interval
-  (smoothed) plus 4 ms, so both ends of a stretch are known before it is shown and the pictures
-  are drawn before their time. At swap N the frames of the stretch N−1 → N are drawn, one for
+  (smoothed) plus one vsync plus 4 ms, so both ends of a stretch are known before it is shown and
+  the pictures are drawn before their time. The vsync: the frontend takes the lists once a vsync,
+  when a swap returns, so with 4 ms alone a frame due at the vsync after its game frame reached it
+  too late and was never shown. At 60 Hz (Windows reports from a ROG Ally and a 60 Hz desktop, and
+  on Linux with a swap repeated three times on a 180 Hz screen) 36 frames a second of 60 were
+  shown, 1 or 2 vsyncs apart; now 60, all 1 vsync apart, and 120 FPS at 180 Hz all 2 apart. At swap N the frames of the stretch N−1 → N are drawn, one for
   each display time in [S(N−1) + D, S(N) + D) (S = the swap's emulated time), at t = (time − D −
   S(N−1)) / (S(N) − S(N−1)). Display times are the vsyncs the frontend measures (`vsync_tick`: the
   time each buffer swap returns and the median of the last 31 intervals, converted to emulated
@@ -1790,7 +1794,11 @@ and `MAME_SET=<set>` selects the game (default `thrild2`). Its debugger, driven 
 Recompiled-side tools:
 - `RT_INPUT="t:port=hex,…"`: scripted inputs. Ports 0–7 are digital; 10–13 are signed analog;
 - `RT_AN0..3`: force analog values;
-- `RT_FPS_STATS=1`: counts distinct frames per emulated second;
+- `RT_FPS_STATS=1`: counts distinct frames per emulated second; with the GPU renderer, each second
+  the vsyncs and frames in between shown, and a second line: the swaps (average and longest, how
+  far apart they return), the game's thread (time it waited for the lists, how far behind real
+  time, resyncs, the frames in between's CPU time) and the audio frames missing;
+- `RT_GL_FINISH=1`: `glFinish` after each swap (a hard GPU sync), to compare;
 - `RT_PROFILE=seconds`: a virtual-time profiler;
 - `RT_I2C_LOG=1`, `RT_SC_LOG=1`, `RT_BP=…`;
 - `RT_MMIO_FROM=seconds` starts the `RT_MMIO_LOG` log at that emulated time;
