@@ -865,7 +865,16 @@ the game's scene with every object moved to where it is at that moment, between 
   display time, and the list goes to the frontend at once (`gpu_handover`). The device's PCI
   interrupt is kept from the guest; the device, the FIFO's VRAM, the CPU context and `g_ram` are
   put back at the end.
-- **Showing them** (`gpu_gl_frame`): at each vsync the latest frame due by then, the line being
+- **Showing them** (`gpu_gl_frame`): the lists this vsync's picture needs run before it
+  (`run_due`: up to the last one holding a frame due by then; without frames in between, all of
+  them), the rest after the swap, up to the first frame for a later vsync (`run_ahead`). Queued
+  before the swap, that frame drawn ahead made the swap wait for it too. The GPU runs the
+  commands in order, so a frame ahead queued after one swap still weighs on the next: the
+  vsync where a game frame arrives carries the game's lists and the next frame in between (at 6X
+  on a Radeon RX 9070 XT 2.5 ms and 4.8 ms of GPU time, against 5.5 ms for a vsync at 180 Hz),
+  and 6X at 120 FPS on a 180 Hz screen still misses a vsync in four or five; 5X misses none
+  (it missed 3–6 a second before). Drawing it one vsync later would need a vsync more of
+  latency. The frame shown: at each vsync the latest frame due by then, the line being
   halfway to the vsync after (`vsync_tick` returns the next vsync plus half a period): the
   frames' times fall on the measured vsyncs, and with the line on the vsync itself a swap
   returning a little late or early moved a frame to the next vsync (one shown twice, the next
@@ -948,16 +957,18 @@ dropped the option (beyond 2X there is little more to see).
   2× real time on Apple Silicon; 3× is borderline.
 
 **Implemented: scaled render targets** (enhanced mode, DISPLAY → RESOLUTION, N × 512×384;
-`resolution` in the settings file: 0 = AUTO, 1–4). The Voodoo
+`resolution` in the settings file: 0 = AUTO, 1–6). The Voodoo
 core supports N = 1–6; the software renderer offers up to 2X (the rasterizer's cost grows as
-N²), the GPU renderer up to 4X (5X and 6X were offered before; dropped, too heavy for what they
-add).
+N²), the GPU renderer up to 6X. 0.20.0 stopped at 4X, as 5X and 6X were too heavy on the GPUs
+tried; on a fast one they cost little (Thrill Drive 2 attract at 21:9 on a Radeon RX 9070 XT, GPU
+work per vblank: 2X 0.29 ms, 3X 0.53, 4X 0.61, 5X 0.79, 6X 1.08; the CPU time does not change),
+so they are back for 4K screens (issue #22), AUTO still stopping at 3X.
 - **AUTO** (the default; `enh_set_display`): the frontend reports the picture's height on screen
   in pixels (the drawable, letterboxed to the frame's aspect ratio) after the window is created,
   0.5 s after it last moved or resized (fullscreen included), and when the aspect ratio changes.
   N is the smallest scale whose 384·N lines cover that height, 16 lines of slack (1080 → 3X),
-  at most 3X (`MAX_AUTO_SCALE`; 4X only when chosen) and the renderer's largest. The software
-  renderer reports no height, so AUTO is 1X there. The largest GPU scale is 4, lower if `GL_MAX_TEXTURE_SIZE` cannot
+  at most 3X (`MAX_AUTO_SCALE`; 4X to 6X only when chosen) and the renderer's largest. The software
+  renderer reports no height, so AUTO is 1X there. The largest GPU scale is 6, lower if `GL_MAX_TEXTURE_SIZE` cannot
   hold a 21:9 target ((512 + 2·199)·N wide).
 - Settings written before AUTO had `render_scale`, always saved, 1 by default: 2 is kept as 2X,
   1 becomes AUTO.

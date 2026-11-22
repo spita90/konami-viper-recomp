@@ -536,7 +536,7 @@ static char g_settings_path[1024];
  * height on screen (a few lines short still count: a slight enlargement costs less than N + 1),
  * at most MAX_AUTO_SCALE. The frontend reports that height and the largest scale its renderer
  * takes (software: 2X). */
-#define MAX_SCALE 4
+#define MAX_SCALE 6
 #define MAX_AUTO_SCALE 3
 static int g_disp_h, g_max_scale = 2, g_scale_applied;
 static int effective_scale(void) {
@@ -585,7 +585,7 @@ static void settings_save(void) {
     fprintf(f, "# " GAME_TITLE "%s: port settings\n", g_enhanced ? ", enhanced mode" : "");
     if (g_enhanced) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\n", g_set.fullscreen, g_set.show_fps);
-        fprintf(f, "# 0 = AUTO (from the window's height, up to 3X), 1-4 = 1X-4X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
+        fprintf(f, "# 0 = AUTO (from the window's height, up to 3X), 1-6 = 1X-6X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "stick_response = %d\n", frontend_stick_response());
         fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());

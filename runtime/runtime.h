@@ -126,6 +126,7 @@ const uint8_t *voodoo_vram(uint32_t *size);
 void voodoo_set_gpu(int on);                           /* GPU renderer (voodoo_gpu.h, gpu_gl.cpp) */
 int voodoo_gpu_active(void);
 void gpu_gl_run_headless(uint32_t vram_size);          /* RT_GPU_BENCH=1 --headless: never returns */
+void gpu_gl_stop(void);         /* before exit() on another thread: the drawing thread stops outside OpenGL */
 /* network link (net.c): the LANC ring over UDP */
 extern int g_net_id;                                   /* NETWORK ID of this node, 0 = no link */
 int net_host(int port, int buffer);

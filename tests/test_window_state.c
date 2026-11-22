@@ -82,11 +82,15 @@ int main(int argc, char **argv) {
     assert(g_set.fullscreen == 1 && g_set.aspect == 2);
     assert(enh_want_window(r) && r[0] == 50 && r[1] == 60 && r[2] == 1366 && r[3] == 768);
 
-    /* values out of range: the resolution AUTO, the frame rate as it was */
+    /* values out of range: the resolution AUTO, the frame rate as it was; 6X is in range */
     g_set.scale = 2; g_set.frame_rate = 60;
-    write_file(path, "resolution = 6\nframe_rate = 144\n");
+    write_file(path, "resolution = 7\nframe_rate = 144\n");
     settings_load();
     assert(g_set.scale == 0 && g_set.frame_rate == 60);
+    write_file(path, "resolution = 6\n");
+    settings_load();
+    assert(g_set.scale == 6);
+    g_set.scale = 0;
     write_file(path, "frame_rate = 120\n");
     settings_load();
     assert(g_set.frame_rate == 120);
@@ -98,6 +102,8 @@ int main(int argc, char **argv) {
     enh_set_display(768, 6);
     assert(effective_scale() == 2);
     g_set.scale = 4; assert(effective_scale() == 4);
+    g_set.scale = 6; assert(effective_scale() == 6);
+    enh_set_display(2160, 5); assert(effective_scale() == 5);   /* the GPU's textures stop at 5X */
     enh_set_display(2160, 2); assert(effective_scale() == 2);
     remove(path);
     puts("window fitting and port settings (classic, enhanced, out of range): passed");

@@ -497,14 +497,14 @@ static uint64_t vsync_tick(void) {
 }
 
 /* the picture's height on screen, in pixels (letterboxed in the window), for the AUTO resolution;
- * the largest scale: software 2X, GPU 4X if its textures take the widest target (21:9) */
+ * the largest scale: software 2X, GPU 6X if its textures take the widest target (21:9) */
 static void report_display(SDL_Window *win, int gpu, int max_tex, int tw, int th) {
     int dw = 0, dh = 0;
     if (gpu) SDL_GL_GetDrawableSize(win, &dw, &dh);   /* software: AUTO stays 1X (2X doubles the CPU time) */
     long ph = (long)dw * th / tw;
     if (ph > dh) ph = dh;
     int max_scale = 2;
-    if (gpu) for (max_scale = 4; max_scale > 2 && (512 + 2 * 199) * max_scale > max_tex; max_scale--) {}
+    if (gpu) for (max_scale = 6; max_scale > 2 && (512 + 2 * 199) * max_scale > max_tex; max_scale--) {}
     enh_set_display((int)ph, max_scale);
 }
 

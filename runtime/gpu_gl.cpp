@@ -13,11 +13,13 @@
 #include <SDL_opengl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <deque>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -806,6 +808,11 @@ struct executor
 	char name[256] = "";            // the GPU chip and the OpenGL version, for the startup line
 } X;
 
+// the thread that draws, and its stop before an exit() on another thread (gpu_gl_stop)
+std::atomic<int> s_stop{ 0 }, s_parked{ 0 };
+std::atomic<bool> s_live{ false };
+std::thread::id s_gl_thread;
+
 GLuint new_texture(GLenum internal, int w, int h, GLenum format, GLenum type, GLint filter)
 {
 	GLuint t;
@@ -1168,32 +1175,100 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	GLenum const err = G.GetError();
 	if (err != GL_NO_ERROR)
 		rt_log("gpu: GL error %04x at init\n", err);
+	s_gl_thread = std::this_thread::get_id();     // the thread that draws, for gpu_gl_stop()
+	s_live.store(true);
 	return 1;
 }
 
 // run what the device recorded, then show the picture (letterboxed in the window, the overlay
 // over it) and swap; vsync paces the caller
+// a list's frame in between: its emulated time, or ~0 if it holds none
+static uint64_t show_time(vgpu::frame_list const &l)
+{
+	for (auto const &c : l.cmds)
+		if (c.type == vgpu::CMD_SHOW)
+			return uint64_t(c.b) | uint64_t(c.c) << 32;
+	return ~uint64_t(0);
+}
+
+static void run_front()
+{
+	execute(X.backlog.front());
+	X.lists.push_back(std::move(X.backlog.front()));
+	X.backlog.pop_front();
+}
+
+// before this vsync's picture: the lists it needs. With frames in between, those up to the last
+// one holding a frame due by show_at (the lists before it come first); without them, all of them
+// (the game's own buffer is shown). A frame for a later vsync waits until after the swap.
+static void run_due(uint64_t show_at)
+{
+	size_t need = 0;
+	bool any_show = !X.shows.empty();
+	for (size_t i = 0; i < X.backlog.size(); i++)
+	{
+		uint64_t const t = show_time(X.backlog[i]);
+		if (t == ~uint64_t(0))
+			continue;
+		any_show = true;
+		if (t <= show_at)
+			need = i + 1;
+	}
+	if (!any_show || X.backlog.size() >= 64)
+		need = X.backlog.size();
+	while (need-- > 0)
+		run_front();
+}
+
+// after the swap: on to the first frame for a later vsync, drawn ahead of its time. The frames
+// in between of a game frame come all at once: they run until one is ready for a later vsync, so
+// a vsync runs about one of them, not five (at 4X five pictures in one vsync miss the next
+// vsyncs). Queued after the swap, the GPU draws it during the next vsync's wait: queued before,
+// the swap waited for it as well (at 6X, 120 FPS, a 180 Hz screen missed a vsync in four)
+static void run_ahead(uint64_t show_at)
+{
+	while (!X.backlog.empty() && (X.shows.empty() || X.shows.back().when <= show_at || X.backlog.size() >= 64))
+		run_front();
+	if (!X.lists.empty())
+		voodoo_gpu_recycle(X.lists);
+}
+
+// The process ending from another thread (rt_fatal on the guest thread: --seconds, a fatal
+// error): exit() runs the libraries' destructors, Mesa's among them, and the thread that draws
+// crashed in the middle of a GL call (a segmentation fault at the end of a run with frames in
+// between). gpu_gl_stop() has that thread stop outside OpenGL first, and waits for it.
+
+static void park_if_stopping()
+{
+	if (!s_stop.load(std::memory_order_acquire))
+		return;
+	s_parked.store(1, std::memory_order_release);
+	for (;;)
+		SDL_Delay(1000);
+}
+
+extern "C" void gpu_gl_stop(void)
+{
+	if (!s_live.load() || std::this_thread::get_id() == s_gl_thread)
+		return;
+	s_stop.store(1, std::memory_order_release);
+	for (int i = 0; i < 1000 && !s_parked.load(std::memory_order_acquire); i++)    // 1 s at most
+		SDL_Delay(1);
+}
+
 // show_at: the emulated time up to which a frame in between goes on screen at the next vsync
 // (halfway to the one after: each shows at the vsync nearest its time)
 void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at)
 {
-	// the lists, in order. The frames in between of a game frame come all at once: they run
-	// until one is ready for a later vsync, so a vsync runs about one of them, not five (at 4X
-	// five pictures in one vsync miss the next vsyncs)
+	park_if_stopping();
+	// the lists, in order: those this vsync's picture needs now, the rest after the swap
 	if (voodoo_gpu_take(X.lists))
 	{
 		for (auto &l : X.lists)
 			X.backlog.push_back(std::move(l));
 		X.lists.clear();
 	}
-	while (!X.backlog.empty() && (X.shows.empty() || X.shows.back().when <= show_at || X.backlog.size() >= 64))
-	{
-		execute(X.backlog.front());
-		X.lists.push_back(std::move(X.backlog.front()));
-		X.backlog.pop_front();
-	}
-	if (!X.lists.empty())
-		voodoo_gpu_recycle(X.lists);
+	run_due(show_at);
 	// frames in between: the latest one due by then; none for a tenth of a second (switched
 	// off, paused, a game without them): the displayed buffer again
 	while (!X.shows.empty() && (X.shows.front().when <= show_at || X.shows.size() > 64))
@@ -1298,6 +1373,7 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 		rt_log("gpu: GL error %04x\n", err);
 	}
 	SDL_GL_SwapWindow(win);
+	run_ahead(show_at);
 }
 
 static double s_bench_ms;
@@ -1328,6 +1404,7 @@ void gpu_gl_run_headless(uint32_t vram_size)
 	});
 	for (;;)
 	{
+		park_if_stopping();
 		if (!voodoo_gpu_take(X.lists))
 		{
 			SDL_Delay(1);
@@ -1452,6 +1529,7 @@ int gpu_gl_max_texture(void)
 
 void gpu_gl_shutdown(void)
 {
+	s_live.store(false);
 	if (!X.ctx)
 		return;
 	drop_targets();

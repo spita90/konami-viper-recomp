@@ -9,8 +9,29 @@ version can change the build, the profiles or the command-line options.
 
 ### Added
 
+- **Enhanced mode, resolution up to 6X** (issue #22): DISPLAY → RESOLUTION offers 5X and 6X again
+  with the HARDWARE renderer, for 4K screens (6X renders 2304 lines, above 4K's 2160) on fast
+  GPUs: on a Radeon RX 9070 XT, Thrill Drive 2 at 21:9 takes 1.1 ms of GPU work per vsync at 6X,
+  0.6 ms at 4X, with the same CPU time. AUTO still stops at 3X, so 4X to 6X come only when
+  chosen. With 60 or 120 FPS each picture in between is drawn at that scale too: on a screen
+  faster than 120 Hz, 6X can then miss vsyncs even on a fast GPU (on that Radeon at 180 Hz, one
+  in four or five; 5X misses none), so check the fps counter.
 - **Sponsor button on the repository** (`.github/FUNDING.yml`) and a "Support the project"
   section in the README, as the SUPPORT page of the enhanced mode.
+
+### Changed
+
+- **Enhanced mode, frames in between: the frame drawn ahead waits for the swap.** Each vsync
+  draws the next frame in between ahead of its time; it was queued to the GPU before the swap,
+  so the swap waited for it too. It is now queued after: 5X at 120 FPS on a 180 Hz screen keeps
+  every vsync (it missed 3–6 a second), and 6X misses fewer.
+
+### Fixed
+
+- **No crash at the end of a run with frames in between or with `RT_GPU_BENCH`:** when the
+  process ended from the game's thread (`--seconds`, a fatal error), `exit()` tore down the
+  OpenGL driver while the main thread was still drawing (a segmentation fault, now and then).
+  The thread that draws now stops outside OpenGL first.
 
 ## [0.20.0] - 2026-11-19
 

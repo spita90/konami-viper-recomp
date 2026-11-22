@@ -83,6 +83,7 @@ void rt_fatal(const char *why) {
     voodoo_stats();
     extern void epic_dump(void);
     epic_dump();
+    gpu_gl_stop();          /* exit() tears Mesa down: not under the thread that draws */
     hw_shutdown();
     wav_close();
     fflush(stderr);
