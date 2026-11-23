@@ -74,9 +74,17 @@
  * t (a network drop); RT_NET_WATCH=addr logs every change of the two 32-bit guest words at addr
  * (e.g. a game's link counters: GTI Club 2 0x859070).
  * The default UDP port, NET_DEFAULT_PORT 24700, is in the IANA-unassigned block 24681-24726.
+ *
+ * VIPER_P2P (the iOS app): the datagrams go through Network.framework instead of a socket
+ * (net_p2p.m), to the phones nearby with no router: the host advertises its game with Bonjour,
+ * named by a tag of 3 characters (the session code of this transport, net_nearby), the others
+ * pick it from the games nearby. Each connection stands as an address; no port mapping, no FIND.
  */
 #include "runtime.h"
 #include "game_config.h"
+#ifdef VIPER_P2P
+#include "net_p2p.h"
+#endif
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -199,6 +207,15 @@ static int outage(void) {
     return 0;
 }
 
+/* a datagram out, through the socket or the peer-to-peer transport */
+static void link_send(const Addr *to, const uint8_t *pkt, int len) {
+#ifdef VIPER_P2P
+    p2p_send(&to->a, pkt, len);
+#else
+    sendto(g_sock, pkt, (size_t)len, 0, (const struct sockaddr *)&to->a, to->len);
+#endif
+}
+
 static void send_to(const Addr *to, const uint8_t *pkt, int len) {
     if (g_delay < 0) {
         const char *d = getenv("RT_NET_DELAY"), *w = getenv("RT_NET_WATCH");
@@ -209,7 +226,7 @@ static void send_to(const Addr *to, const uint8_t *pkt, int len) {
     }
     if (outage()) return;
     if (!g_delay && !g_jitter && !g_loss) {
-        sendto(g_sock, pkt, (size_t)len, 0, (const struct sockaddr *)&to->a, to->len);
+        link_send(to, pkt, len);
         return;
     }
     if (g_loss > 0 && rand() % 10000 < g_loss * 100) return;
@@ -225,7 +242,7 @@ static void send_due(void) {
     double t = now_s();
     for (int i = 0; i < g_ndq;)
         if (g_dq[i].due <= t) {
-            sendto(g_sock, g_dq[i].data, (size_t)g_dq[i].len, 0, (struct sockaddr *)&g_dq[i].to.a, g_dq[i].to.len);
+            link_send(&g_dq[i].to, g_dq[i].data, g_dq[i].len);
             g_dq[i] = g_dq[--g_ndq];
         } else i++;
 }
@@ -445,6 +462,22 @@ static void session_reset(void) {
 int net_host(int port, int buffer) {
     set_buffer(buffer);
     session_reset();
+#ifdef VIPER_P2P
+    /* advertised as "<tag> <game> <protocol>": the tag names this session for the players nearby */
+    static const char k_tag[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    char name[64];
+    srand((unsigned)(now_s() * 1000));
+    for (int i = 0; i < 3; i++) g_hostname[i] = k_tag[rand() % 32];
+    g_hostname[3] = 0;
+    snprintf(name, sizeof name, "%s %s %d", g_hostname, GAME_ID, NET_PROTO);
+    if (p2p_host(name)) return -1;
+    g_sock = 0;                                     /* the link is open */
+    g_role = ROLE_HOST;
+    g_net_id = 1;
+    g_port = port;
+    rt_log("net: host nearby, game %s, NETWORK ID 1, playout buffer %d\n", g_hostname, g_buffer);
+    return 0;
+#endif
     sockets_init();
     /* a port already taken on this machine (another host): the next ones of the free block */
     int last = port >= NET_DEFAULT_PORT && port < 24726 ? 24726 : port;
@@ -463,6 +496,27 @@ int net_host(int port, int buffer) {
 int net_join(const char *peer, int port, int id, uint32_t token, int buffer) {
     set_buffer(buffer);
     session_reset();
+#ifdef VIPER_P2P
+    /* peer: a game nearby, by its tag (net_nearby). The search for games goes on until the host
+     * answers (member_control, end_session_r): iOS keeps the phone-to-phone link (AWDL) up only
+     * while something looks for a service or advertises one */
+    (void)port;
+    char names[8][64];
+    int n = p2p_games(names, 8), found = -1;
+    for (int i = 0; i < n; i++) {
+        char tag[8];
+        if (sscanf(names[i], "%7s", tag) == 1 && !strcmp(tag, peer)) found = i;
+    }
+    if (found < 0 || p2p_join(names[found])) return -1;
+    p2p_host_addr(&g_hostaddr.a, &g_hostaddr.len);
+    snprintf(g_hostname, sizeof g_hostname, "%s", peer);
+    g_sock = 0;
+    g_role = id ? ROLE_MEMBER : ROLE_JOINING;
+    g_net_id = id;
+    g_token = token;
+    rt_log("net: joining the game %s nearby for a free NETWORK ID, playout buffer %d\n", peer, g_buffer);
+    return 0;
+#endif
     sockets_init();
     if (resolve(peer, &g_hostaddr) || open_socket(port)) return -1;
     snprintf(g_hostname, sizeof g_hostname, "%s", peer);
@@ -503,6 +557,9 @@ int net_session_over(void) { return g_over; }          /* left, closed or lost: 
 static volatile int g_result;
 
 static void end_session_r(const char *why, int result) {
+#ifdef VIPER_P2P
+    p2p_browse(0);                                  /* (kept on while joining, see net_join) */
+#endif
     if (g_over) return;
     g_over = 1;
     g_result = result;
@@ -526,7 +583,14 @@ void net_shutdown(void) {
 /* the host after its session: no link any more (it keeps NETWORK ID 1, no restart needed) */
 void net_off(void) {
     portmap_stop();
+#ifdef VIPER_P2P
+    p2p_browse(0);
+#endif
+#ifdef VIPER_P2P
+    if (g_sock >= 0) p2p_close();
+#else
     if (g_sock >= 0) close(g_sock);
+#endif
     g_sock = -1;
     g_role = ROLE_OFF;
     g_net_id = 0;
@@ -603,6 +667,9 @@ static void host_control(const Addr *from, int type, int id, uint32_t token, con
 
 static void member_control(int type, int id, uint32_t token, const char *game) {
     if (type == C_WELCOME && g_role == ROLE_JOINING) {
+#ifdef VIPER_P2P
+        p2p_browse(0);                              /* in: no need to look any more */
+#endif
         if (!g_hot_id) rt_log("net: given NETWORK ID %d, taking it in the attract mode\n", id);
         g_hot_id = id;
         g_token = token;
@@ -674,7 +741,11 @@ static void receive(void) {
     for (;;) {
         Addr from;
         from.len = sizeof from.a;
+#ifdef VIPER_P2P
+        ssize_t n = p2p_recv(buf, (int)sizeof buf, &from.a, &from.len);
+#else
         ssize_t n = recvfrom(g_sock, buf, sizeof buf, 0, (struct sockaddr *)&from.a, &from.len);
+#endif
         if (n < 0) return;                          /* EAGAIN: drained */
         if (n < 12 || outage()) continue;
         if (!memcmp(buf, "VPLC", 4)) {
@@ -782,7 +853,9 @@ static void timers(void) {
     if ((g_role == ROLE_JOINING || (g_role == ROLE_MEMBER && (!g_welcomed || g_host_silent > JOIN_EVERY * 2)))
         && !g_over && g_cycles % JOIN_EVERY == 1) {
         control(&g_hostaddr, C_JOIN, g_net_id, g_token);
+#ifndef VIPER_P2P
         if (g_role == ROLE_JOINING && !g_hot_id && !g_found_local) find_local();   /* the host next to us? */
+#endif
     }
 }
 
@@ -979,6 +1052,12 @@ void net_status(NetStatus *st) {
     st->id = g_net_id;
     st->over = g_over;
     st->result = g_result;
+#ifdef VIPER_P2P
+    if (g_role != ROLE_OFF) {                       /* the game's tag (net_host) */
+        snprintf(st->code, sizeof st->code, "%s", g_hostname);
+        st->portmap = 2;
+    }
+#else
     if (g_role == ROLE_HOST) {
         char pub[64];
         int pubport = 0;
@@ -992,9 +1071,32 @@ void net_status(NetStatus *st) {
         if (!colon || net_code_encode(ip, atoi(colon + 1), st->code, sizeof st->code))
             snprintf(st->code, sizeof st->code, "%s", g_hostname);
     }
+#endif
     for (int id = 1; id <= NODES; id++) {
         if (id == g_net_id) st->node[id] = NET_NODE_SELF;
         else if (g_role == ROLE_HOST && g_mem[id].state == M_RESERVED) st->node[id] = NET_NODE_JOINING;
         else if (g_node[id].seen) st->node[id] = g_node[id].lost ? NET_NODE_LOST : node_ready(id) ? NET_NODE_LINKED : NET_NODE_JOINING;
     }
 }
+
+#ifdef VIPER_P2P
+/* ------------------------------------------------------------------ games nearby (the JOIN screen) */
+void net_browse(int on) { p2p_browse(on); }
+int net_link_problem(void) { return p2p_problem(); }
+
+/* the games of this game and this protocol nearby, by their tags */
+int net_nearby(char tags[][8], int max) {
+    char names[16][64];
+    int n = p2p_games(names, 16), k = 0;
+    for (int i = 0; i < n && k < max; i++) {
+        char tag[8], game[32];
+        int proto;
+        if (sscanf(names[i], "%7s %31s %d", tag, game, &proto) == 3 && !strcmp(game, GAME_ID) && proto == NET_PROTO) {
+            int dup = 0;
+            for (int j = 0; j < k; j++) dup |= !strcmp(tags[j], tag);
+            if (!dup) snprintf(tags[k++], 8, "%s", tag);
+        }
+    }
+    return k;
+}
+#endif

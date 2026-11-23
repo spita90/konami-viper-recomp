@@ -174,6 +174,14 @@ On macOS and Linux. On Windows, use the package.
 The separate steps, several games side by side and cleaning up are in the
 [guide](docs/GUIDE.md#build-in-detail).
 
+### iPhone and iPad
+
+The ports also build as an iOS app with touch controls, tilt steering and face-to-face
+multiplayer (phones nearby, no router), on a Mac with Xcode:
+`make ios GAME=thrild2 TEAM=<your team ID>`, then run it from Xcode on your device (or make an
+unsigned IPA for a sideloading tool). As for the desktop, the app is built from your own dumps:
+there is no ready-made one. The steps and the controls are in [ios/README.md](ios/README.md).
+
 ## Documentation
 
 - [docs/GUIDE.md](docs/GUIDE.md): the enhanced mode's options, saves and command-line options,

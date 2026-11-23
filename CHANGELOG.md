@@ -7,6 +7,26 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Added
+
+- iOS app (iPhone and iPad): `make ios GAME=<id>` stages the game data and generates an Xcode
+  project (`ios/`). It has the GPU renderer on OpenGL ES 3.0, and on-screen touch controls: a
+  steering stick, pedals, shifting, VIEW and pause in a race, tapping the menu items, and the name
+  entry. It also has tilt steering (OPTIONS > CONTROLS > STEERING), pauses and saves in the
+  background, and keeps its saves in Documents. Its multiplayer links the phones nearby with no
+  router: over a shared Wi-Fi network or directly, phone to phone (Network.framework, peer to peer;
+  HOST A GAME shows a tag, JOIN A GAME lists the games nearby). See
+  [ios/README.md](ios/README.md). The desktop builds do not change.
+- iOS app, link play: the touch controls' ✕ (a gamepad's Back) in a linked race asks LEAVE / CLOSE
+  THE SESSION in a small panel while the race goes on. STAY is the default, it goes away by itself
+  after 5 seconds, and confirming goes back to the main menu. A player who drops out of a game
+  is shown as PLAYER N DISCONNECTED to the others.
+- `python3 ios/prepare.py <id> --build ipa`: the app as an unsigned IPA, for a sideloading tool that
+  signs it with your Apple ID.
+- `make P2P=1` (macOS, tests): the iOS app's link transport in a desktop build (`<binary>_p2p`), to
+  try it on a Mac. It replaces the Internet link play of that executable.
+- `--calibrate FILE`: the first-run calibration alone, into that NVRAM file (the iOS app's).
+
 ## [0.21.0] - 2026-11-22
 
 ### Added
