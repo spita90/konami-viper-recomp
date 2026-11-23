@@ -174,6 +174,18 @@ On macOS and Linux. On Windows, use the package.
 The separate steps, several games side by side and cleaning up are in the
 [guide](docs/GUIDE.md#build-in-detail).
 
+### Phones and tablets
+
+The ports also build as phone and tablet apps, with touch controls, tilt steering and the same
+multiplayer as the desktop (session codes, together with the desktop ports). As for the desktop,
+each app is built from your own dumps: there is no ready-made one.
+
+- **iPhone and iPad**, on a Mac with Xcode: `make ios GAME=thrild2 TEAM=<your team ID>`, then run
+  it from Xcode on your device (or make an unsigned IPA for a sideloading tool). The iOS app also
+  races with the iPhones next to it with no router. See [ios/README.md](ios/README.md).
+- **Android**, on a Mac or Linux with the Android SDK: `python3 android/prepare.py thrild2 --install`
+  builds the APK and installs it on the phone connected. See [android/README.md](android/README.md).
+
 ## Documentation
 
 - [docs/GUIDE.md](docs/GUIDE.md): the enhanced mode's options, saves and command-line options,

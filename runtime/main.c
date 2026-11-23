@@ -18,6 +18,9 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
+#ifdef VIPER_MOBILE
+#include "platform_mobile.h"
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
@@ -248,6 +251,10 @@ static const char *beside_exe(const char *rel);
  * log, kept only if the pass fails. */
 static int run_scripted_pass(const char *what, const char *script, int seconds, const char *self,
                              const char *work, const char *nvram, const char *nvsave, const char *log) {
+#ifdef VIPER_MOBILE                        /* no other process on a phone: the app has a calibrated NVRAM */
+    (void)what; (void)script; (void)seconds; (void)self; (void)work; (void)nvram; (void)nvsave; (void)log;
+    return -1;
+#else
     char cmd[8192];
 #ifdef _WIN32                           /* cmd.exe: the variables through the inherited environment */
     _putenv_s("RT_FFB_WHEEL", "1");
@@ -265,6 +272,7 @@ static int run_scripted_pass(const char *what, const char *script, int seconds, 
     if (rc != 0 || !file_exists(nvsave)) { fprintf(stderr, "%s failed (rc=%d), see %s\n", what, rc, log); return -1; }
     remove(log);
     return 0;
+#endif
 }
 
 /* settings written into the calibrated NVRAM, the profile's calibration.nvram_set: ones TEST MODE
@@ -330,6 +338,9 @@ static void find_executable(const char *argv0) {
     if (bs > slash) slash = bs;
 #endif
     if (slash) *slash = 0; else snprintf(g_exe_dir, sizeof g_exe_dir, ".");
+#ifdef VIPER_ANDROID                    /* the executable is a library in the APK: the files, out of its assets */
+    snprintf(g_exe_dir, sizeof g_exe_dir, "%s", mobile_game_dir());
+#endif
 }
 
 static const char *beside_exe(const char *rel) {
@@ -337,6 +348,35 @@ static const char *beside_exe(const char *rel) {
     snprintf(buf, sizeof buf, "%s/%s", g_exe_dir, rel);
     return strdup(buf);
 }
+
+/* the files the port writes (the saved NVRAM, the settings): next to the executable, or on iOS,
+ * where the app bundle (the executable's directory, with the game data) is read-only, in the
+ * app's Documents (also seen in the Files app) */
+static const char *writable(const char *rel) {
+#ifdef VIPER_MOBILE
+    char buf[PATH_MAX];
+    snprintf(buf, sizeof buf, "%s/%s", mobile_data_dir(), rel);
+    return strdup(buf);
+#else
+    return beside_exe(rel);
+#endif
+}
+
+#ifdef VIPER_MOBILE
+/* first launch on a phone: the NVRAM calibrated on the computer that built the app (mobile.py,
+ * --calibrate) is the mode's saved NVRAM, as the first-run calibration makes it elsewhere */
+#define MOBILE_CALIBRATED_NVRAM "calibrated_nvram.bin"
+static void seed_nvram(const char *nvsave) {
+    const char *src = beside_exe(MOBILE_CALIBRATED_NVRAM);
+    FILE *in = fopen(src, "rb");
+    if (!in) { fprintf(stderr, "no %s in the app: the controls are not calibrated\n", src); return; }
+    static uint8_t nv[0x2000];
+    size_t n = fread(nv, 1, sizeof nv, in);
+    fclose(in);
+    FILE *out = n == sizeof nv ? fopen(nvsave, "wb") : NULL;
+    if (out) { fwrite(nv, 1, sizeof nv, out); fclose(out); fprintf(stderr, "calibrated NVRAM: %s\n", nvsave); }
+}
+#endif
 
 static void usage(void) {
     fprintf(stderr,
@@ -358,6 +398,7 @@ static void usage(void) {
             "  --settings F    port settings (default " GAME_ENH_SETTINGS ", classic " GAME_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
+            "  --calibrate F   run the first-run calibration into the NVRAM file F, then exit (the phone apps')\n"
             "  --net-host      link play: host a session (NETWORK ID 1) at --net-port\n"
             "  --net-join H:P  link play: join the host H:P; it gives the NETWORK ID (enhanced mode)\n"
             "  --net-id N      link play, tests: this node's NETWORK ID (1 = host; 2-4 with --net-peer)\n"
@@ -394,10 +435,10 @@ int main(int argc, char **argv) {
 #endif
     g_argv0 = argv[0];
     find_executable(argv[0]);
-    const char *settings = beside_exe(GAME_SETTINGS);
+    const char *settings = writable(GAME_SETTINGS);
     const char *work = beside_exe(GAME_DEFAULT_WORK), *cf = NULL, *nvram = beside_exe(GAME_DEFAULT_NVRAM),
                *ds = beside_exe(GAME_DEFAULT_DS2430), *bios = beside_exe(GAME_DEFAULT_BIOS), *wav = NULL,
-               *nvsave = beside_exe(GAME_NVRAM_SAVE);
+               *nvsave = writable(GAME_NVRAM_SAVE), *calibrate_to = NULL;
     int headless = 0, scale = 2, scale_explicit = 0, nvsave_explicit = 0, settings_explicit = 0;
     int net_id = 0, net_port = NET_DEFAULT_PORT, net_buffer = 1;
     const char *net_peer = NULL, *net_join_to = NULL;
@@ -430,14 +471,19 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--net-peer") && v) { net_peer = v; i++; }
         else if (!strcmp(a, "--net-buffer") && v) { net_buffer = atoi(v); i++; }
         else if (!strcmp(a, "--realtime")) { extern int g_realtime; g_realtime = 1; }
+        else if (!strcmp(a, "--calibrate") && v) { calibrate_to = v; i++; }
         else usage();
+    }
+    if (calibrate_to) {                 /* the first-run calibration alone, into that file */
+        remove(calibrate_to);
+        return run_first_time_calibration(g_exe, work, nvram, calibrate_to) ? 1 : 0;
     }
     /* the enhanced mode is the default where the profile has one; --classic is the cabinet */
     g_enhanced = mode >= 0 && GAME_HAS_ENHANCED;
     if (mode > 0 && !GAME_HAS_ENHANCED) { fprintf(stderr, "the enhanced mode is not available for " GAME_TITLE " yet\n"); return 2; }
     if (g_enhanced) {
-        if (!nvsave_explicit) nvsave = beside_exe(GAME_ENH_NVRAM_SAVE);
-        if (!settings_explicit) settings = beside_exe(GAME_ENH_SETTINGS);
+        if (!nvsave_explicit) nvsave = writable(GAME_ENH_NVRAM_SAVE);
+        if (!settings_explicit) settings = writable(GAME_ENH_SETTINGS);
     }
     if (net_id < 0 || net_id > 4) { fprintf(stderr, "--net-id wants 1-4\n"); return 2; }
     net_set_port(net_port);
@@ -453,7 +499,11 @@ int main(int argc, char **argv) {
     enh_init(work, settings);
     if (!headless && enh_want_gpu()) voodoo_set_gpu(1);  /* the frontend falls back if it cannot */
     if (headless && getenv("RT_GPU_BENCH")) voodoo_set_gpu(1);   /* benchmark: GPU without a window */
+#ifdef VIPER_MOBILE
+    if (!headless && !file_exists(nvsave)) seed_nvram(nvsave);
+#else
     if (!headless && !file_exists(nvsave)) run_first_time_calibration(g_exe, work, nvram, nvsave);
+#endif
     static char cfbuf[1024], kbuf[1024];
     if (!cf) { snprintf(cfbuf, sizeof cfbuf, "%s/cf.img", work); cf = cfbuf; }
     snprintf(kbuf, sizeof kbuf, "%s/kernel.bin", work);
@@ -510,6 +560,9 @@ int main(int argc, char **argv) {
     if (frontend_run(scale, scale_explicit) == 2) {      /* enhanced mode: new game settings, reboot the game */
         hw_shutdown();
         fflush(NULL);
+#ifdef VIPER_MOBILE                        /* no exec on a phone: the player opens the app again (frontend) */
+        exit(0);
+#endif
         setenv("RT_RESTARTED", "1", 1);  /* the frontend raises the new window */
 #ifdef _WIN32
         /* the C runtime joins the arguments with spaces into one command line: quoted, a path

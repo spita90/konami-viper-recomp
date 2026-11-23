@@ -92,11 +92,18 @@ const char *enh_take_url(void);                        /* SUPPORT: a page to ope
 void enh_draw_overlay(uint32_t *fb, int w, int h);     /* menu over a 0xAARRGGBB frame */
 int enh_draw_overlay_layer(uint32_t *fb, int w, int h); /* alone, premultiplied; 0: nothing drawn */
 int enh_want_gpu(void);                                 /* enhanced mode, RENDERER = HARDWARE */
+void enh_renderer_software(void);                       /* RENDERER = SOFTWARE, saved (GPU start failed) */
 int enh_turbo(void);                                   /* boot/apply: run unpaced, muted */
 int enh_restart_requested(void);                       /* new settings written: restart */
 void enh_set_headless(int on);
 int enh_escape(void);                                  /* Esc: pause / back; 0 = not handled */
 int enh_paused(void);
+#ifdef VIPER_P2P
+int enh_link_menu_active(void);                        /* linked race: leave the session? */
+void enh_link_answer(int leave);                       /* its answer from a key or a button */
+#else
+static inline int enh_link_menu_active(void) { return 0; }
+#endif
 int enh_inputs_owned(void);                            /* the enhanced layer drives IN3/IN4 */
 int enh_name_entry_active(void);                       /* rankings name entry: letters from the keyboard */
 int enh_name_type(int ch);                             /* a letter, '\b' DEL, '\r' END; 1 if accepted */
@@ -151,6 +158,9 @@ typedef struct {
     int role, id, over, result, portmap;    /* portmap: 0 idle 1 working 2 open 3 failed */
     char code[32], problem[160];
     int node[5];                            /* by NETWORK ID */
+#ifdef VIPER_P2P
+    char nearby[8];                         /* the host: its game's tag for the phones nearby */
+#endif
 } NetStatus;
 void net_status(NetStatus *st);
 void net_request_host(void);
@@ -164,6 +174,13 @@ void net_requests(int buffer);
 void net_set_port(int port);                           /* the menu's host port (--net-port) */
 int net_code_encode(const char *ip, int port, char *out, size_t n);   /* session code XXXXX-XXXXX */
 int net_code_decode(const char *code, char *hostport, size_t n);
+/* VIPER_P2P (net_p2p.m): the games nearby, by their tags (the session codes of that transport),
+ * looked for while the JOIN screen is up; 1 if the local network access was refused, 2 another
+ * failure */
+void net_browse(int on);
+int enh_join_request(void);            /* JOIN: 1 the keyboard asked for, 2 PASTE (the frontend's) */
+int net_nearby(char tags[][8], int max);
+int net_link_problem(void);
 void portmap_start(int port);                          /* portmap.c: the host's port on the router */
 void portmap_stop(void);                               /* never waits: the job cleans up by itself */
 void portmap_stop_wait(int wait);                      /* at exit: waits up to 1.5 s for the removal */
@@ -193,3 +210,16 @@ int frontend_stick_response(void); /* 0 linear, 1 soft, 2 extra soft */
 void frontend_set_stick_response(int response);
 int frontend_rumble_multiplier(void); /* 100 = default strength, range 0..400 */
 void frontend_set_rumble_multiplier(int percent);
+#ifdef VIPER_MOBILE
+int frontend_steering_mode(void);     /* touch controls: 0 the steering stick, 1 tilting the device */
+void frontend_set_steering_mode(int mode);
+int frontend_tilt_available(void);    /* tilt steering can be offered (a motion sensor) */
+#else                                 /* no tilt: the option is not offered */
+static inline int frontend_steering_mode(void) { return 0; }
+static inline int frontend_tilt_available(void) { return 0; }
+#endif
+/* the touch controls (VIPER_MOBILE): taps on the menus, their labels in the game font (enhanced.c) */
+int enh_menu_tap(double nx, double ny);       /* a tap at (0..1 of the picture) on a menu item */
+int enh_menu_at_top(void);                    /* the main menu: BACK has nowhere to go */
+int enh_label_width(const char *s, int px_h, int *w);
+void enh_label_draw(uint32_t *fb, int w, int h, const char *s, uint32_t rgb);

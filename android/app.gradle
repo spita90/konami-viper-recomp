@@ -1,0 +1,46 @@
+// A game's Android app: build.gradle of the "app" module in the project android/prepare.py makes
+// (build/android/<id>/project/, from SDL's android-project). The values come from that project's
+// gradle.properties (viper*), written by android/prepare.py.
+apply plugin: 'com.android.application'
+
+def repo = project.property('viperRoot')
+
+android {
+    namespace 'org.viperrecomp'
+    compileSdkVersion 34
+    ndkVersion project.property('viperNdk')
+    defaultConfig {
+        applicationId project.property('viperAppId')
+        minSdkVersion 24
+        targetSdkVersion 34
+        versionCode 1
+        versionName project.property('viperVersion')
+        externalNativeBuild {
+            cmake {
+                arguments "-DGAME=${project.property('viperGame')}", "-DSDL_SRC=${project.property('viperSdl')}",
+                          '-DANDROID_STL=c++_static'
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            // signed with this computer's debug key: an app to install on your own devices
+            signingConfig signingConfigs.debug
+        }
+    }
+    sourceSets.main {
+        manifest.srcFile "${repo}/android/AndroidManifest.xml"
+        java.srcDirs = ['src/main/java', "${repo}/android/java"]
+    }
+    externalNativeBuild {
+        cmake {
+            path "${repo}/android/CMakeLists.txt"
+            version '3.22.1'
+        }
+    }
+    lint {
+        abortOnError false
+    }
+}

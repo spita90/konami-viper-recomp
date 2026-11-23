@@ -8,9 +8,39 @@
  * the same start values and gradients with the same integer arithmetic. What differs from the
  * software rasterizer: alpha blending is the GPU's (the dithered source mixed with the destination,
  * not dithered again after the mix), and coverage follows the GPU's rasterization rules.
+ *
+ * VIPER_GLES (iOS): the same with OpenGL ES 3.0. The shaders are the same text, given the ES
+ * version line and precisions (es_source); the one thing ES 3.0 lacks is the second colour output
+ * of the pixel pipeline (dual-source blending, the Voodoo's "colour before fog" blend factor),
+ * used where the driver has GL_EXT_blend_func_extended and otherwise approximated by the colour
+ * after fog. The screen is UIKit's framebuffer, not 0, and the ARGB layers are uploaded as bytes
+ * and swizzled in the shader (TEXEL_BGRA).
+ *
+ * In the iOS app, over everything, the touch controls' sprites (touch.c), quads of their atlas.
  */
 #include <SDL.h>
+#ifdef VIPER_GLES
+#ifdef VIPER_IOS
+#define GLES_SILENCE_DEPRECATION
+#include <OpenGLES/ES3/gl.h>
+#include <OpenGLES/ES3/glext.h>
+#include <SDL_syswm.h>
+#else                                   // Android
+#include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
+#endif
+#ifndef APIENTRY
+#define APIENTRY
+#endif
+#ifndef GL_SRC1_COLOR
+#define GL_SRC1_COLOR 0x88F9            // GL_SRC1_COLOR_EXT (GL_EXT_blend_func_extended)
+#endif
+#else
 #include <SDL_opengl.h>
+#endif
+#ifdef VIPER_MOBILE
+#include "touch.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -38,6 +68,15 @@ static uint64_t s_swap_last;
 namespace {
 
 // ------------------------------------------------------------------ GL entry points
+#ifdef VIPER_GLES
+#define GL_FUNC_CLEAR_DEPTH X(void, ClearDepthf, (GLfloat))
+#define GL_FUNC_TIMER                   // no GPU timer in ES 3.0 (gpu_replay's timing only)
+#define GL_FUNC_BLIT X(void, BlitFramebuffer, (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum))
+#else
+#define GL_FUNC_BLIT
+#define GL_FUNC_CLEAR_DEPTH X(void, ClearDepth, (GLdouble))
+#define GL_FUNC_TIMER X(void, GetQueryObjectui64v, (GLuint, GLenum, GLuint64 *))
+#endif
 #define GL_FUNCS \
 	X(const GLubyte *, GetString, (GLenum)) \
 	X(GLenum, GetError, (void)) \
@@ -45,7 +84,7 @@ namespace {
 	X(void, Viewport, (GLint, GLint, GLsizei, GLsizei)) \
 	X(void, Clear, (GLbitfield)) \
 	X(void, ClearColor, (GLfloat, GLfloat, GLfloat, GLfloat)) \
-	X(void, ClearDepth, (GLdouble)) \
+	GL_FUNC_CLEAR_DEPTH \
 	X(void, Enable, (GLenum)) \
 	X(void, Disable, (GLenum)) \
 	X(void, BlendFuncSeparate, (GLenum, GLenum, GLenum, GLenum)) \
@@ -58,7 +97,7 @@ namespace {
 	X(void, GenQueries, (GLsizei, GLuint *)) \
 	X(void, BeginQuery, (GLenum, GLuint)) \
 	X(void, EndQuery, (GLenum)) \
-	X(void, GetQueryObjectui64v, (GLuint, GLenum, GLuint64 *)) \
+	GL_FUNC_TIMER \
 	X(void, ReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *)) \
 	X(void, GenTextures, (GLsizei, GLuint *)) \
 	X(void, DeleteTextures, (GLsizei, const GLuint *)) \
@@ -67,6 +106,7 @@ namespace {
 	X(void, TexSubImage2D, (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *)) \
 	X(void, TexParameteri, (GLenum, GLenum, GLint)) \
 	X(void, CopyTexSubImage2D, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei)) \
+	GL_FUNC_BLIT \
 	X(void, ActiveTexture, (GLenum)) \
 	X(void, GenFramebuffers, (GLsizei, GLuint *)) \
 	X(void, DeleteFramebuffers, (GLsizei, const GLuint *)) \
@@ -118,6 +158,24 @@ bool load_gl()
 #undef X
 	return true;
 }
+
+void clear_depth()
+{
+#ifdef VIPER_GLES
+	G.ClearDepthf(1.0f);
+#else
+	G.ClearDepth(1.0);
+#endif
+}
+
+#ifdef VIPER_GLES
+// the screen: UIKit draws the window from a framebuffer of its own (SDL's), elsewhere 0
+GLuint s_screen_fbo = 0;
+// the second colour output of the pixel pipeline, for the "colour before fog" blend factor
+bool s_dual_source = true;
+#else
+constexpr GLuint s_screen_fbo = 0;
+#endif
 
 // ------------------------------------------------------------------ shaders
 // the triangle record is read per vertex, not per pixel, and handed on flat
@@ -720,13 +778,83 @@ const char *const k_overlay_fs = R"(#version 330 core
 uniform sampler2D u_overlay;    // premultiplied alpha
 in vec2 v_uv;
 out vec4 o_color;
-void main() { o_color = texture(u_overlay, v_uv); }
+void main()
+{
+	o_color = texture(u_overlay, v_uv);
+#ifdef TEXEL_BGRA
+	o_color = o_color.bgra;
+#endif
+}
 )";
+
+#ifdef VIPER_MOBILE
+// the touch controls: a sprite of their atlas (premultiplied) at a rectangle of the screen
+const char *const k_ui_vs = R"(#version 330 core
+uniform vec4 u_dst;             // x, y, w, h in 0..1 of the screen, from the top left
+uniform vec4 u_uv;              // the sprite in the atlas: u0, v0, u1, v1
+out vec2 v_uv;
+void main()
+{
+	vec2 c = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+	v_uv = mix(u_uv.xy, u_uv.zw, c);
+	vec2 p = u_dst.xy + c * u_dst.zw;
+	gl_Position = vec4(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, 0.0, 1.0);
+}
+)";
+
+const char *const k_ui_fs = R"(#version 330 core
+uniform sampler2D u_atlas;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 o_color;
+void main()
+{
+	o_color = texture(u_atlas, v_uv);
+#ifdef TEXEL_BGRA
+	o_color = o_color.bgra;
+#endif
+	o_color *= u_alpha;
+}
+)";
+#endif
+
+#ifdef VIPER_GLES
+// a shader for OpenGL ES 3.0: its version line, the precisions (highp: the pipeline is integer
+// arithmetic on 32-bit values), and without dual-source blending the second output as a variable
+std::string es_source(std::string t)
+{
+	std::string const v330 = "#version 330 core\n";
+	size_t const at = t.find(v330);
+	if (at == std::string::npos)
+		return t;
+	bool const dual = t.find("index = 1") != std::string::npos;
+	std::string head = "#version 300 es\n";
+	if (dual && s_dual_source)
+		head += "#extension GL_EXT_blend_func_extended : require\n";
+	head += "precision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp usampler2D;\n"
+		"#define TEXEL_BGRA 1\n";
+	t.replace(at, v330.size(), head);
+	if (dual && !s_dual_source)
+	{
+		auto sub = [&t](const char *a, const char *b) {
+			size_t const p = t.find(a);
+			if (p != std::string::npos)
+				t.replace(p, strlen(a), b);
+		};
+		sub("layout(location = 0, index = 0) out vec4 o_color;", "layout(location = 0) out vec4 o_color;");
+		sub("layout(location = 0, index = 1) out vec4 o_prefog;", "vec4 o_prefog;");
+	}
+	return t;
+}
+#endif
 
 GLuint compile(GLenum type, const char *src)
 {
 	// RT_GPU_DEFINES="A B" (profiling): #define A, B after the #version line
 	std::string text(src);
+#ifdef VIPER_GLES
+	text = es_source(text);
+#endif
 	if (const char *d = getenv("RT_GPU_DEFINES"))
 	{
 		std::string defs, word;
@@ -753,7 +881,7 @@ GLuint compile(GLenum type, const char *src)
 	return s;
 }
 
-GLuint link(const char *vs, const char *fs)
+GLuint link_program(const char *vs, const char *fs)
 {
 	GLuint v = compile(GL_VERTEX_SHADER, vs), f = compile(GL_FRAGMENT_SHADER, fs);
 	if (!v || !f)
@@ -788,6 +916,12 @@ struct executor
 {
 	SDL_GLContext ctx = nullptr;
 	GLuint draw_prog = 0, display_prog = 0, overlay_prog = 0, copy_prog = 0, vram_fbo = 0;
+#ifdef VIPER_MOBILE
+	GLuint ui_prog = 0, ui_tex = 0;         // the touch controls
+	GLint ui_dst = -1, ui_uv = -1, ui_alpha = -1;
+	int ui_w = 0, ui_h = 0;
+	unsigned ui_version = ~0u;
+#endif
 	GLint c_rows = -1, c_pages = -1, c_w = -1, c_scale = -1, c_margin = -1;
 	GLint u_size = -1, u_scale = -1, u_margin = -1, u_dispw = -1, u_state = -1;
 	uint32_t state = ~0u;           // the state record in the uniforms
@@ -795,6 +929,9 @@ struct executor
 	GLuint vao = 0, vbo = 0;
 	GLuint vram = 0, lut = 0, tri = 0, overlay = 0, blur = 0;
 	int blur_w = 0, blur_h = 0;
+#ifdef VIPER_GLES
+	GLuint blur_fbo = 0;            // the snapshot as a framebuffer, blitted into
+#endif
 	int tri_rows = 0, overlay_w = 0, overlay_h = 0;
 	uint32_t vram_pages = 0;
 	std::unordered_map<uint32_t, target> targets;       // by colour buffer offset
@@ -832,6 +969,25 @@ GLuint new_texture(GLenum internal, int w, int h, GLenum format, GLenum type, GL
 	G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	G.TexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0, format, type, nullptr);
 	return t;
+}
+
+// an 0xAARRGGBB image into a texture (the overlay, the touch controls' atlas)
+GLuint new_argb_texture(int w, int h)
+{
+#ifdef VIPER_GLES
+	return new_texture(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR);
+#else
+	return new_texture(GL_RGBA8, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, GL_LINEAR);
+#endif
+}
+
+void upload_argb(int w, int h, const uint32_t *px)
+{
+#ifdef VIPER_GLES
+	G.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+#else
+	G.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, px);
+#endif
 }
 
 void drop_targets()
@@ -883,7 +1039,7 @@ void bind_target(uint32_t color, uint32_t aux, uint32_t rowpixels)
 				d = new_texture(GL_DEPTH_COMPONENT32F, w, h, GL_DEPTH_COMPONENT, GL_FLOAT, GL_NEAREST);
 				G.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, d, 0);
 				G.DepthMask(GL_TRUE);
-				G.ClearDepth(1.0);
+				clear_depth();
 				G.Clear(GL_DEPTH_BUFFER_BIT);
 				X.key = ~0u;
 			}
@@ -920,8 +1076,13 @@ void apply_key(uint32_t key)
 	static const GLenum k_depth[8] = { GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS };
 	if (key & vgpu::GK_BLEND)
 	{
+		GLenum dst = k_dst[(key >> vgpu::GK_DST_SHIFT) & 15];
+#ifdef VIPER_GLES
+		if (dst == GL_SRC1_COLOR && !s_dual_source)
+			dst = GL_SRC_COLOR;         // the colour before fog: after it, without a second output
+#endif
 		G.Enable(GL_BLEND);
-		G.BlendFuncSeparate(k_src[(key >> vgpu::GK_SRC_SHIFT) & 15], k_dst[(key >> vgpu::GK_DST_SHIFT) & 15],
+		G.BlendFuncSeparate(k_src[(key >> vgpu::GK_SRC_SHIFT) & 15], dst,
 			(key & vgpu::GK_SRCA_ONE) ? GL_ONE : GL_ZERO, (key & vgpu::GK_DSTA_ONE) ? GL_ONE : GL_ZERO);
 	}
 	else
@@ -1008,10 +1169,22 @@ void snapshot(uint32_t color)
 		X.blur_h = t.h;
 	}
 	G.BindTexture(GL_TEXTURE_2D, X.blur);
+#ifdef VIPER_GLES
+	// a blit, the GPU's own copy: CopyTexSubImage2D from a render target holds Apple's OpenGL ES
+	// (on Metal) up for most of a frame, and the motion blur takes a snapshot at every frame
+	if (!X.blur_fbo)
+		G.GenFramebuffers(1, &X.blur_fbo);
+	G.BindFramebuffer(GL_DRAW_FRAMEBUFFER, X.blur_fbo);
+	G.FramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, X.blur, 0);
+	G.BindFramebuffer(GL_READ_FRAMEBUFFER, t.fbo);
+	G.BlitFramebuffer(0, 0, t.w, t.h, 0, 0, t.w, t.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	G.BindFramebuffer(GL_FRAMEBUFFER, X.cur != nullptr ? X.cur->fbo : t.fbo);
+#else
 	G.BindFramebuffer(GL_FRAMEBUFFER, t.fbo);
 	G.CopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, t.w, t.h);
 	if (X.cur != nullptr)
 		G.BindFramebuffer(GL_FRAMEBUFFER, X.cur->fbo);
+#endif
 }
 
 void execute(vgpu::frame_list &l)
@@ -1112,11 +1285,48 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	rt_log("gpu: %s, %s, OpenGL %s\n", (const char *)G.GetString(GL_VENDOR), (const char *)G.GetString(GL_RENDERER),
 		(const char *)G.GetString(GL_VERSION));
 	snprintf(X.name, sizeof X.name, "%s (OpenGL %s)", (const char *)G.GetString(GL_RENDERER), (const char *)G.GetString(GL_VERSION));
-	X.draw_prog = link(k_draw_vs, k_draw_fs);
-	X.display_prog = link(k_quad_vs, k_display_fs);
-	X.overlay_prog = link(k_quad_vs, k_overlay_fs);
-	X.copy_prog = link(k_copy_vs, k_copy_fs);
-	if (!X.draw_prog || !X.display_prog || !X.overlay_prog || !X.copy_prog)
+#ifdef VIPER_GLES
+	{
+		// the iOS Simulator's OpenGL ES runs on the CPU (and its shader compiler does not take the
+		// pixel pipeline): there the Voodoo's own software renderer is the faster one
+		const char *renderer = (const char *)G.GetString(GL_RENDERER);
+		if (renderer && strstr(renderer, "Software"))
+		{
+			rt_log("gpu: %s is a software OpenGL: the CPU renderer instead\n", renderer);
+			SDL_GL_DeleteContext(X.ctx);
+			X.ctx = nullptr;
+			return 0;
+		}
+		const char *ext = (const char *)G.GetString(GL_EXTENSIONS);
+		s_dual_source = ext && strstr(ext, "GL_EXT_blend_func_extended");
+		if (!s_dual_source)
+			rt_log("gpu: no dual-source blending: the colour after fog stands for the one before\n");
+#ifdef VIPER_IOS
+		SDL_SysWMinfo info;
+		SDL_VERSION(&info.version);
+		if (SDL_GetWindowWMInfo(win, &info) && info.subsystem == SDL_SYSWM_UIKIT)
+			s_screen_fbo = info.info.uikit.framebuffer;
+#endif
+	}
+#endif
+	X.draw_prog = link_program(k_draw_vs, k_draw_fs);
+#ifdef VIPER_GLES
+	if (!X.draw_prog && s_dual_source)          // the extension named, its qualifier not taken
+	{
+		rt_log("gpu: the pixel pipeline again, without dual-source blending\n");
+		s_dual_source = false;
+		X.draw_prog = link_program(k_draw_vs, k_draw_fs);
+	}
+#endif
+	X.display_prog = link_program(k_quad_vs, k_display_fs);
+	X.overlay_prog = link_program(k_quad_vs, k_overlay_fs);
+	X.copy_prog = link_program(k_copy_vs, k_copy_fs);
+	bool ui_ok = true;
+#ifdef VIPER_MOBILE
+	X.ui_prog = link_program(k_ui_vs, k_ui_fs);
+	ui_ok = X.ui_prog != 0;
+#endif
+	if (!X.draw_prog || !X.display_prog || !X.overlay_prog || !X.copy_prog || !ui_ok)
 	{
 		SDL_GL_DeleteContext(X.ctx);
 		X.ctx = nullptr;
@@ -1147,6 +1357,13 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	X.d_size = G.GetUniformLocation(X.display_prog, "u_size");
 	G.UseProgram(X.overlay_prog);
 	G.Uniform1i(G.GetUniformLocation(X.overlay_prog, "u_overlay"), 5);
+#ifdef VIPER_MOBILE
+	G.UseProgram(X.ui_prog);
+	G.Uniform1i(G.GetUniformLocation(X.ui_prog, "u_atlas"), 3);
+	X.ui_dst = G.GetUniformLocation(X.ui_prog, "u_dst");
+	X.ui_uv = G.GetUniformLocation(X.ui_prog, "u_uv");
+	X.ui_alpha = G.GetUniformLocation(X.ui_prog, "u_alpha");
+#endif
 	G.UseProgram(X.copy_prog);
 	G.Uniform1i(G.GetUniformLocation(X.copy_prog, "u_src"), 6);
 	X.c_rows = G.GetUniformLocation(X.copy_prog, "u_rows");
@@ -1168,7 +1385,7 @@ int gpu_gl_init(SDL_Window *win, uint32_t vram_size)
 	G.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, X.vram, 0);
 	if (G.CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 		rt_log("gpu: the VRAM copy cannot be drawn into\n");
-	G.BindFramebuffer(GL_FRAMEBUFFER, 0);
+	G.BindFramebuffer(GL_FRAMEBUFFER, s_screen_fbo);
 	G.UseProgram(X.copy_prog);
 	G.Uniform1f(X.c_pages, float(X.vram_pages));
 
@@ -1264,6 +1481,57 @@ extern "C" void gpu_gl_stop(void)
 		SDL_Delay(1);
 }
 
+#ifdef VIPER_MOBILE
+// the touch controls (touch.c): their atlas and this frame's sprites, from the frontend
+static const uint32_t *s_ui_atlas;
+static int s_ui_aw, s_ui_ah;
+static unsigned s_ui_version;
+static std::vector<UiQuad> s_ui_quads;
+
+void gpu_gl_ui(const uint32_t *atlas, int aw, int ah, unsigned version, const UiQuad *q, int n)
+{
+	s_ui_atlas = atlas;
+	s_ui_aw = aw;
+	s_ui_ah = ah;
+	s_ui_version = version;
+	s_ui_quads.assign(q, q + (n > 0 ? n : 0));
+}
+
+static void draw_ui(int dw, int dh)
+{
+	if (s_ui_quads.empty() || !s_ui_atlas || s_ui_aw <= 0 || s_ui_ah <= 0 || dw <= 0 || dh <= 0)
+		return;
+	G.ActiveTexture(GL_TEXTURE3);
+	if (!X.ui_tex || X.ui_w != s_ui_aw || X.ui_h != s_ui_ah)
+	{
+		if (X.ui_tex)
+			G.DeleteTextures(1, &X.ui_tex);
+		X.ui_tex = new_argb_texture(s_ui_aw, s_ui_ah);
+		X.ui_w = s_ui_aw;
+		X.ui_h = s_ui_ah;
+		X.ui_version = ~0u;
+	}
+	G.BindTexture(GL_TEXTURE_2D, X.ui_tex);
+	if (X.ui_version != s_ui_version)
+	{
+		upload_argb(s_ui_aw, s_ui_ah, s_ui_atlas);
+		X.ui_version = s_ui_version;
+	}
+	G.Viewport(0, 0, dw, dh);
+	G.Enable(GL_BLEND);
+	G.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	G.UseProgram(X.ui_prog);
+	for (UiQuad const &q : s_ui_quads)
+	{
+		G.Uniform4f(X.ui_dst, q.x / float(dw), q.y / float(dh), q.w / float(dw), q.h / float(dh));
+		G.Uniform4f(X.ui_uv, q.u0, q.v0, q.u1, q.v1);
+		G.Uniform1f(X.ui_alpha, q.a);
+		G.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
+	G.Disable(GL_BLEND);
+}
+#endif
+
 // show_at: the emulated time up to which a frame in between goes on screen at the next vsync
 // (halfway to the one after: each shows at the vsync nearest its time)
 void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at)
@@ -1333,7 +1601,7 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 	}
 	uint32_t const disp = X.show_key != ~0u ? X.show_key : X.disp_color;
 
-	G.BindFramebuffer(GL_FRAMEBUFFER, 0);
+	G.BindFramebuffer(GL_FRAMEBUFFER, s_screen_fbo);
 	X.cur = nullptr;
 	X.key = ~0u;
 	G.Disable(GL_DEPTH_TEST);
@@ -1372,12 +1640,12 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 			{
 				if (X.overlay)
 					G.DeleteTextures(1, &X.overlay);
-				X.overlay = new_texture(GL_RGBA8, ow, oh, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, GL_LINEAR);
+				X.overlay = new_argb_texture(ow, oh);
 				X.overlay_w = ow;
 				X.overlay_h = oh;
 			}
 			G.BindTexture(GL_TEXTURE_2D, X.overlay);
-			G.TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ow, oh, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, overlay);
+			upload_argb(ow, oh, overlay);
 			G.Enable(GL_BLEND);
 			G.BlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			G.UseProgram(X.overlay_prog);
@@ -1385,6 +1653,9 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 			G.Disable(GL_BLEND);
 		}
 	}
+#ifdef VIPER_MOBILE
+	draw_ui(dw, dh);
+#endif
 	static int errors;
 	GLenum const err = G.GetError();
 	if (err != GL_NO_ERROR && errors < 10)
@@ -1428,10 +1699,16 @@ static uint64_t s_bench_lists;
 void gpu_gl_run_headless(uint32_t vram_size)
 {
 	SDL_Init(SDL_INIT_VIDEO);
+#ifdef VIPER_GLES
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#endif
 	SDL_Window *win = SDL_CreateWindow("gpu", 0, 0, 64, 64, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
 	if (!win || !gpu_gl_init(win, vram_size))
 	{
@@ -1483,6 +1760,10 @@ void gpu_gl_debug_execute(void *list)
 // the same, timed on the GPU: milliseconds it spent on the list
 double gpu_gl_debug_execute_timed(void *list)
 {
+#ifdef VIPER_GLES
+	execute(*static_cast<vgpu::frame_list *>(list));
+	return 0;
+#else
 	static GLuint query;
 	if (!query)
 		G.GenQueries(1, &query);
@@ -1492,6 +1773,7 @@ double gpu_gl_debug_execute_timed(void *list)
 	GLuint64 ns = 0;
 	G.GetQueryObjectui64v(query, GL_QUERY_RESULT, &ns);
 	return double(ns) / 1e6;
+#endif
 }
 
 // frames in between queued by the lists executed (tools/gpu_replay.cpp), taken off the queue
@@ -1543,7 +1825,7 @@ int gpu_gl_debug_read_target(uint32_t key, uint32_t *out, int max_pixels, int *w
 			uint32_t const p = rgba[size_t(ph - 1 - y) * pw + x];     // bottom row first
 			out[size_t(y) * pw + x] = 0xff000000u | ((p & 0xff) << 16) | (p & 0xff00) | ((p >> 16) & 0xff);
 		}
-	G.BindFramebuffer(GL_FRAMEBUFFER, 0);
+	G.BindFramebuffer(GL_FRAMEBUFFER, s_screen_fbo);
 	G.DeleteFramebuffers(1, &fbo);
 	G.DeleteTextures(1, &tex);
 	X.key = ~0u;

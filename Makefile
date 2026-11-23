@@ -6,6 +6,7 @@
 #   make           GAME=<id>   : build the executable (./td2 for thrild2)
 #   make game      GAME=<id>   : all three steps above (extract, recomp, build)
 #   make distclean GAME=<id>   : remove everything derived from that game's data
+#   make ios       GAME=<id>   : the iOS app's data and Xcode project (ios/README.md); TEAM=<id> signs it
 # GAME defaults to thrild2. The sources and the flags come from tools/buildspec.py, shared with
 # the release launcher (dist/launcher.py); the CHDs are read by tools/chdextract.c, built here.
 
@@ -16,6 +17,12 @@ $(error GAME=$(GAME) has no profile in games/ (see 'make games'))
 endif
 GEN     := generated/$(GAME)
 BUILD   := build/$(GAME)
+# P2P=1 (macOS, tests): link play also through Network.framework, peer to peer, as in the iOS app
+# (runtime/net_p2p.m), to try it between instances on Macs; its own objects and <binary>_p2p
+ifneq ($(P2P),)
+BUILD   := build/$(GAME)-p2p
+BIN     := $(BIN)_p2p
+endif
 .DEFAULT_GOAL := $(BIN)
 
 CC      ?= cc
@@ -38,6 +45,11 @@ VD_OBJS := $(VD_SRCS:%.cpp=$(BUILD)/%.o)
 GL_OBJS := $(GL_SRCS:%.cpp=$(BUILD)/%.o)
 TP_OBJS := $(TP_SRCS:%.c=$(BUILD)/%.o)
 CHDEXTRACT := build/tools/chdextract
+ifneq ($(P2P),)
+CFLAGS += -DVIPER_P2P
+RT_OBJS += $(BUILD)/runtime/net_p2p.o
+LDFLAGS += -framework Network
+endif
 ifeq ($(shell uname -s),Darwin)
 CFLAGS += -DVIPER_NATIVE_HAPTICS
 RT_OBJS += $(BUILD)/runtime/controller_haptics_mac.o
@@ -100,10 +112,14 @@ game:
 	$(MAKE) recomp GAME=$(GAME)
 	$(MAKE) GAME=$(GAME)
 
+# the iOS app (ios/README.md): stages the game data and generates build/ios/<id>/xcode/
+ios:
+	python3 ios/prepare.py $(GAME) $(if $(TEAM),--team $(TEAM))
+
 clean:
 	rm -rf $(BUILD) $(BIN)
 
 distclean: clean
 	rm -rf work/$(GAME) $(GEN) $(BIN)_nvram.bin
 
-.PHONY: games check extract recomp game clean distclean
+.PHONY: games check extract recomp game ios clean distclean

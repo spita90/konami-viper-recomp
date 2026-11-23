@@ -1695,6 +1695,98 @@ came from matching the speedometer read on the frames with the RAM words (GTI Cl
 m/s, three copies in the link buffers and the one in the state struct); the packet writer
 (`0xaf8b0` GTI Club 2, `0x87f30` Thrill Drive 2) then names the car object it copies from.
 
+## 5h. Phone apps (iOS and Android: `ios/`, `android/`)
+
+The same runtime and recompiled game, in the enhanced mode, as an iPhone/iPad app and an Android
+app, with on-screen touch controls. Both are built on the player's computer from their own dumps,
+as the desktop port: the game is compiled into the app's code, so there is no ready-made app
+(iOS only runs code signed into the app; an Android app could load a library built elsewhere,
+but building it needs the computer's compiler and the recompiler anyway).
+
+**Building** (`tools/mobile.py`, shared). `stage()` runs `make extract` / `make recomp` if needed,
+builds the desktop executable and runs `--calibrate FILE`: the first-run calibration alone (a phone
+cannot start the game a second time, headless), whose NVRAM the app copies to its saved NVRAM at
+its first launch (`seed_nvram`, `MOBILE_CALIBRATED_NVRAM` in `main.c`). It then copies the files
+the executable reads beside itself (kernel, CF image, NVRAM, DS2430, BIOS, menu font) at the same
+relative paths. The icon is `docs/images/icon-<game>.png` (a version of a game takes its game's),
+the name under it the title or the first `aka` of 14 characters at most ("GTI Club 2").
+- `ios/prepare.py`: CMake generates an Xcode project (`ios/CMakeLists.txt`, SDL2 from its release
+  sources); `--build sim|device|ipa`. The runtime's source list comes from `tools/buildspec.py`.
+  With CMake 4 the iOS SDK must be named (`CMAKE_SYSTEM_NAME=iOS`, `CMAKE_OSX_SYSROOT=iphoneos`):
+  otherwise SDL's targets have no `SDKROOT` and are built for macOS, or for the SDK's own iOS
+  version instead of 15.0. The app lands in `Release-iphoneos/` (or `Release/`).
+- `android/prepare.py`: the Gradle project is SDL's `android-project` (from the same SDL release)
+  with `android/app.gradle`, `AndroidManifest.xml`, `java/` and `CMakeLists.txt` over it; the
+  game's files are the APK's assets, listed in `viper_files.txt` with a stamp per build. Release
+  build signed with the computer's debug key, arm64 only, JDK 17 (Gradle 8.1).
+
+**Defines.** `VIPER_MOBILE` is what both phones share (touch controls, paths, the app's life, menus
+without QUIT or window options, 16:9 and AUTO up to 2X by default); `VIPER_IOS` and `VIPER_ANDROID`
+what is theirs; `VIPER_GLES` the renderer on OpenGL ES 3.0; `VIPER_P2P` the iOS link to the phones
+nearby (also `make P2P=1` on macOS, to test it). None is defined for the desktop builds, whose
+preprocessed sources were compared with the previous release: only equivalent wrappers,
+always-zero stubs (`enh_link_menu_active`, `frontend_tilt_available`), `--calibrate` and a renamed
+function (`link_program`: Android's `unistd.h` has a global `link()`).
+
+**Platform layer** (`runtime/platform_mobile.h`).
+- iOS (`platform_ios.m`): Documents for the saves (visible in the Files app), the safe area, tilt
+  from CoreMotion's gravity, a haptic tap; and, iOS only (`platform_ios.h`), a display link on the
+  main run loop that paces the frame loop (the swap does not wait for the vsync there; waiting in
+  the run loop also lets UIKit deliver the touches).
+- Android (`platform_android.c`): the assets copied to the internal storage at the first launch of
+  a build (`mobile_game_dir`, which `find_executable` takes as the executable's folder), the saves
+  there, tilt from the accelerometer (SDL's sensors; gravity is the opposite of the reading), the
+  display cutout and the haptic tap through JNI (`ViperActivity.safeInsets`, `hapticTap`), and
+  stderr into logcat (tag `viper`: a pipe read by a thread, set up as the library loads). The
+  swap waits for the vsync, as on the desktop.
+- The app's life (`frontend_sdl.c`): before the background the frame loop stops drawing (OpenGL in
+  the background ends an iOS app), the sound pauses and the NVRAM is saved; back in a race, the
+  game is paused, except in a linked race. Settings that restart the game save and close the app
+  (an app cannot start itself again). A guard file around the GPU renderer's start: found at the
+  next launch, the app died in between, and the software renderer is chosen.
+
+**Touch controls** (`runtime/touch.c`). Three layouts follow the screen: driving (a stick where the
+thumb lands, BRAKE and GAS a thumb can slide between, shifting, VIEW, pause or ✕ in a linked race),
+menus (BACK; a tap on an item: the overlay records where it drew each item and the cursor that
+selects it, `hit_item` in `enhanced.c`, and `enh_menu_tap` moves the cursor and presses OK), and
+the rankings' name entry. The sprites are drawn once into an atlas at the screen's pixel size, and
+drawn as quads over everything (`gpu_gl_ui`, or the SDL renderer). The JOIN screen is a list of
+rows to tap on the phones (`JOIN_LIST`): the code (a tap brings up the keyboard, through
+`enh_join_request` to the frontend's thread), PASTE, JOIN, on iOS the games nearby, BACK.
+
+**The GPU renderer on OpenGL ES 3.0** (`es_source` in `gpu_gl.cpp`: the same shaders with the ES
+version line and precisions; the ARGB layers uploaded as bytes and swizzled, `TEXEL_BGRA`).
+- Neither the A15 (iPhone SE 3) nor the Mali-G710 (OnePlus) has `GL_EXT_blend_func_extended`: the
+  "colour before fog" blend factor falls back to the colour after fog. Replaying 300 attract
+  frames of each game both ways (`tools/gpu_replay.cpp`, `RT_GPU_CAPTURE`), the factor was never
+  used and no frame differed.
+- **Motion blur at widescreen** (`CMD_SNAPSHOT`): `glCopyTexSubImage2D` from the render target
+  holds Apple's OpenGL ES (on Metal) up for most of a frame, and the blur takes a snapshot at every
+  frame: Thrill Drive 2 fell to about 10 fps there (4:3, without snapshots, was fine). With GLES
+  it is a `glBlitFramebuffer` into the snapshot's framebuffer: 47–61 vsyncs a second through the
+  blur. On the desktop both cost the same (1364×1024: 0.30 against 0.29 ms on an M-series Mac,
+  identical frames), so the desktop keeps the copy.
+- On iOS the screen is UIKit's framebuffer (`s_screen_fbo`), not 0. The iOS Simulator's OpenGL ES
+  runs on the CPU: there the software renderer is used.
+- **FRAME RATE on a phone** (iPhone SE 3, 2X, `RT_FPS_STATS=1` through `devicectl`): the original
+  rate holds 60 vsyncs a second; 60 FPS shows 47–56 frames of 60, the game's thread waiting for the
+  lists. Kept in the menu, for faster phones.
+
+**Link play.** Android has the desktop's link (sockets, UPnP / NAT-PMP, session codes). The iOS app
+has it too, and `VIPER_P2P` adds a second transport (`net_p2p.m`, Network.framework with
+peer-to-peer, Bonjour `_viperlink._udp`): the host opens its socket and also advertises its game
+as "<tag> <game> <protocol>"; a member joins by the code (the socket) or by the tag (a connection,
+no socket). Each connection stands as an address of its own (`fd00::`, `p2p_owns`), so `link_send`
+and `receive` pick the transport by the address and the host's members can be on either. The iOS
+SDK has no `<net/route.h>` for libnatpmp's gateway lookup: `ios/compat/net/route.h` declares the
+few routing-message definitions it reads (checked against the macOS SDK's values and layout; on an
+iPhone SE it found the router). UPnP's discovery is multicast, which iOS does not let an app send
+without Apple's multicast entitlement, so an iOS host opens its port with NAT-PMP only (and FIND,
+broadcast, does not find a host on the same network from iOS).
+With `VIPER_P2P` a linked race also has the LEAVE / CLOSE panel (it never pauses) and the PLAYER N
+DISCONNECTED notice.
+
+
 ## 6. Current status (2026-09-29)
 
 Thrill Drive 2 is working:
