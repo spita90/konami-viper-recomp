@@ -13,19 +13,33 @@ version can change the build, the profiles or the command-line options.
   project (`ios/`). It has the GPU renderer on OpenGL ES 3.0, and on-screen touch controls: a
   steering stick, pedals, shifting, VIEW and pause in a race, tapping the menu items, and the name
   entry. It also has tilt steering (OPTIONS > CONTROLS > STEERING), pauses and saves in the
-  background, and keeps its saves in Documents. Its multiplayer links the phones nearby with no
-  router: over a shared Wi-Fi network or directly, phone to phone (Network.framework, peer to peer;
-  HOST A GAME shows a tag, JOIN A GAME lists the games nearby). See
-  [ios/README.md](ios/README.md). The desktop builds do not change.
+  background, and keeps its saves in Documents. See [ios/README.md](ios/README.md).
+- Android app: `python3 android/prepare.py <id> --install` builds the APK on a Mac or Linux with
+  the Android SDK and installs it on the phone connected (`android/`). The same touch controls,
+  menus and options as the iOS app, the GPU renderer on OpenGL ES 3.0, tilt steering from the
+  accelerometer. See [android/README.md](android/README.md).
+- Link play on the phones: the apps link as the desktop ports do, over the Internet with a session
+  code, together with the desktop ports. The JOIN screen is a list to tap there: the code (a tap
+  brings up the keyboard), PASTE, JOIN. The iOS app also races with the iPhones and iPads next to
+  it with no router, over a shared Wi-Fi network or directly, phone to phone (Network.framework,
+  peer to peer): HOST A GAME also shows the game's tag for the phones nearby, and JOIN A GAME lists
+  the games nearby.
 - iOS app, link play: the touch controls' ✕ (a gamepad's Back) in a linked race asks LEAVE / CLOSE
   THE SESSION in a small panel while the race goes on. STAY is the default, it goes away by itself
   after 5 seconds, and confirming goes back to the main menu. A player who drops out of a game
   is shown as PLAYER N DISCONNECTED to the others.
-- `python3 ios/prepare.py <id> --build ipa`: the app as an unsigned IPA, for a sideloading tool that
-  signs it with your Apple ID.
-- `make P2P=1` (macOS, tests): the iOS app's link transport in a desktop build (`<binary>_p2p`), to
-  try it on a Mac. It replaces the Internet link play of that executable.
-- `--calibrate FILE`: the first-run calibration alone, into that NVRAM file (the iOS app's).
+- The apps' icons, one per game: `docs/images/icon-thrild2.png`, `docs/images/icon-gticlub2.png`.
+- `python3 ios/prepare.py <id> --build ipa`: the iOS app as an unsigned IPA, for a sideloading
+  tool that signs it with your Apple ID.
+- `make P2P=1` (macOS, tests): the iOS app's link to the phones nearby in a desktop build
+  (`<binary>_p2p`), beside its Internet link play, to try it on a Mac.
+- `--calibrate FILE`: the first-run calibration alone, into that NVRAM file (the phone apps').
+
+### Fixed
+
+- `tools/gpu_replay.cpp` links again with the GPU renderer (the frame statistics of 0.21.0).
+
+The desktop builds do not change: what the apps add is behind defines only their builds set.
 
 ## [0.21.0] - 2026-11-22
 

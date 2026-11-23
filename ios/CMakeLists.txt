@@ -10,9 +10,12 @@
 # the app's services (runtime/touch.c, runtime/platform_ios.m). SDL2 is built from its release
 # sources, fetched once.
 cmake_minimum_required(VERSION 3.21...3.30)   # 3.30: FetchContent without a sub-build (CMP0168)
+# iOS for every target, SDL's too (ios/prepare.py also passes these): CMake 4 no longer gives
+# the iOS SDK by itself, and a target without it is built for macOS, or for the SDK's own iOS
 if(NOT DEFINED CMAKE_SYSTEM_NAME)
   set(CMAKE_SYSTEM_NAME iOS)
 endif()
+set(CMAKE_OSX_SYSROOT iphoneos CACHE STRING "")
 set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0 CACHE STRING "")
 set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "")
 set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH YES)
@@ -49,8 +52,23 @@ FetchContent_Declare(SDL2
 FetchContent_MakeAvailable(SDL2)
 
 # ------------------------------------------------------------------ the app
-set(RUNTIME_C cpu sched hw main frontend_sdl enhanced modes interp touch net)
-set(VOODOO_CPP voodoo voodoo_2 voodoo_banshee voodoo_render voodoo_bridge voodoo_gpu)
+# the runtime's sources from tools/buildspec.py, as the desktop build takes them (with the link's
+# UPnP and NAT-PMP, third_party), and the app's own: touch.c, platform_ios.m, net_p2p.m
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" -I -c
+    "import sys; sys.path.insert(0, sys.argv[1]); import buildspec as b; print(' '.join(b.RUNTIME_C) + '|' + ' '.join(b.VOODOO_CPP) + '|' + ' '.join(b.sources(sys.argv[2], 'Darwin')['third_party']))"
+    "${ROOT}/tools" "${ROOT}"
+  OUTPUT_VARIABLE SPEC OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ROOT}/tools/buildspec.py")
+string(REPLACE "|" ";" SPEC "${SPEC}")
+list(GET SPEC 0 RUNTIME_C)
+list(GET SPEC 1 VOODOO_CPP)
+list(GET SPEC 2 TP_C)
+separate_arguments(TP_C UNIX_COMMAND "${TP_C}")
+separate_arguments(RUNTIME_C UNIX_COMMAND "${RUNTIME_C}")
+separate_arguments(VOODOO_CPP UNIX_COMMAND "${VOODOO_CPP}")
+list(APPEND RUNTIME_C touch)
 list(TRANSFORM RUNTIME_C PREPEND "${ROOT}/runtime/")
 list(TRANSFORM RUNTIME_C APPEND ".c")
 list(TRANSFORM VOODOO_CPP PREPEND "${ROOT}/runtime/voodoo/")
@@ -63,7 +81,7 @@ list(TRANSFORM GEN_C PREPEND "${ROOT}/")
 
 set(LAUNCH_SCREEN "${CMAKE_CURRENT_SOURCE_DIR}/LaunchScreen.storyboard")
 set(OBJC_SRCS "${ROOT}/runtime/platform_ios.m" "${ROOT}/runtime/net_p2p.m")
-add_executable(app MACOSX_BUNDLE ${RUNTIME_C} ${VOODOO_CPP} "${ROOT}/runtime/gpu_gl.cpp" ${OBJC_SRCS} ${GEN_C}
+add_executable(app MACOSX_BUNDLE ${RUNTIME_C} ${VOODOO_CPP} "${ROOT}/runtime/gpu_gl.cpp" ${OBJC_SRCS} ${GEN_C} ${TP_C}
                ${LAUNCH_SCREEN})
 set_source_files_properties(${LAUNCH_SCREEN} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 if(APP_ASSETS AND IS_DIRECTORY "${APP_ASSETS}")
@@ -73,7 +91,14 @@ if(APP_ASSETS AND IS_DIRECTORY "${APP_ASSETS}")
 endif()
 
 target_include_directories(app PRIVATE "${ROOT}/runtime" "${ROOT}/runtime/voodoo" "${GEN}")
-target_compile_definitions(app PRIVATE VIPER_IOS VIPER_GLES VIPER_P2P)
+target_compile_definitions(app PRIVATE VIPER_IOS VIPER_MOBILE VIPER_GLES VIPER_P2P MINIUPNP_STATICLIB NATPMP_STATICLIB)
+# UPnP and NAT-PMP's headers for the C sources only, as tools/buildspec.py: libnatpmp's folder has a
+# file named "version", which C++'s <version> would find first; ios/compat has the <net/route.h>
+# the iOS SDK lacks, for libnatpmp's getgateway.c
+set_source_files_properties(${RUNTIME_C} ${TP_C} PROPERTIES INCLUDE_DIRECTORIES
+  "${ROOT}/third_party/miniupnpc/include;${ROOT}/third_party/miniupnpc/src;${ROOT}/third_party/libnatpmp")
+set_property(SOURCE "${ROOT}/third_party/libnatpmp/getgateway.c" APPEND PROPERTY INCLUDE_DIRECTORIES
+  "${CMAKE_CURRENT_SOURCE_DIR}/compat")
 set_target_properties(app PROPERTIES C_STANDARD 11 C_EXTENSIONS OFF CXX_STANDARD 20 CXX_EXTENSIONS OFF)
 # as tools/buildspec.py: -ffp-contract=off keeps the floating point as the original's, the guest's
 # rounding mode is set at run time (-frounding-math); optimized also in Debug (the game is too
@@ -86,6 +111,8 @@ set_source_files_properties(${GEN_C} PROPERTIES COMPILE_OPTIONS "${C_FLAGS};-fro
 set_source_files_properties(${VOODOO_CPP} "${ROOT}/runtime/gpu_gl.cpp" PROPERTIES
                             COMPILE_OPTIONS "-O2;-Wno-unused-private-field;-Wno-deprecated-declarations;-Wno-duplicate-decl-specifier")
 set_source_files_properties(${OBJC_SRCS} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+set_source_files_properties(${TP_C} PROPERTIES COMPILE_OPTIONS
+  "-O2;-w;-DMINIUPNPC_SET_SOCKET_TIMEOUT;-DMINIUPNPC_GET_SRC_ADDR;-D_BSD_SOURCE;-D_DEFAULT_SOURCE;-D_DARWIN_C_SOURCE")
 # SDL2main provides main() and calls the program's, renamed
 set_source_files_properties("${ROOT}/runtime/main.c" PROPERTIES COMPILE_DEFINITIONS "main=SDL_main")
 

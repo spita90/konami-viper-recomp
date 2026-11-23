@@ -24,6 +24,13 @@ extern "C" void rt_log(const char *fmt, ...)
 bool voodoo_gpu_take(std::vector<vgpu::frame_list> &) { return false; }
 void voodoo_gpu_recycle(std::vector<vgpu::frame_list> &lists) { lists.clear(); }
 extern "C" void voodoo_set_gpu(int) {}
+// RT_FPS_STATS's sources in the game (gpu_gl_frame): none here
+extern "C" double voodoo_gpu_wait_ms_take(void) { return 0; }
+extern "C" double interp_ms_take(void) { return 0; }
+extern "C" void frontend_diag_take(unsigned *audio_short, unsigned *behind_ms, unsigned *resyncs)
+{
+	*audio_short = *behind_ms = *resyncs = 0;
+}
 
 extern "C" int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
 extern "C" void gpu_gl_debug_load(const uint32_t *vram, const uint32_t *luts, int rows);

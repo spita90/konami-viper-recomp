@@ -1,6 +1,6 @@
-/* The link's transport through Network.framework, peer to peer (runtime/net_p2p.m): VIPER_P2P,
- * the iOS app (and a macOS build to test it, make P2P=1). net.c keeps its datagrams and its
- * addresses: each connection stands as an address of its own (see p2p_send). */
+/* The link's second transport, through Network.framework, peer to peer (runtime/net_p2p.m):
+ * VIPER_P2P, the iOS app (and a macOS build to test it, make P2P=1), beside the socket. net.c keeps
+ * its datagrams and its addresses: each connection stands as an address of its own (p2p_owns). */
 #pragma once
 #include <stddef.h>
 #include <sys/socket.h>
@@ -14,6 +14,7 @@ void p2p_close(void);                       /* every connection, the listener */
 int p2p_send(const struct sockaddr_storage *to, const void *p, int len);
 int p2p_recv(void *buf, int max, struct sockaddr_storage *from, socklen_t *len);
 void p2p_host_addr(struct sockaddr_storage *a, socklen_t *len);     /* a member: the host's */
+int p2p_owns(const struct sockaddr_storage *a);   /* a connection's address (not the socket's) */
 /* looking for games nearby (the JOIN screen): their Bonjour names, as found so far */
 void p2p_browse(int on);
 int p2p_games(char names[][64], int max);

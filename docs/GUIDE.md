@@ -327,3 +327,4 @@ make -j8     GAME=thrild2     # generated/thrild2/ + runtime/ -> ./td2
 | `docs/`           | Architecture and reverse-engineering notes, README screenshots                                                                                        |
 | `dist/`           | Release packages: the launcher that builds the games on the player's computer (`viper-setup`), the packaging script                                   |
 | `ios/`            | The iOS app: its Xcode project (CMake), the script that stages the game data for it ([ios/README.md](../ios/README.md))                              |
+| `android/`        | The Android app: its native build (CMake), activity and manifest, the script that builds the APK ([android/README.md](../android/README.md))        |

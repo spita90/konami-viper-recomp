@@ -34,7 +34,7 @@ turn on Developer Mode (Settings > Privacy & Security).
    launch;
 3. it copies what the game reads (the kernel, the CF image, the menu font, the NVRAM, the DS2430
    and the BIOS, about 32 MB) to `build/ios/<id>/data/`;
-4. it makes the app's icon from a frame of the attract mode;
+4. it gives the app the game's icon (`docs/images/icon-<game>.png`, the game's logo from the port's icon);
 5. it generates the Xcode project with CMake (`ios/CMakeLists.txt`), which downloads the SDL2
    sources once.
 
@@ -85,21 +85,29 @@ The app runs in landscape, in the enhanced mode, with 16:9 as the default aspect
   (DISPLAY > RESOLUTION goes higher). If the app ever closes while the GPU renderer starts, the next
   launch uses the software renderer, and DISPLAY > RENDERER switches back.
 
-## Multiplayer, face to face
+## Multiplayer
 
-Up to four iPhones and iPads race together when they are next to each other, with no router, access
-point or SIM card. They link over Wi-Fi: over the network they share if they are on the same one
-(a home network, or a Personal Hotspot), otherwise directly, phone to phone, as AirDrop does.
+The app links as the desktop ports do, over the Internet with a session code
+([Multiplayer](../README.md#multiplayer)): with the desktop ports, the Android app and other
+iPhones. And it races with the iPhones and iPads next to it with no router, access point or SIM
+card: over the Wi-Fi network they share (a home network, or a Personal Hotspot), or directly, phone
+to phone, as AirDrop does. Up to four players.
 
-- **Host:** MULTIPLAYER > HOST A GAME. The screen shows the game's tag, for example GAME K7Q, and
-  each player as they link. START GAME starts the race for everyone linked.
-- **Join:** MULTIPLAYER > JOIN A GAME lists the games nearby. Tap the host's tag.
-- **Wi-Fi switched on** on every phone (in Control Center or Settings), joined to a network or not.
-  Bluetooth is not needed.
+- **Host:** MULTIPLAYER > HOST A GAME. The screen shows the session code, as on the desktop, and
+  below it the game's tag for the phones nearby, for example PHONES NEARBY: GAME K7Q, then each
+  player as they link. START GAME starts the race for everyone linked.
+- **Join:** MULTIPLAYER > JOIN A GAME. Tap the code to type it with the keyboard, or PASTE one you
+  were sent, then JOIN. Below, the games nearby: tap the host's tag.
+- **The router:** for players over the Internet, the host's router must open the port. The app
+  asks it with NAT-PMP; iOS does not let it use UPnP (a multicast that needs Apple's permission),
+  so with a router that only has UPnP, open UDP port 24700 by hand, or host from a desktop port.
+  The phones nearby need nothing of the router.
+- **Wi-Fi switched on** on every phone nearby (in Control Center or Settings), joined to a network
+  or not. Bluetooth is not needed.
 - **Local Network access:** the first time, iOS asks to let the app find devices on the local
   network. Allow it. If it was refused, MULTIPLAYER says so: turn it back on in Settings > Privacy &
   Security > Local Network.
-- **The same app** on every phone: the same game version and the same release of the port.
+- **The same release** of the port and the same game version on every player.
 - **Leaving a race:** a linked race never pauses, as on linked cabinets. The button at the top
   left shows ✕ instead of pause. It asks LEAVE THE SESSION (the host: CLOSE THE SESSION) in a
   small panel at the bottom while you keep driving. STAY is the default, and the panel goes away
@@ -113,32 +121,38 @@ point or SIM card. They link over Wi-Fi: over the network they share if they are
   HOST. A player who leaves the app stops sending, and after 30 seconds is out of the session.
 - **NETWORK ERROR:** if the game itself stops the link, the desktop ports restart it. The app
   closes instead: open it again.
-- The desktop ports link over the Internet with session codes ([Multiplayer](../README.md#multiplayer)).
-  The app links only with the phones nearby, and not with the desktop ports.
 
 ## Development notes
 
-- **The desktop builds are unchanged:** what the app adds to the shared sources is behind
-  `VIPER_IOS`, `VIPER_GLES` and `VIPER_P2P`, which only `ios/CMakeLists.txt` (and `make P2P=1`)
-  define. `runtime/touch.c`, `runtime/platform_ios.m` and `runtime/net_p2p.m` are not in the
-  desktop sources (`tools/buildspec.py`). The desktop executable only gains `--calibrate`, which
-  `ios/prepare.py` uses.
-- **Differences from the desktop build:** `VIPER_IOS` is on (the app's paths, lifecycle and
-  menus), and so is `VIPER_GLES` (OpenGL ES 3.0 in `runtime/gpu_gl.cpp`). `runtime/touch.c` is
-  the touch controls, and `runtime/platform_ios.m` the iOS services: the Documents folder, the safe
-  area, a display link pacing the frame loop, tilt and haptics.
-- **Link play (`VIPER_P2P`):** `runtime/net.c` sends its datagrams through
-  `runtime/net_p2p.m` (Network.framework, peer to peer, Bonjour service `_viperlink._udp`) instead
-  of a socket. Each connection stands for an address, so the rest of the netcode is the same as the
-  desktop's. The app needs `NSLocalNetworkUsageDescription` and `NSBonjourServices`
+- **The desktop builds are unchanged:** what the apps add to the shared sources is behind
+  `VIPER_MOBILE` (what the iOS and Android apps share), `VIPER_IOS`, `VIPER_GLES` and `VIPER_P2P`,
+  which only `ios/CMakeLists.txt`, `android/CMakeLists.txt` and `make P2P=1` define.
+  `runtime/touch.c`, `runtime/platform_ios.m` and `runtime/net_p2p.m` are not in the desktop
+  sources (`tools/buildspec.py`). The desktop executable only gains `--calibrate`, which
+  `tools/mobile.py` uses. [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), section 5h, has the
+  details and the measurements.
+- **Shared with the Android app** ([android/README.md](../android/README.md)): `tools/mobile.py`
+  (the game staged, calibrated, its icon `docs/images/icon-<game>.png` and its name),
+  `runtime/touch.c`, `runtime/platform_mobile.h`.
+- **iOS only:** `runtime/platform_ios.m` (the Documents folder, the safe area, a display link
+  pacing the frame loop, tilt and haptics), `ios/compat/net/route.h` (what libnatpmp reads of the
+  routing table, which the iOS SDK does not declare).
+- **Link play (`VIPER_P2P`):** `runtime/net.c` keeps its socket and adds `runtime/net_p2p.m`
+  (Network.framework, peer to peer, Bonjour service `_viperlink._udp`). Each connection stands for
+  an address, so the rest of the netcode is the same as the desktop's and a host's members can be on
+  either. The app needs `NSLocalNetworkUsageDescription` and `NSBonjourServices`
   (`ios/Info.plist.in`), and no entitlement.
-- **Trying the link on a Mac:** `make P2P=1 GAME=thrild2` builds `./td2_p2p` with the same
-  transport. Two instances link on one Mac, for example headless, with the menu scripted:
+- **Trying the link on a Mac:** `make P2P=1 GAME=thrild2` builds `./td2_p2p` with both transports.
+  Two instances link on one Mac, for example headless, with the menu scripted:
   `RT_ENH_MENU="16:down,16.3:down,16.6:ok,17.2:ok" ./td2_p2p --headless --realtime` hosts, and
-  `RT_ENH_MENU="16:down,16.3:down,16.6:ok,17.2:down,17.5:ok,22:ok" ./td2_p2p --headless --realtime`
-  joins the first game it finds. The Simulator's app links with them too.
+  `RT_ENH_MENU="16:down,16.3:down,16.6:ok,17.2:down,17.4:down,17.6:down,17.8:ok,22:ok" ./td2_p2p --headless --realtime`
+  joins the first game nearby it finds (JOIN's rows: the code, PASTE, JOIN, the games nearby,
+  BACK). The Simulator's app links with them too.
 - **The iOS Simulator:** its OpenGL ES runs on the CPU, so the app uses the software renderer
   there. On a device it is the GPU.
+- **On a device from the command line:** `xcrun devicectl device process launch --console
+  --environment-variables '{"RT_FPS_STATS":"1"}' <bundle id>` shows the log, with the runtime's
+  variables (`RT_FPS_STATS`, `RT_ENH_MENU`...).
 - **Scripted touches** for tests: `RT_TOUCH_SCRIPT="seconds:d|m|u:finger:x:y,..."`, with x and y
   in 0..1 of the window. In the Simulator, prefix the environment variables with `SIMCTL_CHILD_`
   for `xcrun simctl launch`.

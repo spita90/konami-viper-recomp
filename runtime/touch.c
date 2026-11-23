@@ -1,5 +1,5 @@
 /*
- * On-screen touch controls of the iOS app: the cabinet's controls on a phone or tablet (VIPER_IOS
+ * On-screen touch controls of the iOS app: the cabinet's controls on a phone or tablet (VIPER_MOBILE
  * only; the desktop builds do not have this file).
  *
  * Three layouts follow what is on screen (enhanced mode):
@@ -23,7 +23,7 @@
  */
 #include "runtime.h"
 #include "touch.h"
-#include "platform_ios.h"
+#include "platform_mobile.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -130,7 +130,7 @@ static void rect(int e, float x0, float y0, float x1, float y1) {
 
 static void layout(int lay, float ww, float wh) {
     float sl = 0, st = 0, sr = 0, sb = 0;
-    ios_safe_area(&sl, &st, &sr, &sb);
+    mobile_safe_area(&sl, &st, &sr, &sb);
     memset(g_e, 0, sizeof g_e);
     g_ww = ww;
     g_wh = wh;
@@ -208,7 +208,7 @@ static int stick_finger(void) {
 
 static void press(Finger *f, int e) {
     f->elem = e;
-    ios_haptic_tap();
+    mobile_haptic_tap();
     int k = kind_of(e);
     if (k == K_TAP || k == K_REPEAT) fire(e);
     f->repeat_at = SDL_GetTicks() + 400;
@@ -220,7 +220,7 @@ static int menu_tap(float x, float y) {
     if (pw / ph > pa) pw = ph * pa; else ph = pw / pa;
     float nx = (x - (g_ww - pw) / 2) / pw, ny = (y - (g_wh - ph) / 2) / ph;
     if (nx < 0 || ny < 0 || nx > 1 || ny > 1 || !enh_menu_tap(nx, ny)) return 0;
-    ios_haptic_tap();
+    mobile_haptic_tap();
     return 1;
 }
 

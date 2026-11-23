@@ -1,4 +1,4 @@
-/* On-screen touch controls (runtime/touch.c): the iOS app only (VIPER_IOS). */
+/* On-screen touch controls (runtime/touch.c): the iOS app only (VIPER_MOBILE). */
 #pragma once
 #include <SDL.h>
 #include <stdint.h>

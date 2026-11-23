@@ -18,8 +18,8 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
-#ifdef VIPER_IOS
-#include "platform_ios.h"
+#ifdef VIPER_MOBILE
+#include "platform_mobile.h"
 #endif
 #ifdef _WIN32
 #include <windows.h>
@@ -251,7 +251,7 @@ static const char *beside_exe(const char *rel);
  * log, kept only if the pass fails. */
 static int run_scripted_pass(const char *what, const char *script, int seconds, const char *self,
                              const char *work, const char *nvram, const char *nvsave, const char *log) {
-#ifdef VIPER_IOS                        /* no other process on iOS: the app has a calibrated NVRAM */
+#ifdef VIPER_MOBILE                        /* no other process on a phone: the app has a calibrated NVRAM */
     (void)what; (void)script; (void)seconds; (void)self; (void)work; (void)nvram; (void)nvsave; (void)log;
     return -1;
 #else
@@ -338,6 +338,9 @@ static void find_executable(const char *argv0) {
     if (bs > slash) slash = bs;
 #endif
     if (slash) *slash = 0; else snprintf(g_exe_dir, sizeof g_exe_dir, ".");
+#ifdef VIPER_ANDROID                    /* the executable is a library in the APK: the files, out of its assets */
+    snprintf(g_exe_dir, sizeof g_exe_dir, "%s", mobile_game_dir());
+#endif
 }
 
 static const char *beside_exe(const char *rel) {
@@ -350,21 +353,21 @@ static const char *beside_exe(const char *rel) {
  * where the app bundle (the executable's directory, with the game data) is read-only, in the
  * app's Documents (also seen in the Files app) */
 static const char *writable(const char *rel) {
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     char buf[PATH_MAX];
-    snprintf(buf, sizeof buf, "%s/%s", ios_documents_dir(), rel);
+    snprintf(buf, sizeof buf, "%s/%s", mobile_data_dir(), rel);
     return strdup(buf);
 #else
     return beside_exe(rel);
 #endif
 }
 
-#ifdef VIPER_IOS
-/* first launch on iOS: the NVRAM calibrated on the computer that built the app (ios/prepare.py,
+#ifdef VIPER_MOBILE
+/* first launch on a phone: the NVRAM calibrated on the computer that built the app (mobile.py,
  * --calibrate) is the mode's saved NVRAM, as the first-run calibration makes it elsewhere */
-#define IOS_CALIBRATED_NVRAM "calibrated_nvram.bin"
+#define MOBILE_CALIBRATED_NVRAM "calibrated_nvram.bin"
 static void seed_nvram(const char *nvsave) {
-    const char *src = beside_exe(IOS_CALIBRATED_NVRAM);
+    const char *src = beside_exe(MOBILE_CALIBRATED_NVRAM);
     FILE *in = fopen(src, "rb");
     if (!in) { fprintf(stderr, "no %s in the app: the controls are not calibrated\n", src); return; }
     static uint8_t nv[0x2000];
@@ -395,7 +398,7 @@ static void usage(void) {
             "  --settings F    port settings (default " GAME_ENH_SETTINGS ", classic " GAME_SETTINGS ")\n"
             "  --frames DIR    dump every Nth video frame as PPM into DIR (headless)\n"
             "  --frame-every N (default 30)\n"
-            "  --calibrate F   run the first-run calibration into the NVRAM file F, then exit (the iOS app's)\n"
+            "  --calibrate F   run the first-run calibration into the NVRAM file F, then exit (the phone apps')\n"
             "  --net-host      link play: host a session (NETWORK ID 1) at --net-port\n"
             "  --net-join H:P  link play: join the host H:P; it gives the NETWORK ID (enhanced mode)\n"
             "  --net-id N      link play, tests: this node's NETWORK ID (1 = host; 2-4 with --net-peer)\n"
@@ -496,7 +499,7 @@ int main(int argc, char **argv) {
     enh_init(work, settings);
     if (!headless && enh_want_gpu()) voodoo_set_gpu(1);  /* the frontend falls back if it cannot */
     if (headless && getenv("RT_GPU_BENCH")) voodoo_set_gpu(1);   /* benchmark: GPU without a window */
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     if (!headless && !file_exists(nvsave)) seed_nvram(nvsave);
 #else
     if (!headless && !file_exists(nvsave)) run_first_time_calibration(g_exe, work, nvram, nvsave);
@@ -557,7 +560,7 @@ int main(int argc, char **argv) {
     if (frontend_run(scale, scale_explicit) == 2) {      /* enhanced mode: new game settings, reboot the game */
         hw_shutdown();
         fflush(NULL);
-#ifdef VIPER_IOS                        /* no exec on iOS: the player opens the app again (frontend) */
+#ifdef VIPER_MOBILE                        /* no exec on a phone: the player opens the app again (frontend) */
         exit(0);
 #endif
         setenv("RT_RESTARTED", "1", 1);  /* the frontend raises the new window */

@@ -5,11 +5,12 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreMotion/CoreMotion.h>
+#include "platform_mobile.h"
 #include "platform_ios.h"
 #include <math.h>
 #include <string.h>
 
-const char *ios_documents_dir(void) {
+const char *mobile_data_dir(void) {
     static char *dir;
     if (!dir) {
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
@@ -33,7 +34,7 @@ static UIWindow *game_window(void) {
     return scene.windows.firstObject;
 }
 
-void ios_safe_area(float *left, float *top, float *right, float *bottom) {
+void mobile_safe_area(float *left, float *top, float *right, float *bottom) {
     UIEdgeInsets e = game_window().safeAreaInsets;
     *left = (float)e.left;
     *top = (float)e.top;
@@ -97,41 +98,16 @@ void ios_vsync_wait(void) {
     }
 }
 
-/* SDL's launch screen: a window of its own above the game's, faded out by an animation when SDL
- * first pumps its events; until the animation ends it takes the touches. Hidden here at once, and
- * the game's view controller asked again for the home indicator and the edges' gestures (which
- * SDL does at the end of its fade). 1 if one was still up. */
-int ios_hide_launch_screen(void) {
-    int n = 0;
-    for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
-        if (![s isKindOfClass:[UIWindowScene class]]) continue;
-        for (UIWindow *w in ((UIWindowScene *)s).windows)
-            if (!w.hidden && [NSStringFromClass([w.rootViewController class]) hasPrefix:@"SDLLaunch"]) {
-                w.hidden = YES;
-                n++;
-            }
-    }
-    if (n) {
-        UIViewController *vc = game_window().rootViewController;
-        [vc setNeedsUpdateOfHomeIndicatorAutoHidden];
-        [vc setNeedsUpdateOfScreenEdgesDeferringSystemGestures];
-    }
-    return n;
-}
-
-/* UIKit's state of the app: 0 active, 1 inactive, 2 background (the startup log) */
-int ios_app_state(void) { return (int)UIApplication.sharedApplication.applicationState; }
-
 /* ------------------------------------------------------------------ tilt */
 static CMMotionManager *s_motion;
 
-int ios_tilt_available(void) {
+int mobile_tilt_available(void) {
     if (!s_motion) s_motion = [CMMotionManager new];
     return s_motion.deviceMotionAvailable;
 }
 
-void ios_tilt_enable(int on) {
-    if (!ios_tilt_available()) return;
+void mobile_tilt_enable(int on) {
+    if (!mobile_tilt_available()) return;
     if (on && !s_motion.deviceMotionActive) {
         s_motion.deviceMotionUpdateInterval = 1.0 / 60.0;
         [s_motion startDeviceMotionUpdates];
@@ -142,7 +118,7 @@ void ios_tilt_enable(int on) {
 /* Gravity is in the device's portrait frame (x right, y up). With the home side on the right
  * (UIInterfaceOrientationLandscapeRight) the screen's down is -x and its right -y; on the left,
  * +x and +y. Turning the device clockwise moves gravity towards the screen's right. */
-int ios_tilt(double *angle) {
+int mobile_tilt(double *angle) {
     *angle = 0;
     CMDeviceMotion *m = s_motion.deviceMotion;
     if (!m) return 0;
@@ -159,7 +135,7 @@ int ios_tilt(double *angle) {
 }
 
 /* ------------------------------------------------------------------ haptics */
-void ios_haptic_tap(void) {
+void mobile_haptic_tap(void) {
     static UIImpactFeedbackGenerator *gen;
     if (!gen) gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
     [gen impactOccurred];

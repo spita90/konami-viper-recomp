@@ -29,9 +29,12 @@ static int send_controller_rumble(SDL_GameController *pad, Uint16 low, Uint16 hi
 #endif
 #include "controller_rumble.h"
 #include "window_state.h"
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 #include "touch.h"
+#include "platform_mobile.h"
+#ifdef VIPER_IOS
 #include "platform_ios.h"
+#endif
 #endif
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -67,7 +70,7 @@ static SDL_AudioDeviceID g_audio;
 int g_audio_gain = 1;                     /* the game's samples as they are: volume 18 peaks at 57-81% (hw.c) */
 
 /* GPU renderer (gpu_gl.cpp) */
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 void gpu_gl_ui(const uint32_t *atlas, int aw, int ah, unsigned version, const UiQuad *q, int n);
 #endif
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
@@ -78,7 +81,7 @@ int gpu_gl_max_texture(void);
 
 static int16_t sat16(int64_t v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
 static int g_frontend_active;
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 /* the app in the background: no drawing, the game waits in its pacing, the sound is paused */
 static atomic_int g_suspended, g_resumed;
 #define app_suspended() atomic_load(&g_suspended)
@@ -215,20 +218,13 @@ void frontend_set_stick_response(int response) {
 }
 
 /* ------------------------------------------------------------------ touch controls (touch.c) */
-/* STEERING: the touch stick or tilting the device (the iOS app; elsewhere there is no tilt, and
- * the option is not offered) */
+#ifdef VIPER_MOBILE
+/* STEERING: the touch stick or tilting the device (the option is offered only with a motion sensor) */
 static int g_steer_mode;
-int frontend_tilt_available(void) {
-#ifdef VIPER_IOS
-    return ios_tilt_available();
-#else
-    return 0;
-#endif
-}
+int frontend_tilt_available(void) { return mobile_tilt_available(); }
 int frontend_steering_mode(void) { return g_steer_mode; }
 void frontend_set_steering_mode(int mode) { g_steer_mode = mode == 1 && frontend_tilt_available(); }
 
-#ifdef VIPER_IOS
 static int g_touch;                     /* on */
 static TouchOut g_touch_out;            /* this loop's */
 #define MAX_UI_QUADS 64
@@ -241,7 +237,7 @@ static double touch_curve(void) { return 1.0 + 0.5 * frontend_stick_response(); 
 #define TILT_LOCK 0.50          /* full lock at about 29 degrees */
 static int tilt_steer(double *v) {
     double a;
-    if (g_steer_mode != 1 || !ios_tilt(&a)) return 0;
+    if (g_steer_mode != 1 || !mobile_tilt(&a)) return 0;
     double m = (fabs(a) - TILT_DEADZONE) / (TILT_LOCK - TILT_DEADZONE);
     m = m < 0 ? 0 : m > 1 ? 1 : m;
     *v = copysign(pow(m, touch_curve()), a);
@@ -353,7 +349,7 @@ static void apply_inputs(double dt) {
     hold(&ctl.handbrake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_B));
     hold(&ctl.steer_left, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
     hold(&ctl.steer_right, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     hold(&ctl.gas, SRC_TOUCH, g_touch_out.gas);
     hold(&ctl.brake, SRC_TOUCH, g_touch_out.brake);
     hold(&ctl.shift_up, SRC_TOUCH, g_touch_out.shift_up);
@@ -371,7 +367,7 @@ static void apply_inputs(double dt) {
                                        g_stick_deadzone, g_stick_curve);
         if (stick != 0) target = stick;
     }
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     if (!wsel) {                        /* the touch stick, else tilt when nothing else steers */
         double v;
         if (g_touch_out.steer_on) target = controller_axis((int)lround(g_touch_out.steer * 32767), 0.04, touch_curve());
@@ -591,7 +587,7 @@ static void report_display(SDL_Window *win, int gpu, int max_tex, int tw, int th
     enh_set_display((int)ph, max_scale);
 }
 
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 /* the app's life, told synchronously on the main thread: before the background it must stop
  * drawing (OpenGL there ends the app), and the NVRAM is saved as the system may end it there */
 static int SDLCALL app_events(void *ud, SDL_Event *ev) {
@@ -650,7 +646,7 @@ static void draw_touch_sdl(SDL_Renderer *ren, SDL_Texture **tex, unsigned *versi
 #endif
 
 int frontend_run(int scale, int scale_explicit) {
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     /* landscape only; the home indicator and the edges' gestures need a second swipe */
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
@@ -664,7 +660,7 @@ int frontend_run(int scale, int scale_explicit) {
         rt_log("SDL_Init failed: %s\n", SDL_GetError());
         return -1;
     }
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     SDL_AddEventWatch(app_events, NULL);
 #endif
     const char *rumble = getenv("RT_RUMBLE");
@@ -711,7 +707,7 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
         SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     }
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     Uint32 window_flags = SDL_WINDOW_FULLSCREEN | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI;
 #else
     Uint32 window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
@@ -729,12 +725,12 @@ int frontend_run(int scale, int scale_explicit) {
         SDL_RaiseWindow(win);
     }
     int gpu_failed = 0;
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     /* a guard around the GPU renderer's start: a file says it is starting, removed once it has
      * shown a few seconds of the game. Found at the next launch, the app died in between (a driver
      * that does not take the pixel pipeline): the software renderer from then on (DISPLAY,
      * RENDERER brings it back) */
-    snprintf(g_gpu_guard, sizeof g_gpu_guard, "%s/gpu_starting", ios_documents_dir());
+    snprintf(g_gpu_guard, sizeof g_gpu_guard, "%s/gpu_starting", mobile_data_dir());
     if (gpu) {
         FILE *g = fopen(g_gpu_guard, "rb");
         if (g) {
@@ -757,7 +753,7 @@ int frontend_run(int scale, int scale_explicit) {
         }
     }
     /* which chip draws the 3D graphics (also after a RENDERER change, which restarts the game) */
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     if (!gpu) gpu_guard_off();          /* no GPU renderer to guard (it fell back) */
 #endif
     if (gpu) rt_log("renderer: hardware, %s\n", gpu_gl_name());
@@ -771,11 +767,14 @@ int frontend_run(int scale, int scale_explicit) {
     }
     int tw = 512, th = 384, overlay_drawn = 0;
     int max_tex = gpu ? gpu_gl_max_texture() : 0;
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     SDL_Texture *ui_tex = NULL;         /* the touch controls with the SDL renderer */
     unsigned ui_version = 0;
-    /* the frame loop draws once per refresh, waiting for it in UIKit's run loop (platform_ios.m) */
+#ifdef VIPER_IOS
+    /* the frame loop draws once per refresh, waiting for it in UIKit's run loop (platform_ios.m);
+     * elsewhere the swap waits for the vsync, as on the desktop */
     ios_vsync_start(enh_frame_rate() > 60 ? 120 : 60);
+#endif
     int tilt_on = -1;
 #endif
     report_refresh();
@@ -805,19 +804,21 @@ int frontend_run(int scale, int scale_explicit) {
     uint64_t last_frame = 0, last_tick = SDL_GetPerformanceCounter(), last_save = last_tick;
     int running = 1, fs_applied = 0, restart = 0, text_on = 1;
     while (running) {
+#ifdef VIPER_MOBILE
 #ifdef VIPER_IOS
         if (!atomic_load(&g_suspended)) {
             ios_vsync_set_rate(enh_frame_rate() > 60 ? 120 : 60);
             ios_vsync_wait();
         }
-        if (tilt_on != (g_steer_mode == 1)) { tilt_on = g_steer_mode == 1; ios_tilt_enable(tilt_on); }
+#endif
+        if (tilt_on != (g_steer_mode == 1)) { tilt_on = g_steer_mode == 1; mobile_tilt_enable(tilt_on); }
 #endif
         /* text input only for the name entry: SDL starts it with the video, and while it is on
          * macOS opens its accent picker on a held letter key (W, A, S, D while driving). In the iOS
          * app the on-screen keyboard comes up only from the touch controls' KEYS. */
         if (enh_text_input_active() != text_on) {
             text_on = enh_text_input_active();
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
             if (!text_on) SDL_StopTextInput();
 #else
             if (text_on) SDL_StartTextInput(); else SDL_StopTextInput();
@@ -828,22 +829,8 @@ int frontend_run(int scale, int scale_explicit) {
             SDL_SetWindowFullscreen(win, fs_applied ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
         }
         SDL_Event ev;
-#ifdef VIPER_IOS
-        static unsigned diag_frames, diag_touches;
-        static Uint32 diag_at;
-        diag_frames++;
-        if (!diag_at) diag_at = SDL_GetTicks();
-        if (SDL_GetTicks() - diag_at >= 5000 && diag_at < 40000) {     /* the first half minute */
-            rt_log("frontend: %u loops/s, UIKit state %d, %u touches\n", diag_frames / 5, ios_app_state(), diag_touches);
-            diag_frames = 0;
-            diag_at = SDL_GetTicks();
-        }
-#endif
         while (SDL_PollEvent(&ev)) {
-#ifdef VIPER_IOS
-            if (ev.type == SDL_FINGERDOWN) diag_touches++;
-#endif
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
             if (g_touch && touch_event(win, &ev)) continue;
 #endif
             switch (ev.type) {
@@ -857,7 +844,7 @@ int frontend_run(int scale, int scale_explicit) {
 #if SDL_VERSION_ATLEAST(2, 0, 18)
                 if (ev.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED) { vsync_reset(); report_refresh(); }
 #endif
-#ifndef VIPER_IOS                      /* the window is the screen */
+#ifndef VIPER_MOBILE                      /* the window is the screen */
                 if (ev.window.event == SDL_WINDOWEVENT_MOVED || ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                     window_dirty = 1;
                     window_changed = SDL_GetTicks();
@@ -883,8 +870,10 @@ int frontend_run(int scale, int scale_explicit) {
                         enh_code_paste(clip);
                         SDL_free(clip);
                     }
+#ifdef VIPER_P2P
                 } else if (enh_link_menu_active() && (ev.key.keysym.sym == SDLK_RETURN || ev.key.keysym.sym == SDLK_KP_ENTER)) {
                     if (!ev.key.repeat) enh_link_answer(1);    /* leave the session (Esc: stay) */
+#endif
                 } else if ((enh_menu_active() || enh_paused()) && menu_key(ev.key.keysym.sym) >= 0) {
                     int action = menu_key(ev.key.keysym.sym);
                     g_menu_repeat_button = -1;
@@ -914,7 +903,7 @@ int frontend_run(int scale, int scale_explicit) {
                     for (const char *p = ev.text.text; *p; p++) enh_name_type((unsigned char)*p);
                 break;
             case SDL_CONTROLLERAXISMOTION:
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
                 if (pad_matches(ev.caxis.which) && (ev.caxis.value < -16000 || ev.caxis.value > 16000)) touch_hide();
 #endif
                 if (pad_matches(ev.caxis.which) && g_input_focus && ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) {
@@ -930,7 +919,7 @@ int frontend_run(int scale, int scale_explicit) {
                 break;
             case SDL_CONTROLLERBUTTONDOWN:
                 if (pad_matches(ev.cbutton.which)) g_menu_repeat_button = -1;
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
                 if (pad_matches(ev.cbutton.which)) touch_hide();
 #endif
                 if (!pad_matches(ev.cbutton.which) || !g_input_focus) break;
@@ -939,9 +928,12 @@ int frontend_run(int scale, int scale_explicit) {
                     test_rumble(); break;  /* Switch Capture: test the transport independently of game FFB. */
                 }
 #endif
+#ifdef VIPER_P2P
                 if (enh_link_menu_active() && ev.cbutton.button == SDL_CONTROLLER_BUTTON_Y)
                     enh_link_answer(1);         /* leave the session; Back again: stay (the others drive) */
-                else if ((enh_menu_active() || enh_paused()) && menu_button(ev.cbutton.button) >= 0)
+                else
+#endif
+                if ((enh_menu_active() || enh_paused()) && menu_button(ev.cbutton.button) >= 0)
                     menu_pad_press(ev.cbutton.button, SDL_GetTicks());
                 else if (ev.cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
                     if (!enh_escape()) { running = 0; rt_log("frontend: Guide button, quit\n"); }  /* Home: pause/back in play, quit from main menu. */
@@ -965,13 +957,8 @@ int frontend_run(int scale, int scale_explicit) {
             default: break;
             }
         }
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
         if (atomic_load(&g_suspended)) { SDL_Delay(16); continue; }     /* in the background: no drawing */
-        /* SDL's launch screen must not stay over the game, taking its touches: SDL fades it out
-         * at once; still up half a second later, it is hidden here */
-        static int launch_checks;
-        if (launch_checks < 300 && ++launch_checks >= 30 && ios_hide_launch_screen())
-            rt_log("frontend: SDL's launch screen was still up after %d frames, hidden\n", launch_checks);
         if (atomic_exchange(&g_resumed, 0)) {
             vsync_reset();
             /* back in the foreground in a race: paused, as the player left it */
@@ -991,6 +978,19 @@ int frontend_run(int scale, int scale_explicit) {
                 else SDL_StartTextInput();
             }
         }
+        switch (enh_join_request()) {   /* JOIN: a tap on the code, or PASTE */
+        case 1:
+            if (SDL_IsTextInputActive()) SDL_StopTextInput();
+            else SDL_StartTextInput();
+            break;
+        case 2: {
+            char *clip = SDL_GetClipboardText();
+            enh_code_paste(clip);
+            SDL_free(clip);
+            break;
+        }
+        default: break;
+        }
 #endif
         menu_pad_repeat(SDL_GetTicks());
         update_rumble((SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
@@ -1009,7 +1009,7 @@ int frontend_run(int scale, int scale_explicit) {
 #endif
         }
         if (enh_restart_requested()) {
-#ifdef VIPER_IOS                        /* an app cannot start itself again: the player does */
+#ifdef VIPER_MOBILE                        /* an app cannot start itself again: the player does */
             nvram_save();
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, GAME_TITLE,
                 "The new settings are saved. The game closes now: open it again to play with them.", win);
@@ -1049,7 +1049,7 @@ int frontend_run(int scale, int scale_explicit) {
             int oh = th > 768 ? 768 : th, ow = (int)((long)tw * oh / th);
             if (overlay_drawn) memset(frame, 0, (size_t)ow * oh * 4);
             overlay_drawn = g_enhanced && last_frame && enh_draw_overlay_layer(frame, ow, oh);
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
             if (g_touch) {
                 int nq = touch_quads(win, g_ui_quads, MAX_UI_QUADS), aw, ah;
                 unsigned version;
@@ -1058,7 +1058,7 @@ int frontend_run(int scale, int scale_explicit) {
             }
 #endif
             gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, g_show_at);   /* vsync paces */
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
             if (g_gpu_guard_frames >= 0 && last_frame && ++g_gpu_guard_frames > 300) gpu_guard_off();
 #endif
             g_show_at = vsync_tick();
@@ -1076,13 +1076,13 @@ int frontend_run(int scale, int scale_explicit) {
             enh_draw_overlay(frame, tw, th);
             SDL_UpdateTexture(tex, NULL, frame, tw * 4);
         }
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
         if (g_touch) SDL_RenderSetLogicalSize(ren, tw, th);     /* the touch controls drew in pixels */
 #endif
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
         SDL_RenderCopy(ren, tex, NULL, NULL);
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
         if (g_touch) draw_touch_sdl(ren, &ui_tex, &ui_version, touch_quads(win, g_ui_quads, MAX_UI_QUADS));
 #endif
         SDL_RenderPresent(ren);       /* vsync paces this loop */
@@ -1096,7 +1096,7 @@ int frontend_run(int scale, int scale_explicit) {
     update_rumble(0);
     if (window_dirty) save_window(win);
     nvram_save();
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     if (ui_tex) SDL_DestroyTexture(ui_tex);
 #endif
     if (gpu) gpu_gl_shutdown();

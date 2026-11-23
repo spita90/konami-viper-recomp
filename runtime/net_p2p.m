@@ -21,10 +21,6 @@
 #include "net_p2p.h"
 
 void rt_log(const char *fmt, ...);
-void portmap_start(int port);
-void portmap_stop(void);
-void portmap_stop_wait(int wait);
-int portmap_status(char *pub, int publen, int *pubport, char *problem, int problemlen);
 
 #define MAX_PEERS 8
 #define INBOX 128
@@ -294,6 +290,8 @@ void p2p_host_addr(struct sockaddr_storage *a, socklen_t *len) {
 
 int p2p_problem(void) { return s_problem; }
 
+int p2p_owns(const struct sockaddr_storage *a) { return peer_of(a) != 0; }
+
 /* ------------------------------------------------------------------ games nearby */
 static void game_change(nw_browse_result_t r, int add) {
     nw_endpoint_t ep = nw_browse_result_copy_endpoint(r);
@@ -349,15 +347,4 @@ int p2p_games(char names[][64], int max) {
     for (int i = 0; i < n; i++) memcpy(names[i], s_game[i].name, 64);
     pthread_mutex_unlock(&s_lock);
     return n;
-}
-
-/* no router to open a port on: the port mapping of the sockets' transport (portmap.c) is not here */
-void portmap_start(int port) { (void)port; }
-void portmap_stop(void) {}
-void portmap_stop_wait(int wait) { (void)wait; }
-int portmap_status(char *pub, int publen, int *pubport, char *problem, int problemlen) {
-    if (publen > 0) pub[0] = 0;
-    if (problemlen > 0) problem[0] = 0;
-    if (pubport) *pubport = 0;
-    return 0;
 }

@@ -38,10 +38,8 @@ int enh_in_attract(void) { return g_attract; }
 
 /* port settings (<binary>_enhanced_settings.ini, see below); scale: 0 = AUTO, 1-6 = 1X-6X */
 static struct { int fullscreen, show_fps, scale, aspect, renderer, frame_rate, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, { 0 } };
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 #define DEFAULT_ASPECT 2                     /* a phone's screen: 16:9 until chosen otherwise */
-#else
-#define DEFAULT_ASPECT 0
 #endif
 
 /* FRAME RATE: frames a second at most (0 = the game's own); those above the fastest screen
@@ -542,11 +540,14 @@ static char g_settings_path[1024];
  * at most MAX_AUTO_SCALE. The frontend reports that height and the largest scale its renderer
  * takes (software: 2X). */
 #define MAX_SCALE 6
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 #define MAX_AUTO_SCALE 2                     /* a phone: its battery and its heat before sharpness */
 #else
 #define MAX_AUTO_SCALE 3
 #endif
+#define AUTO_SCALE_STR(n) #n
+#define AUTO_SCALE_TEXT_(n) AUTO_SCALE_STR(n)
+#define AUTO_SCALE_TEXT AUTO_SCALE_TEXT_(MAX_AUTO_SCALE)      /* the settings file's comment */
 static int g_disp_h, g_max_scale = 2, g_scale_applied;
 static int effective_scale(void) {
     int n = g_set.scale ? g_set.scale : g_disp_h > 0 ? (g_disp_h + 384 - 1 - 16) / 384 : 1;
@@ -582,7 +583,9 @@ static void settings_load(void) {
             /* before AUTO: 1X was the default, so only a 2X is a choice to keep */
             else if (!strcmp(key, "render_scale")) g_set.scale = v == 2 ? 2 : 0;
             else if (!strcmp(key, "rumble_multiplier")) frontend_set_rumble_multiplier(v);
+#ifdef VIPER_MOBILE
             else if (!strcmp(key, "steering")) frontend_set_steering_mode(v);
+#endif
             else if (!strcmp(key, "aspect")) g_set.aspect = v < 0 || v >= N_ASPECTS ? 0 : v;
             else for (int i = 0; i < 4; i++) if (!strcmp(key, k_win_key[i])) g_set.win[i] = v;
         }
@@ -595,11 +598,13 @@ static void settings_save(void) {
     fprintf(f, "# " GAME_TITLE "%s: port settings\n", g_enhanced ? ", enhanced mode" : "");
     if (g_enhanced) {
         fprintf(f, "fullscreen = %d\nshow_fps = %d\n", g_set.fullscreen, g_set.show_fps);
-        fprintf(f, "# 0 = AUTO (from the window's height, up to 3X), 1-6 = 1X-6X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
+        fprintf(f, "# 0 = AUTO (from the window's height, up to " AUTO_SCALE_TEXT "X), 1-6 = 1X-6X; the software renderer stops at 2X\nresolution = %d\n", g_set.scale);
         fprintf(f, "# 0 = 4:3, 1 = 16:10, 2 = 16:9, 3 = 21:9\naspect = %d\n", g_set.aspect);
         fprintf(f, "stick_response = %d\n", frontend_stick_response());
         fprintf(f, "rumble_multiplier = %d\n", frontend_rumble_multiplier());
+#ifdef VIPER_MOBILE
         if (frontend_tilt_available()) fprintf(f, "# touch controls: 0 = the steering stick, 1 = tilt the device\nsteering = %d\n", frontend_steering_mode());
+#endif
         fprintf(f, "# 0 = hardware (GPU, when this computer has OpenGL 3.3), 1 = software\nrenderer = %d\n", g_set.renderer);
         if (interp_supported())
             fprintf(f, "# frames in between (hardware renderer): 0 = original, 60 or 120 = at most that many a second\n"
@@ -612,7 +617,9 @@ static void settings_save(void) {
 
 int enh_want_gpu(void) { return g_enhanced && g_set.renderer == 0; }
 /* the GPU renderer failed to start (the frontend's guard, iOS): SOFTWARE from now on, as chosen */
+#ifdef VIPER_MOBILE
 void enh_renderer_software(void) { if (g_enhanced && !g_set.renderer) { g_set.renderer = 1; settings_save(); } }
+#endif
 int enh_frame_rate(void) { return g_enhanced ? g_set.frame_rate : 0; }
 int enh_want_fullscreen(void) { return g_enhanced && g_set.fullscreen; }
 void enh_set_fullscreen(int on) { if (g_enhanced && g_set.fullscreen != !!on) { g_set.fullscreen = !!on; settings_save(); } }
@@ -633,7 +640,9 @@ void enh_set_window(const int *r) {
 
 void enh_init(const char *work, const char *settings) {
     snprintf(g_settings_path, sizeof g_settings_path, "%s", settings);
+#ifdef VIPER_MOBILE
     g_set.aspect = DEFAULT_ASPECT;
+#endif
     settings_load();                     /* also in classic mode: its own file, the window */
     if (!g_enhanced) return;
     count_game_options();
@@ -781,7 +790,7 @@ void enh_hud_dim(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int
     fill_rect(fb, w, h, x0, y0, x1, y1, a, rgb);
 }
 
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 /* the touch controls' labels (touch.c): text in the large game font, px_h pixels high with its
  * shadow; the width it takes in *w, 0 if there is no font (classic mode) */
 int enh_label_width(const char *s, int px_h, int *w) {
@@ -906,9 +915,9 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
        T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_RUMBLE, T_FRAME_RATE, T_SUPPORT,
-       T_STEERING, T_TOUCH, T_TILT, T_NEARBY_HOST, T_NEARBY_LOOKING, T_NEARBY_HINT, T_GAMES_NEARBY,
-       T_LOCAL_DENIED, T_LOCAL_DENIED_HOW, T_LINK_FAIL, T_GAME_GONE, T_LEAVE, T_CLOSE, T_STAY,
-       T_DISCONNECTED, T_COUNT };
+       T_STEERING, T_TOUCH, T_TILT, T_NEARBY_HOST, T_NEARBY_LOOKING, T_GAMES_NEARBY,
+       T_LOCAL_DENIED, T_LOCAL_DENIED_HOW, T_GAME_GONE, T_LEAVE, T_CLOSE, T_STAY,
+       T_DISCONNECTED, T_PASTE, T_JOIN_CODE, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -943,16 +952,14 @@ static const char *const k_text[T_COUNT][2] = {
     { "RUMBLE STRENGTH", "VIBRAZIONE" }, { "FRAME RATE", "FRAME RATE" },
     { "SUPPORT", "SOSTIENI" },
     { "STEERING", "STERZO" }, { "TOUCH", "TOUCH" }, { "TILT", "INCLINAZIONE" },
-    { "THE PLAYERS NEARBY JOIN THIS GAME", "I GIOCATORI VICINI SI UNISCONO A QUESTA PARTITA" },
-    { "LOOKING FOR GAMES NEARBY", "RICERCA DI PARTITE VICINE" },
-    { "WI-FI ON, PHONES CLOSE TOGETHER", "WI-FI ATTIVO, TELEFONI VICINI" },
-    { "GAMES NEARBY", "PARTITE VICINE" },
+    { "PHONES NEARBY: GAME", "TELEFONI VICINI: PARTITA" },
+    { "LOOKING FOR GAMES NEARBY (WI-FI ON)", "RICERCA DI PARTITE VICINE (WI-FI ATTIVO)" },
+    { "OR A GAME NEARBY", "O UNA PARTITA VICINA" },
     { "LOCAL NETWORK ACCESS IS OFF", "ACCESSO ALLA RETE LOCALE NEGATO" },
     { "SETTINGS, PRIVACY, LOCAL NETWORK", "IMPOSTAZIONI, PRIVACY, RETE LOCALE" },
-    { "THE LINK COULD NOT START", "IMPOSSIBILE AVVIARE IL COLLEGAMENTO" },
     { "THE GAME IS NO LONGER NEARBY", "LA PARTITA NON E PIU VICINA" },
     { "LEAVE", "ESCI" }, { "CLOSE", "CHIUDI" }, { "STAY", "RESTA" },
-    { "DISCONNECTED", "DISCONNESSO" },
+    { "DISCONNECTED", "DISCONNESSO" }, { "PASTE", "INCOLLA" }, { "JOIN", "UNISCITI" },
 };
 static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
@@ -983,7 +990,7 @@ static int main_items(int *items) {
     items[n++] = T_MULTIPLAYER;
     items[n++] = T_OPTIONS;
     items[n++] = T_SUPPORT;
-#ifndef VIPER_IOS                           /* an iOS app is not quit by itself */
+#ifndef VIPER_MOBILE                           /* an iOS app is not quit by itself */
     items[n++] = T_QUIT;
 #endif
     return n;
@@ -1002,6 +1009,7 @@ static volatile int g_starting;            /* START GAME chosen, waiting for the
 static volatile uint64_t g_starting_frame;
 static volatile int g_apply;               /* 1: write the staged options, 2: written, restart */
 static volatile int g_paused, g_pause_cursor;
+#ifdef VIPER_P2P
 /* a linked race cannot pause (as linked cabinets). With the nearby link (VIPER_P2P: the iOS app,
  * which has no window to close) Esc (the touch controls' exit button) asks instead whether to
  * leave the session (the host: close it for everyone), in a small panel at the bottom while the
@@ -1013,6 +1021,7 @@ static volatile int g_link_menu, g_link_cursor, g_link_left;   /* left: of the t
  * said over the game for a few seconds */
 #define DROP_NOTICE_FRAMES 240
 static volatile int g_drop_id, g_drop_frames;
+#endif
 static int g_pause_controls, g_controls_cursor;
 static volatile int g_returning;           /* MAIN MENU from the pause: back to the attract */
 /* link play: why the session ended, when the player did not leave it (host closed or gone),
@@ -1077,8 +1086,10 @@ static void change_rumble(int dir) {
 }
 
 static void change_steering(void) {
+#ifdef VIPER_MOBILE
     frontend_set_steering_mode(!frontend_steering_mode());
     settings_save();
+#endif
 }
 
 /* the pause menu's CONTROLS: STICK RESPONSE, RUMBLE STRENGTH, STEERING (touch controls with tilt),
@@ -1088,7 +1099,9 @@ static int pause_controls_items(int *items) {
     int n = 0;
     items[n++] = PC_STICK;
     items[n++] = PC_RUMBLE;
+#ifdef VIPER_MOBILE
     if (frontend_tilt_available()) items[n++] = PC_STEERING;
+#endif
     return n;
 }
 
@@ -1143,11 +1156,13 @@ static int page_rows(int page, int *rows) {
     if (page == PAGE_CONTROLS) {
         rows[n++] = -9;
         rows[n++] = -5;
+#ifdef VIPER_MOBILE
         if (frontend_tilt_available()) rows[n++] = -13;
+#endif
         return n;
     }
     if (page == PAGE_DISPLAY) {
-#ifndef VIPER_IOS                           /* always full screen */
+#ifndef VIPER_MOBILE                           /* always full screen */
         rows[n++] = -1;
 #endif
         rows[n++] = -3;
@@ -1217,14 +1232,37 @@ static int net_items(const NetStatus *st, int *items) {
     return n;
 }
 
-#ifdef VIPER_P2P
-/* JOIN with the peer-to-peer link (net_p2p.m): the games nearby, picked from a list as drawn (the
- * frontend's thread); while the screen is up, the link looks for them */
+#if defined(VIPER_MOBILE) || defined(VIPER_P2P)
+#define JOIN_LIST 1                                     /* JOIN as a list of rows, to tap */
+#endif
+#ifdef JOIN_LIST
+/* JOIN in the phone apps: the session code, as everywhere (typed with the on-screen keyboard, which
+ * a tap on the code brings up, or pasted), and on iOS the games nearby (net_p2p.m), picked from a
+ * list as drawn (the frontend's thread); while the screen is up, the link looks for them. The rows: */
+enum { JI_CODE = 100, JI_PASTE, JI_JOIN, JI_BACK };     /* (0-7: a game nearby) */
 static char g_join_tags[8][8];
-static int g_join_n, g_join_drawn;
-static volatile int g_join_cursor;
+static int g_join_n, g_join_drawn, g_join_nearby;      /* nearby: the last join asked was a game nearby */
+static volatile int g_join_cursor, g_join_request;      /* request for the frontend: 1 keyboard, 2 paste */
 
+#ifdef VIPER_P2P
 static void join_list(void) { g_join_n = net_nearby(g_join_tags, 8); }
+#else
+static void join_list(void) { g_join_n = 0; }   /* no transport to the phones nearby */
+#define net_browse(on) ((void)0)
+#define net_link_problem() 0
+#endif
+
+static int join_items(int *items) {
+    int n = 0;
+    items[n++] = JI_CODE;
+    items[n++] = JI_PASTE;
+    items[n++] = JI_JOIN;
+    for (int i = 0; i < g_join_n; i++) items[n++] = i;
+    items[n++] = JI_BACK;
+    return n;
+}
+
+int enh_join_request(void) { int r = g_join_request; g_join_request = 0; return r; }
 
 /* back: no longer looking; a game picked: still looking until the host takes us in (net.c), as
  * iOS keeps the phone-to-phone link up only while something looks or advertises */
@@ -1233,17 +1271,27 @@ static void join_leave(int joining) { if (!joining) net_browse(0); g_screen = SC
 
 static void net_menu_action(int action) {
     if (g_screen == SCREEN_NET_JOIN) {
-#ifdef VIPER_P2P
+#ifdef JOIN_LIST
         if (!g_join_drawn) join_list();          /* not drawn (headless tests): as it is now */
-        int n = g_join_n;
+        int items[16], n = join_items(items);
+        if (g_join_cursor >= n) g_join_cursor = n - 1;
         switch (action) {
-        case ENH_UP: g_join_cursor = (g_join_cursor + n) % (n + 1); break;
-        case ENH_DOWN: g_join_cursor = (g_join_cursor + 1) % (n + 1); break;
+        case ENH_UP: g_join_cursor = (g_join_cursor + n - 1) % n; break;
+        case ENH_DOWN: g_join_cursor = (g_join_cursor + 1) % n; break;
         case ENH_BACK: join_leave(0); break;
-        case ENH_OK:
-            if (g_join_cursor < n) net_request_join(g_join_tags[g_join_cursor]);
-            join_leave(g_join_cursor < n);
+        case ENH_OK: {
+            int it = items[g_join_cursor];
+            if (it == JI_CODE) g_join_request = 1;
+            else if (it == JI_PASTE) g_join_request = 2;
+            else if (it == JI_JOIN) enh_code_key('\r');
+            else if (it == JI_BACK) join_leave(0);
+            else {
+                g_join_nearby = 1;
+                net_request_join(g_join_tags[it]);
+                join_leave(1);
+            }
             break;
+        }
         default: break;
         }
 #else
@@ -1272,7 +1320,7 @@ static void net_menu_action(int action) {
         case T_HOST: net_request_host(); g_net_cursor = 0; break;
         case T_JOIN:
             g_code_len = 0; g_code[0] = 0; g_code_bad = 0; g_screen = SCREEN_NET_JOIN;
-#ifdef VIPER_P2P
+#ifdef JOIN_LIST
             g_join_n = g_join_drawn = g_join_cursor = 0;
             net_browse(1);
 #endif
@@ -1287,11 +1335,7 @@ static void net_menu_action(int action) {
 
 static void menu_to_main(void) { g_screen = SCREEN_MAIN; g_cursor = 0; }
 
-#ifdef VIPER_P2P
-int enh_code_entry_active(void) { return 0; }  /* the games nearby are picked, not typed */
-#else
 int enh_code_entry_active(void) { return enh_menu_active() && g_screen == SCREEN_NET_JOIN; }
-#endif
 int enh_text_input_active(void) { return enh_name_entry_active() || enh_code_entry_active(); }
 
 /* a key of the code entry: a character (typed or pasted), '\b' delete, '\r' join */
@@ -1310,6 +1354,10 @@ void enh_code_key(int ch) {
         if (g_code_len != 7 && g_code_len != 10) return;            /* not typed in full yet */
         if (net_code_decode(g_code, hp, sizeof hp)) { g_code_bad = 1; return; }
         net_request_join(g_code);
+#ifdef VIPER_P2P
+        g_join_nearby = 0;
+        net_browse(0);
+#endif
         g_screen = SCREEN_NET;
         g_net_cursor = 0;
         return;
@@ -1321,7 +1369,8 @@ void enh_code_key(int ch) {
     g_code_bad = 0;
 }
 
-int enh_link_menu_active(void) { return g_link_menu && net_active() && !net_session_over(); }   /* (VIPER_P2P) */
+#ifdef VIPER_P2P
+int enh_link_menu_active(void) { return g_link_menu && net_active() && !net_session_over(); }
 
 /* LEAVE / CLOSE THE SESSION from the race: out of the link, and back to the attract mode as MAIN
  * MENU from the pause (members whose host closed it go back there too, net_tick) */
@@ -1348,10 +1397,13 @@ static void link_action(int action) {          /* a tap on STAY or LEAVE (ENH_OK
     default: break;
     }
 }
+#endif
 
 void enh_menu_action(int action) {
     if (g_paused) { pause_action(action); return; }
+#ifdef VIPER_P2P
     if (enh_link_menu_active()) { link_action(action); return; }
+#endif
     if (!enh_menu_active()) return;
     if (g_screen == SCREEN_PAGE) {
         int rows[MAX_GAME_OPTIONS + 2], n = page_rows(g_page, rows);
@@ -1507,6 +1559,7 @@ static void drop_watch(void) {
 
 static void net_tick(void) {
     if (g_notice_frames > 0 && !enh_turbo() && !g_returning) g_notice_frames--;   /* counted once shown */
+#ifdef VIPER_P2P
     if (g_drop_frames > 0) g_drop_frames--;
     if (g_link_menu && (!net_active() || net_session_over() || g_attract)) g_link_menu = 0;
     static uint64_t ask_until;                       /* the question goes away by itself */
@@ -1514,7 +1567,6 @@ static void net_tick(void) {
     else if (!ask_until) ask_until = rt_now() + (uint64_t)(LINK_ASK_SECONDS * CPU_HZ);
     else if (rt_now() >= ask_until) g_link_menu = 0;
     g_link_left = ask_until && rt_now() < ask_until ? (int)((ask_until - rt_now()) * 1000 / (uint64_t)(LINK_ASK_SECONDS * CPU_HZ)) : 0;
-#ifdef VIPER_P2P
     drop_watch();
 #endif
     net_requests(1);
@@ -1561,7 +1613,7 @@ static void draw_menu(uint32_t *fb, int w, int h);
  * and a tap there moves that cursor to it and presses OK, which on an option row changes the value
  * (to the next one). Drawn and tapped on the host main thread. Without touch controls, nothing is
  * noted. */
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
 #define MAX_HITS 24
 typedef struct { volatile int *cursor; int index; int x0, y0, x1, y1; } Hit;
 static Hit g_hits[MAX_HITS];
@@ -1630,7 +1682,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
     g_ui = h >= 768 ? (float)h / 384.0f : 1.0f;     /* lay out in 384-high logical units */
     w = (int)(w / g_ui + 0.5f);
     h = (int)(h / g_ui + 0.5f);
-#ifdef VIPER_IOS
+#ifdef VIPER_MOBILE
     g_nhits = 0;                                     /* the menu's items, as drawn now */
     g_hit_w = w;
     g_hit_h = h;
@@ -1652,6 +1704,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         }
     }
     if (g_paused && g_pause_controls) draw_pause_controls(fb, w, h, g_controls_cursor);
+#ifdef VIPER_P2P
     if (enh_link_menu_active()) {                    /* the question, small, the race going on */
         NetStatus st;
         net_status(&st);
@@ -1673,6 +1726,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         dim_rect(fb, w, h, 0, y - 6, w, y + font_height(z) + 6, 170);
         draw_centered(fb, w, h, z, y, buf, 0xff7070);
     }
+#endif
     if (enh_menu_active()) draw_menu(fb, w, h);
     if (g_notice_frames > 0 && !g_returning && g_font) {      /* the session ended: say why */
         int const z = FONT_MEDIUM, y = 34;
@@ -1703,31 +1757,63 @@ static void draw_net(uint32_t *fb, int w, int h) {
     net_status(&st);
     dim_rect(fb, w, h, 0, 0, w, h, 200);
     draw_centered(fb, w, h, zl, 24, T(T_MULTIPLAYER), yellow);
-#ifdef VIPER_P2P
-    if (g_screen == SCREEN_NET_JOIN) {                  /* the games nearby, to tap one */
-        int y = 24 + font_height(zl) + 14, step = font_height(zm) + 6;
+#ifdef JOIN_LIST
+    if (g_screen == SCREEN_NET_JOIN) {                  /* the code, PASTE, JOIN; the games nearby */
         join_list();
         g_join_drawn = 1;
-        if (g_join_cursor > g_join_n) g_join_cursor = g_join_n;
-        if (net_link_problem() == 1) {
-            draw_centered(fb, w, h, zm, y, T(T_LOCAL_DENIED), red);
-            draw_centered(fb, w, h, zs, y + font_height(zm) + 6, T(T_LOCAL_DENIED_HOW), grey);
-        } else if (!g_join_n) {
-            draw_centered(fb, w, h, zm, y, T(T_NEARBY_LOOKING), white);
-            draw_centered(fb, w, h, zs, y + font_height(zm) + 6, T(T_NEARBY_HINT), grey);
-        } else {
-            draw_centered(fb, w, h, zs, y, T(T_GAMES_NEARBY), grey);
-            y += font_height(zs) + 8;
-            for (int i = 0; i < g_join_n; i++, y += step) {
+        int items[16], n = join_items(items);
+        if (g_join_cursor >= n) g_join_cursor = n - 1;
+        char shown[16];
+        int k = 0, len = g_code_len, total = len > 7 ? 10 : 7;
+        for (int i = 0; i < total; i++) {
+            if (i == total - (total == 7 ? 4 : 5)) shown[k++] = ' ';
+            shown[k++] = i < len ? g_code[i] : '.';
+        }
+        shown[k] = 0;
+        int y = 24 + font_height(zl) + 8, step = font_height(zm) + 4;
+        draw_centered(fb, w, h, zs, y, T(T_ENTER_CODE), grey);
+        y += font_height(zs) + 4;
+        for (int i = 0; i < n; i++) {
+            int it = items[i];
+            uint32_t col = i == g_join_cursor ? yellow : white;
+            if (it == JI_CODE) {                        /* the code: a tap brings the keyboard up */
+                draw_centered(fb, w, h, zl, y, shown, yellow);
+                hit_row(&g_join_cursor, i, w, y, zl);
+                y += font_height(zl) + 2;
+                if (g_code_bad) { draw_centered(fb, w, h, zs, y, T(T_BAD_CODE), red); }
+                y += font_height(zs) + 4;
+            } else if (it == JI_PASTE || it == JI_JOIN) {   /* side by side */
+                if (it == JI_JOIN) continue;
+                const char *paste = T(T_PASTE), *join = T(T_JOIN_CODE);
+                draw_text(fb, w, h, zm, w / 2 - 20 - text_width(zm, paste), y, paste, col);
+                draw_text(fb, w, h, zm, w / 2 + 20, y, join, items[i + 1] == JI_JOIN && i + 1 == g_join_cursor ? yellow : white);
+                hit_item(&g_join_cursor, i, 0, y - 3, w / 2, y + font_height(zm) + 3);
+                hit_item(&g_join_cursor, i + 1, w / 2, y - 3, w, y + font_height(zm) + 3);
+                y += step + 8;
+#ifdef VIPER_P2P                                        /* the games nearby, below */
+                if (net_link_problem() == 1) {
+                    draw_centered(fb, w, h, zs, y, T(T_LOCAL_DENIED), red);
+                    y += font_height(zs) + 3;
+                    draw_centered(fb, w, h, zs, y, T(T_LOCAL_DENIED_HOW), grey);
+                    y += font_height(zs) + 3;
+                } else {
+                    draw_centered(fb, w, h, zs, y, T(g_join_n ? T_GAMES_NEARBY : T_NEARBY_LOOKING), grey);
+                    y += font_height(zs) + 4;
+                }
+#endif
+            } else if (it == JI_BACK) {
+                int yb = h - 10 - (font_height(zm) + 2);
+                if (yb < y) yb = y;
+                draw_centered(fb, w, h, zm, yb, T(T_BACK), col);
+                hit_row(&g_join_cursor, i, w, yb, zm);
+            } else {                                    /* a game nearby */
                 char buf[32];
-                snprintf(buf, sizeof buf, "%s %s", T(T_GAME), g_join_tags[i]);
-                draw_centered(fb, w, h, zm, y, buf, i == g_join_cursor ? yellow : white);
+                snprintf(buf, sizeof buf, "%s %s", T(T_GAME), g_join_tags[it]);
+                draw_centered(fb, w, h, zm, y, buf, col);
                 hit_row(&g_join_cursor, i, w, y, zm);
+                y += step;
             }
         }
-        int yb = h - 10 - (font_height(zm) + 2);
-        draw_centered(fb, w, h, zm, yb, T(T_BACK), g_join_cursor == g_join_n ? yellow : white);
-        hit_row(&g_join_cursor, g_join_n, w, yb, zm);
         return;
     }
 #endif
@@ -1749,23 +1835,6 @@ static void draw_net(uint32_t *fb, int w, int h) {
     /* top to bottom, each block below the one before it (the fonts differ a lot between games) */
     const int gap = 3;
     int y = 24 + font_height(zl) + 10;
-#ifdef VIPER_P2P
-    if (st.role == NET_HOST && net_link_problem() == 1) {
-        draw_centered(fb, w, h, zs, y, T(T_LOCAL_DENIED), red);
-        y += font_height(zs) + gap;
-        draw_centered(fb, w, h, zs, y, T(T_LOCAL_DENIED_HOW), grey);
-        y += font_height(zs);
-    } else if (st.role == NET_HOST) {                  /* the game's tag, picked nearby */
-        char buf[32];
-        snprintf(buf, sizeof buf, "%s %s", T(T_GAME), st.code);
-        draw_centered(fb, w, h, zs, y, T(T_NEARBY_HOST), grey);
-        y += font_height(zs) + gap;
-        draw_centered(fb, w, h, zm, y, buf, yellow);
-        y += font_height(zm) + gap;
-        draw_centered(fb, w, h, zs, y, T(T_NEARBY_HINT), grey);
-        y += font_height(zs);
-    } else
-#endif
     if (st.role == NET_HOST) {
         if (st.portmap == 2) {
             draw_centered(fb, w, h, zs, y, T(T_SESSION_CODE), grey);
@@ -1783,22 +1852,33 @@ static void draw_net(uint32_t *fb, int w, int h) {
             draw_centered(fb, w, h, zs, y, T(T_OPENING), white);
             y += font_height(zs);
         }
+#ifdef VIPER_P2P                                        /* and the phones nearby, by the game's tag */
+        if (st.nearby[0]) {
+            char buf[48];
+            snprintf(buf, sizeof buf, "%s %s", T(T_NEARBY_HOST), st.nearby);
+            y += gap;
+            draw_centered(fb, w, h, zs, y, buf, yellow);
+            y += font_height(zs);
+        }
+#endif
     } else if (st.role == NET_JOINING || st.role == NET_MEMBER) {
         char buf[64];
         if (st.role == NET_MEMBER) snprintf(buf, sizeof buf, "%s %d", T(T_IN_SESSION), st.id);
         else snprintf(buf, sizeof buf, "%s", T(T_JOINING));
         draw_centered(fb, w, h, zs, y, buf, white);
         y += font_height(zs) + gap;
-#ifdef VIPER_P2P
-        snprintf(buf, sizeof buf, "%s %s", T(T_GAME), st.code);
+#ifdef VIPER_P2P                                        /* a game nearby: its tag */
+        if (strlen(st.code) == 3) snprintf(buf, sizeof buf, "%s %s", T(T_GAME), st.code);
+        else snprintf(buf, sizeof buf, "%s", st.code);
         draw_centered(fb, w, h, zm, y, buf, yellow);
 #else
         draw_centered(fb, w, h, zm, y, st.code, yellow);
 #endif
         y += font_height(zm);
     } else if (st.result && st.result != NET_RES_LEFT) {
-#ifdef VIPER_P2P                                        /* no router, no code: the link's own failures */
-        int port_fail = net_link_problem() == 1 ? T_LOCAL_DENIED : T_LINK_FAIL, bad_code = T_GAME_GONE;
+#ifdef VIPER_P2P                                        /* a game nearby: the link's own failures */
+        int port_fail = net_link_problem() == 1 ? T_LOCAL_DENIED : T_PORT_FAIL;
+        int bad_code = g_join_nearby ? T_GAME_GONE : T_BAD_CODE;
 #else
         int port_fail = T_PORT_FAIL, bad_code = T_BAD_CODE;
 #endif

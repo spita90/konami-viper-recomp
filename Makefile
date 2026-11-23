@@ -17,7 +17,7 @@ $(error GAME=$(GAME) has no profile in games/ (see 'make games'))
 endif
 GEN     := generated/$(GAME)
 BUILD   := build/$(GAME)
-# P2P=1 (macOS, tests): link play through Network.framework, peer to peer, as in the iOS app
+# P2P=1 (macOS, tests): link play also through Network.framework, peer to peer, as in the iOS app
 # (runtime/net_p2p.m), to try it between instances on Macs; its own objects and <binary>_p2p
 ifneq ($(P2P),)
 BUILD   := build/$(GAME)-p2p
@@ -47,8 +47,7 @@ TP_OBJS := $(TP_SRCS:%.c=$(BUILD)/%.o)
 CHDEXTRACT := build/tools/chdextract
 ifneq ($(P2P),)
 CFLAGS += -DVIPER_P2P
-RT_OBJS := $(filter-out $(BUILD)/runtime/portmap.o,$(RT_OBJS)) $(BUILD)/runtime/net_p2p.o
-TP_OBJS :=
+RT_OBJS += $(BUILD)/runtime/net_p2p.o
 LDFLAGS += -framework Network
 endif
 ifeq ($(shell uname -s),Darwin)
