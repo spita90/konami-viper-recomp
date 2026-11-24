@@ -11,11 +11,12 @@ version can change the build, the profiles or the command-line options.
 
 ### Added
 
-- iOS app (iPhone and iPad): `make ios GAME=<id>` stages the game data and generates an Xcode
-  project (`ios/`). It has the GPU renderer on OpenGL ES 3.0, and on-screen touch controls: a
-  steering stick, pedals, shifting, VIEW and pause in a race, tapping the menu items, and the name
-  entry. It also has tilt steering (OPTIONS > CONTROLS > STEERING), pauses and saves in the
-  background, and keeps its saves in Documents. See [ios/README.md](ios/README.md).
+- iOS app (iPhone and iPad), contributed by @vkedwardli in pull request #26: thank you!
+  `make ios GAME=<id>` stages the game data and generates an Xcode project (`ios/`). It has the
+  GPU renderer on OpenGL ES 3.0, and on-screen touch controls: a steering stick, pedals, shifting,
+  VIEW and pause in a race, tapping the menu items, and the name entry. It also has tilt steering
+  (OPTIONS > CONTROLS > STEERING), pauses and saves in the background, and keeps its saves in
+  Documents. See [ios/README.md](ios/README.md).
 - Android app: `python3 android/prepare.py <id> --install` builds the APK on a Mac or Linux with
   the Android SDK and installs it on the phone connected (`android/`). The same touch controls,
   menus and options as the iOS app, the GPU renderer on OpenGL ES 3.0, tilt steering from the
