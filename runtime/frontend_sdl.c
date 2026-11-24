@@ -74,7 +74,7 @@ int g_audio_gain = 1;                     /* the game's samples as they are: vol
 void gpu_gl_ui(const uint32_t *atlas, int aw, int ah, unsigned version, const UiQuad *q, int n);
 #endif
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size);
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at);
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at, int unfiltered);
 void gpu_gl_shutdown(void);
 const char *gpu_gl_name(void);
 int gpu_gl_max_texture(void);
@@ -779,6 +779,7 @@ int frontend_run(int scale, int scale_explicit) {
 #endif
     report_refresh();
     report_display(win, gpu, max_tex, tw, th);
+    int window_filter_applied = SDL_ScaleModeLinear;   /* the textures are made linear (the hint) */
 
     SDL_AudioSpec want = {0}, have;
     want.freq = 44100;
@@ -1034,6 +1035,7 @@ int frontend_run(int scale, int scale_explicit) {
                 if (!gpu) {
                     SDL_DestroyTexture(tex);
                     tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+                    window_filter_applied = SDL_ScaleModeLinear;
                     SDL_RenderSetLogicalSize(ren, w, h);
                 }
                 int new_ratio = (long)w * th != (long)h * tw;
@@ -1057,7 +1059,7 @@ int frontend_run(int scale, int scale_explicit) {
                 gpu_gl_ui(atlas, aw, ah, version, g_ui_quads, nq);
             }
 #endif
-            gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, g_show_at);   /* vsync paces */
+            gpu_gl_frame(win, overlay_drawn ? frame : NULL, ow, oh, g_show_at, enh_filtering());   /* vsync paces */
 #ifdef VIPER_MOBILE
             if (g_gpu_guard_frames >= 0 && last_frame && ++g_gpu_guard_frames > 300) gpu_guard_off();
 #endif
@@ -1081,6 +1083,11 @@ int frontend_run(int scale, int scale_explicit) {
 #endif
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
+        int window_filter = enh_filtering() ? SDL_ScaleModeNearest : SDL_ScaleModeLinear;
+        if (window_filter != window_filter_applied) {
+            SDL_SetTextureScaleMode(tex, (SDL_ScaleMode)window_filter);
+            window_filter_applied = window_filter;
+        }
         SDL_RenderCopy(ren, tex, NULL, NULL);
 #ifdef VIPER_MOBILE
         if (g_touch) draw_touch_sdl(ren, &ui_tex, &ui_version, touch_quads(win, g_ui_quads, MAX_UI_QUADS));

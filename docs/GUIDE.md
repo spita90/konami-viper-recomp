@@ -18,7 +18,7 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
 | ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------- |
 | **Starting a game** | START GAME from the menu                                                                                           | Insert coins, press START |
 | **Main screen**     | Menu: START GAME, MULTIPLAYER, OPTIONS, SUPPORT, QUIT over the attract mode                                        | Attract mode              |
-| **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, frame rate, aspect ratio, renderer, fps counter | None                      |
+| **Options**         | OPTIONS: course difficulty, language, sound, window or fullscreen, resolution, frame rate, aspect ratio, filtering, renderer, fps counter | None                      |
 | **Pause**           | Esc, or Back on a gamepad: RESUME, CONTROLS or MAIN MENU (not in multiplayer)                                      | None                      |
 | **Ranking name**    | Typed on the keyboard                                                                                              | Chosen with the wheel     |
 | **Multiplayer**     | MULTIPLAYER: up to 4 players over the Internet, with a session code                                                | Linked cabinets only      |
@@ -44,6 +44,9 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     when chosen. 3X and above need the HARDWARE renderer, and each step costs the GPU more (6X
     draws 36 times the pixels of 1X, more with 60 or 120 FPS); check the fps counter. With 60 or
     120 FPS on a screen faster than 120 Hz, 6X can drop frames even on a fast GPU: 5X then. With the SOFTWARE renderer AUTO stays at 1X, and 2X needs about twice the CPU time.
+  - **Filtering:** ORIGINAL (the game's own smoothing) or DISABLED, which turns off the smoothing
+    of enlarged textures, for hard texel edges, and scales the picture to the window without
+    smoothing: sharp pixels, at 1X too. The filtering of distant textures stays the game's.
   - **Renderer:** HARDWARE (the default) draws the 3D graphics on the GPU, with OpenGL 3.3, on the
     dedicated GPU of a laptop that has two: much less CPU time, and 2X costs about the same as 1X.
     SOFTWARE draws them on the CPU, as the classic mode, pixel for pixel as the original

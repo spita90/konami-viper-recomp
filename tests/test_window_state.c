@@ -13,6 +13,7 @@ uint8_t *hw_nvram(void) { static uint8_t nv[8192]; return nv; }
 void hw_nvram_options_fix(uint8_t *nv) { (void)nv; }
 void nvram_save(void) {}
 void voodoo_set_scale(int n) { (void)n; }
+void voodoo_set_filtering(int n) { (void)n; }
 void voodoo_set_wide(int n) { (void)n; }
 unsigned long long voodoo_swap_count(void) { return 0; }
 

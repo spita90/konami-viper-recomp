@@ -1533,8 +1533,9 @@ static void draw_ui(int dw, int dh)
 #endif
 
 // show_at: the emulated time up to which a frame in between goes on screen at the next vsync
-// (halfway to the one after: each shows at the vsync nearest its time)
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at)
+// (halfway to the one after: each shows at the vsync nearest its time). unfiltered: FILTERING
+// DISABLED, the picture scaled to the window without smoothing
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at, int unfiltered)
 {
 	park_if_stopping();
 	// the lists, in order: those this vsync's picture needs now, the rest after the swap
@@ -1631,6 +1632,9 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 			G.Uniform2f(X.d_size, float(t.w), float(t.h));
 			G.ActiveTexture(GL_TEXTURE4);
 			G.BindTexture(GL_TEXTURE_2D, t.color);
+			GLint const filter = unfiltered ? GL_NEAREST : GL_LINEAR;
+			G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+			G.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 			G.DrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		}
 		if (overlay != nullptr)

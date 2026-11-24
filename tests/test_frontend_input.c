@@ -167,9 +167,10 @@ const uint8_t *voodoo_vram(uint32_t *size) { (void)size; return NULL; }
 void voodoo_set_gpu(int on) { (void)on; }
 int voodoo_gpu_active(void) { return 0; }
 int gpu_gl_init(SDL_Window *win, uint32_t vram_size) { (void)win; (void)vram_size; return 0; }
-void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at) {
-    (void)win; (void)overlay; (void)ow; (void)oh; (void)show_at;
+void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint64_t show_at, int unfiltered) {
+    (void)win; (void)overlay; (void)ow; (void)oh; (void)show_at; (void)unfiltered;
 }
+int enh_filtering(void) { return 0; }
 void gpu_gl_shutdown(void) {}
 int gpu_gl_max_texture(void) { return 0; }
 void enh_set_display(int picture_h, int max_scale) { (void)picture_h; (void)max_scale; }

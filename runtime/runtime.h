@@ -91,6 +91,7 @@ int enh_quit_requested(void);
 const char *enh_take_url(void);                        /* SUPPORT: a page to open in the browser, or NULL */
 void enh_draw_overlay(uint32_t *fb, int w, int h);     /* menu over a 0xAARRGGBB frame */
 int enh_draw_overlay_layer(uint32_t *fb, int w, int h); /* alone, premultiplied; 0: nothing drawn */
+int enh_filtering(void);                                /* enhanced mode, FILTERING: 0 original, 1 disabled */
 int enh_want_gpu(void);                                 /* enhanced mode, RENDERER = HARDWARE */
 void enh_renderer_software(void);                       /* RENDERER = SOFTWARE, saved (GPU start failed) */
 int enh_turbo(void);                                   /* boot/apply: run unpaced, muted */

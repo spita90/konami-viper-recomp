@@ -7,6 +7,8 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-24
+
 ### Added
 
 - iOS app (iPhone and iPad): `make ios GAME=<id>` stages the game data and generates an Xcode
@@ -34,12 +36,23 @@ version can change the build, the profiles or the command-line options.
 - `make P2P=1` (macOS, tests): the iOS app's link to the phones nearby in a desktop build
   (`<binary>_p2p`), beside its Internet link play, to try it on a Mac.
 - `--calibrate FILE`: the first-run calibration alone, into that NVRAM file (the phone apps').
+- **Enhanced mode, DISPLAY → FILTERING** (ORIGINAL / DISABLED), back from 0.9.3 to 0.19.x as
+  TEXTURE FILTER, on request (issue #27): DISABLED turns off the filtering of enlarged textures,
+  for hard texel edges, and scales the picture to the window without smoothing, with both
+  renderers and in the apps. The filtering of distant textures and the mipmaps stay the game's.
+  Applied at once and saved in the port settings (`filtering`). ORIGINAL, the default, and the
+  classic mode give the same frames as before. The software renderer keeps its specialised
+  rasterizers with DISABLED too (about 300 KB more code).
+- **Option pages that scroll:** a page with more rows than the screen holds (GTI Club 2's
+  DISPLAY page with FILTERING, its font being larger) shows those that fit, following the cursor,
+  with an arrow above or below where there are more; BACK stays below them.
 
 ### Fixed
 
 - `tools/gpu_replay.cpp` links again with the GPU renderer (the frame statistics of 0.21.0).
 
-The desktop builds do not change: what the apps add is behind defines only their builds set.
+Apart from FILTERING, the desktop builds do not change: what the apps add is behind defines only
+their builds set.
 
 ## [0.21.0] - 2026-11-22
 
@@ -751,7 +764,8 @@ The desktop builds do not change: what the apps add is behind defines only their
   (ver EBB) is playable at 30 fps with sound, and steering and pedals are calibrated
   automatically.
 
-[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/spita90/konami-viper-recomp/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/spita90/konami-viper-recomp/compare/v0.18.0...v0.19.0

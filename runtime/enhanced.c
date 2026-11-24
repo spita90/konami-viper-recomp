@@ -37,7 +37,7 @@ static int g_attract, g_enh_log = -1;
 int enh_in_attract(void) { return g_attract; }
 
 /* port settings (<binary>_enhanced_settings.ini, see below); scale: 0 = AUTO, 1-6 = 1X-6X */
-static struct { int fullscreen, show_fps, scale, aspect, renderer, frame_rate, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, { 0 } };
+static struct { int fullscreen, show_fps, scale, aspect, filtering, renderer, frame_rate, win[4]; } g_set = { 0, 0, 0, 0, 0, 0, 0, { 0 } };
 #ifdef VIPER_MOBILE
 #define DEFAULT_ASPECT 2                     /* a phone's screen: 16:9 until chosen otherwise */
 #endif
@@ -533,6 +533,7 @@ static Glyph g_glyph[FONT_NSIZES][128];
  * the window only): options of the port itself (not of the game, which keeps its own in the
  * NVRAM). One "key = value" per line. */
 void voodoo_set_scale(int n);
+void voodoo_set_filtering(int mode);
 static char g_settings_path[1024];
 
 /* the render scale: the option, or for AUTO the smallest N whose 384·N lines cover the picture's
@@ -575,6 +576,7 @@ static void settings_load(void) {
         if (sscanf(line, " %63[a-z_] = %d", key, &v) == 2) {
             if (!strcmp(key, "fullscreen")) g_set.fullscreen = v != 0;
             else if (!strcmp(key, "stick_response")) frontend_set_stick_response(v);
+            else if (!strcmp(key, "filtering")) g_set.filtering = v == 1;
             else if (!strcmp(key, "renderer")) g_set.renderer = v == 1;
             else if (!strcmp(key, "frame_rate"))
                 for (int i = 0; i < N_FRAME_RATES; i++) { if (v == k_frame_rates[i]) g_set.frame_rate = v; }
@@ -605,6 +607,7 @@ static void settings_save(void) {
 #ifdef VIPER_MOBILE
         if (frontend_tilt_available()) fprintf(f, "# touch controls: 0 = the steering stick, 1 = tilt the device\nsteering = %d\n", frontend_steering_mode());
 #endif
+        fprintf(f, "# 0 = original (the game's smoothing), 1 = disabled (enlarged textures and the picture not smoothed)\nfiltering = %d\n", g_set.filtering);
         fprintf(f, "# 0 = hardware (GPU, when this computer has OpenGL 3.3), 1 = software\nrenderer = %d\n", g_set.renderer);
         if (interp_supported())
             fprintf(f, "# frames in between (hardware renderer): 0 = original, 60 or 120 = at most that many a second\n"
@@ -615,6 +618,7 @@ static void settings_save(void) {
     fclose(f);
 }
 
+int enh_filtering(void) { return g_enhanced ? g_set.filtering : 0; }
 int enh_want_gpu(void) { return g_enhanced && g_set.renderer == 0; }
 /* the GPU renderer failed to start (the frontend's guard, iOS): SOFTWARE from now on, as chosen */
 #ifdef VIPER_MOBILE
@@ -648,6 +652,7 @@ void enh_init(const char *work, const char *settings) {
     count_game_options();
     apply_scale();
     set_aspect(g_set.aspect);
+    voodoo_set_filtering(enh_filtering());
     const char *file = GAME_ENH_FONT_FILE;
     if (!file) return;
     char path[1024];
@@ -776,6 +781,16 @@ static void fill_rect(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1
 
 static void dim_rect(uint32_t *fb, int w, int h, int x0, int y0, int x1, int y1, int a) {
     fill_rect(fb, w, h, x0, y0, x1, y1, a, 0x000000);
+}
+
+/* a small triangle, centred on cx, its tip at the top (up) or at the bottom: the fonts have no
+ * arrows */
+#define ARROW_H 6
+static void draw_arrow(uint32_t *fb, int w, int h, int cx, int y, int up, uint32_t rgb) {
+    for (int r = 0; r < ARROW_H; r++) {
+        int half = up ? r : ARROW_H - 1 - r;
+        fill_rect(fb, w, h, cx - half - 1, y + r, cx + half + 1, y + r + 1, 255, rgb);
+    }
 }
 
 /* the primitives for the EXTRA modes' HUD (modes.c), called from enh_draw_overlay */
@@ -910,7 +925,7 @@ static void options_read(void) {
  * letters, so the Italian texts avoid them. */
 enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK, T_WINDOW, T_FULLSCREEN,
        T_SHOW_FPS, T_OFF, T_ON, T_LOADING, T_APPLYING, T_ORIGINAL_GAME, T_RECOMPILATION, T_VOODOO,
-       T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_RENDERER,
+       T_PAUSE, T_RESUME, T_MAIN_MENU, T_RESOLUTION, T_ASPECT, T_FILTERING, T_RENDERER,
        T_MULTIPLAYER, T_HOST, T_JOIN, T_CLOSE_SESSION, T_LEAVE_SESSION, T_SESSION_CODE, T_SHARE, T_OPENING,
        T_PORT_FAIL, T_PORT_HAND, T_BEHIND_NAT, T_ENTER_CODE, T_TO_JOIN, T_TO_PASTE, T_JOINING, T_FULL,
        T_NO_ANSWER, T_CLOSED, T_BAD_CODE, T_PLAYER, T_YOU, T_FREE, T_LINKED, T_LOST, T_ARRIVING, T_IN_SESSION,
@@ -928,7 +943,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "PAUSE", "PAUSA" },
     { "RESUME", "RIPRENDI" }, { "MAIN MENU", "MENU PRINCIPALE" }, { "RESOLUTION", "RISOLUZIONE" },
     { "ASPECT RATIO", "FORMATO" },
-    { "RENDERER", "RENDERING" },
+    { "FILTERING", "FILTRO" }, { "RENDERER", "RENDERING" },
     { "MULTIPLAYER", "MULTIGIOCATORE" }, { "HOST A GAME", "OSPITA UNA PARTITA" },
     { "JOIN A GAME", "UNISCITI A UNA PARTITA" }, { "CLOSE THE SESSION", "CHIUDI LA SESSIONE" },
     { "LEAVE THE SESSION", "ESCI DALLA SESSIONE" }, { "SESSION CODE", "CODICE DELLA SESSIONE" },
@@ -962,6 +977,7 @@ static const char *const k_text[T_COUNT][2] = {
     { "DISCONNECTED", "DISCONNESSO" }, { "PASTE", "INCOLLA" }, { "JOIN", "UNISCITI" },
 };
 static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
+static const char *const k_filtering_name[] = { "ORIGINAL", "DISABLED" };
 static const char *const k_renderer_name[] = { "HARDWARE", "SOFTWARE" };
 
 static const char *const k_aspect_name[N_ASPECTS] = { "4:3", "16:10", "16:9", "21:9" };
@@ -1167,6 +1183,7 @@ static int page_rows(int page, int *rows) {
 #endif
         rows[n++] = -3;
         if (GAME_ENH_WIDE_VIEWPORT) rows[n++] = -4;
+        rows[n++] = -10;
         if (interp_supported()) rows[n++] = -12;
         rows[n++] = -11;
         rows[n++] = -2;
@@ -1181,6 +1198,7 @@ static void page_change(int row, int dir) {
     if (row == -9) { change_stick_response(dir); return; }
     if (row == -5) { change_rumble(dir); return; }
     if (row == -13) { change_steering(); return; }
+    if (row == -10) { g_set.filtering = !g_set.filtering; voodoo_set_filtering(g_set.filtering); settings_save(); return; }
     /* the renderer changes with the window's kind: applied by the restart on leaving OPTIONS */
     if (row == -11) { g_set.renderer = !g_set.renderer; settings_save(); g_opt_dirty = 1; return; }
     if (row == -12) {                        /* the next rate offered */
@@ -1967,8 +1985,23 @@ static void draw_menu(uint32_t *fb, int w, int h) {
         int rows[MAX_GAME_OPTIONS + 2], n = page_rows(g_page, rows);
         dim_rect(fb, w, h, 0, 0, w, h, 190);
         draw_centered(fb, w, h, FONT_LARGE, 24, T(titles[g_page]), yellow);
+        /* more rows than the screen holds (GTI Club 2's DISPLAY page, its font being larger): those
+         * that fit, following the cursor, an arrow where more are; BACK stays below them */
+        static int top;
+        int fit = (h - 8 - font_height(z) - step / 2 - 90) / step, vis = n;
+        if (n > fit && fit > 0) {
+            vis = fit;
+            if (g_page_cursor < n) {
+                if (g_page_cursor < top) top = g_page_cursor;
+                if (g_page_cursor >= top + vis) top = g_page_cursor - vis + 1;
+            }
+            if (top > n - vis) top = n - vis;
+            if (top < 0) top = 0;
+        } else top = 0;
+        if (top > 0) draw_arrow(fb, w, h, w / 2, 90 - 6 - ARROW_H, 1, grey);
+        if (top + vis < n) draw_arrow(fb, w, h, w / 2, 90 + vis * step + (step / 2 - ARROW_H) / 2, 0, grey);
         int y = 90;
-        for (int i = 0; i < n; i++, y += step) {
+        for (int i = top; i < top + vis; i++, y += step) {
             uint32_t col = i == g_page_cursor ? yellow : white;
             const char *label, *value;
             char buf[64];
@@ -1983,6 +2016,7 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
             else if (rows[i] == -5) { label = T(T_RUMBLE); value = rumble_text(buf, sizeof buf); }
             else if (rows[i] == -13) { label = T(T_STEERING); value = T(frontend_steering_mode() ? T_TILT : T_TOUCH); }
+            else if (rows[i] == -10) { label = T(T_FILTERING); value = k_filtering_name[g_set.filtering]; }
             else if (rows[i] == -11) { label = T(T_RENDERER); value = k_renderer_name[g_set.renderer]; }
             else if (rows[i] == -12) { label = T(T_FRAME_RATE); value = frame_rate_text(buf, sizeof buf); }
             else if (rows[i] == -4) { label = T(T_ASPECT); value = k_aspect_name[g_set.aspect]; }

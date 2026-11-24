@@ -7,6 +7,7 @@ void frontend_set_rumble_multiplier(int v) {multiplier=v<0?0:v>400?400:v;}
 int frontend_stick_response(void) { return 2; }
 void frontend_set_stick_response(int v) { (void)v; }
 void voodoo_set_scale(int n) {(void)n;}
+void voodoo_set_filtering(int n) {(void)n;}
 void voodoo_set_wide(int n) {(void)n;}
 void rt_log(const char *s,...) {(void)s;}
 uint8_t *hw_nvram(void) {static uint8_t nv[8192];return nv;}

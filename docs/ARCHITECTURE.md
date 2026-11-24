@@ -328,6 +328,10 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
     U.S.A.; GTI Club 2 Town, Coast, Mountain). The attract mode alone was not enough: its
     combinations covered only 38% of the pixels of a race in Europe. Each session stays
     covered at 98.5% or more.
+  - FILTERING DISABLED (enhanced mode) clears bit 2 of the texture modes in use, which makes
+    different combinations. `RASTERIZER_AND_UNFILTERED` lists each entry that has the bit set
+    together with its variant without it (136 more instances, about 320 KB of code), so DISABLED
+    keeps the specialised rasterizers.
   - Same arithmetic, so the frames are bit-identical (checked on both games, normal and
     enhanced mode, 1X and 2X). One thread, 90 s of attract on an M4 Pro: TD2 25.1 → 16.9 s,
     GTI Club 2 21.3 → 14.3 s (1.49×). With 4 workers the M4 Pro is bound elsewhere
@@ -595,6 +599,12 @@ classic mode is unchanged. Headless runs follow the same default: tests of the c
   to override), with `fullscreen` and `show_fps`, and the window position and size
   (`window_x`, `window_y`, `window_width`, `window_height`). The classic mode has its own
   `<binary>_settings.ini`, with the window only, as each mode has its own NVRAM.
+  `filtering = 1` (FILTERING DISABLED) clears the magnification filter bit (bit 2) of textureMode
+  in `rasterizer_params::compute`, once per primitive, so the per-texel code is MAME's and
+  ORIGINAL is bit-identical; the GPU renderer takes the texture modes from the same parameters.
+  It also scales the picture to the window with nearest sampling (`SDL_ScaleModeNearest`, or
+  `GL_NEAREST` on the render target in `gpu_gl_frame`). The option was removed in 0.20.0 and came
+  back on request (issue #27) as FILTERING, ORIGINAL / DISABLED.
   These are options of the port, not of the game; the game's settings stay
   in its NVRAM. The OPTIONS page edits them (left and right, or OK), and the frontend applies
   the display mode. F11 also updates the setting.
