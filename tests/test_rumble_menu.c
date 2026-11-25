@@ -1,4 +1,5 @@
 #include "../runtime/enhanced.c"
+#include "fixtures/wheel_stubs.h"
 #include <assert.h>
 static int multiplier=100;
 uint8_t *g_ram;

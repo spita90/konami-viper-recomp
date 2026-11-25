@@ -17,6 +17,8 @@
  *            X = brake, B = handbrake, Start = start, Back = coin (enhanced: pause, as Guide, which
  *            Steam and the consoles often keep for themselves)
  *   F11 fullscreen, Esc quit
+ *   The keys above are the default bindings: wheel.c reads them, with the wheels, pedals and
+ *   other devices bound in CONTROLS, INPUT MAPPING, and drives a wheel's motor (force feedback)
  */
 #include "runtime.h"
 #include "game_config.h"
@@ -28,6 +30,7 @@ static int send_controller_rumble(SDL_GameController *pad, Uint16 low, Uint16 hi
 #define CONTROLLER_RUMBLE_SEND send_controller_rumble
 #endif
 #include "controller_rumble.h"
+#include "wheel.h"
 #include "window_state.h"
 #ifdef VIPER_MOBILE
 #include "touch.h"
@@ -275,6 +278,8 @@ static void open_pad(void) {
     if (g_pad) return;
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
         if (!SDL_IsGameController(i)) continue;
+        /* a device with bindings of its own (wheel.c) is not also a gamepad with the pad's layout */
+        if (wheel_claims(SDL_JoystickGetDeviceVendor(i), SDL_JoystickGetDeviceProduct(i))) continue;
         g_pad = SDL_GameControllerOpen(i);
         if (!g_pad) continue;
         g_pad_id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pad));
@@ -328,6 +333,7 @@ static void update_rumble(int active) {
     uint8_t motor = atomic_load_explicit(&g_motor_output, memory_order_relaxed);
     if (!g_rumble_testing)
         controller_rumble_update(&g_rumble, g_pad, motor, g_rumble_gain, active, now);
+    wheel_ffb_update(motor, active);        /* the same motor command on a wheel's own motor */
     if (g_rumble_trace && (Uint32)(now - g_rumble_trace_started) >= 30000) g_rumble_trace = 0;
     if (g_rumble_trace && (Uint32)(now - g_rumble_trace_tick) >= 1000) {
         g_rumble_trace_tick = now;
@@ -349,6 +355,15 @@ static void apply_inputs(double dt) {
     hold(&ctl.handbrake, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_B));
     hold(&ctl.steer_left, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
     hold(&ctl.steer_right, SRC_PAD, pad_active && SDL_GameControllerGetButton(g_pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
+    /* the bindings (wheel.c): keys and every other device, read each frame as held state */
+    hold(&ctl.steer_left, SRC_KEY, wheel_down(ACT_STEER_LEFT));
+    hold(&ctl.steer_right, SRC_KEY, wheel_down(ACT_STEER_RIGHT));
+    hold(&ctl.shift_up, SRC_KEY, wheel_down(ACT_SHIFT_UP));
+    hold(&ctl.shift_down, SRC_KEY, wheel_down(ACT_SHIFT_DOWN));
+    hold(&ctl.coin, SRC_KEY, wheel_down(ACT_COIN));
+    hold(&ctl.start, SRC_KEY, wheel_down(ACT_START));
+    ctl.test = wheel_down(ACT_TEST);
+    ctl.service = wheel_down(ACT_SERVICE);
 #ifdef VIPER_MOBILE
     hold(&ctl.gas, SRC_TOUCH, g_touch_out.gas);
     hold(&ctl.brake, SRC_TOUCH, g_touch_out.brake);
@@ -375,12 +390,16 @@ static void apply_inputs(double dt) {
     }
 #endif
     double speed = g_steer_speed * SDL_min(dt, 0.05);
-    if (ctl.steer < target) ctl.steer = SDL_min(target, ctl.steer + speed);
+    /* a steering wheel is the position itself: no ramp (a hand cannot flick it as a stick). The
+     * keys, the pad and the touch controls still steer when they are used */
+    double wheel_pos;
+    if (wheel_steer(&wheel_pos) && g_input_focus && !wsel && target == 0) ctl.steer = wheel_pos;
+    else if (ctl.steer < target) ctl.steer = SDL_min(target, ctl.steer + speed);
     else if (ctl.steer > target) ctl.steer = SDL_max(target, ctl.steer - speed);
     double steer = ctl.steer;
     /* Take the strongest pedal source: a slightly pressed trigger must not reduce a
      * fully held key/button. Right-stick Y supplies proportional pedals on Switch Pro. */
-    double gas = ctl.gas ? 1.0 : 0.0, brake = ctl.brake ? 1.0 : 0.0;
+    double gas = fmax(ctl.gas ? 1.0 : 0.0, wheel_value(ACT_GAS)), brake = fmax(ctl.brake ? 1.0 : 0.0, wheel_value(ACT_BRAKE));
     if (g_pad && g_input_focus) {
         double pedals = controller_axis(SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_RIGHTY),
                                         g_stick_deadzone, 1.0);
@@ -401,7 +420,7 @@ static void apply_inputs(double dt) {
     g_analog[2] = (int16_t)(-ANALOG_RANGE + brake * 2 * ANALOG_RANGE);
     /* the enhanced mode declares a cabinet with a handbrake in every version (hw.c) */
     if (GAME_HAS_HANDBRAKE || (g_enhanced && GAME_ENH_CAB_HANDBRAKE))
-        g_analog[3] = (int16_t)(ctl.handbrake ? ANALOG_RANGE : -ANALOG_RANGE);
+        g_analog[3] = (int16_t)lround(-ANALOG_RANGE + fmax(ctl.handbrake ? 1.0 : 0.0, wheel_value(ACT_HANDBRAKE)) * 2 * ANALOG_RANGE);
     uint8_t in3 = 0xff, in4 = 0xff;
     if (ctl.service && !g_enhanced) in3 &= ~0x01;
     if (ctl.test && !g_enhanced) in3 &= ~0x02;
@@ -472,24 +491,40 @@ static int name_key(SDL_Keycode k) {
     }
 }
 
-static void key(SDL_Keycode k, int down) {
-    switch (k) {
-    case SDLK_LEFT: hold(&ctl.steer_left, SRC_KEY, down); break;
-    case SDLK_RIGHT: hold(&ctl.steer_right, SRC_KEY, down); break;
-    case SDLK_UP: hold(&ctl.gas, SRC_KEY, down); break;
-    case SDLK_DOWN: hold(&ctl.brake, SRC_KEY, down); break;
-    case SDLK_a: hold(&ctl.steer_left, SRC_KEY2, down); break;
-    case SDLK_d: hold(&ctl.steer_right, SRC_KEY2, down); break;
-    case SDLK_w: hold(&ctl.gas, SRC_KEY2, down); break;
-    case SDLK_s: hold(&ctl.brake, SRC_KEY2, down); break;
-    case SDLK_SPACE: hold(&ctl.handbrake, SRC_KEY, down); break;
-    case SDLK_e: hold(&ctl.shift_up, SRC_KEY, down); break;
-    case SDLK_q: hold(&ctl.shift_down, SRC_KEY, down); break;
-    case SDLK_5: hold(&ctl.coin, SRC_KEY, down); break;
-    case SDLK_1: hold(&ctl.start, SRC_KEY, down); break;
-    case SDLK_F2: ctl.test = down; break;
-    case SDLK_9: ctl.service = down; break;
-    default: break;
+/* the bound devices and keys on the menus, the pause and the wheel selects (the menus' own keys,
+ * arrows, Enter, Backspace and Esc, come as key events and cannot be taken away) */
+static void wheel_actions(Uint32 now) {
+    static const int map[6][2] = { { ACT_MENU_UP, ENH_UP }, { ACT_MENU_DOWN, ENH_DOWN }, { ACT_MENU_LEFT, ENH_LEFT },
+                                   { ACT_MENU_RIGHT, ENH_RIGHT }, { ACT_MENU_OK, ENH_OK }, { ACT_MENU_BACK, ENH_BACK } };
+    static int repeat = -1, zone;
+    static Uint32 repeat_at;
+    if (wheel_capture_active() >= 0) { repeat = -1; return; }
+    if (wheel_pressed(ACT_PAUSE) && g_enhanced) { enh_escape(); return; }
+    if (enh_menu_active() || enh_paused()) {
+        for (int i = 0; i < 6; i++)
+            if (wheel_pressed(map[i][0])) {
+                repeat = map[i][1] == ENH_LEFT || map[i][1] == ENH_RIGHT ? i : -1;   /* only value changes repeat */
+                repeat_at = now + 400;
+                enh_menu_action(map[i][1]);
+                if (wheel_capture_active() >= 0) return;
+            }
+        if (repeat >= 0 && !wheel_down(map[repeat][0])) repeat = -1;
+        if (repeat >= 0 && (Sint32)(now - repeat_at) >= 0) { enh_menu_action(map[repeat][1]); repeat_at = now + 80; }
+        return;
+    }
+    repeat = -1;
+    int left = wheel_pressed(ACT_STEER_LEFT) || wheel_pressed(ACT_MENU_LEFT);
+    int right = wheel_pressed(ACT_STEER_RIGHT) || wheel_pressed(ACT_MENU_RIGHT);
+    if (enh_name_entry_active()) {
+        if (wheel_pressed(ACT_MENU_LEFT)) enh_name_step(-1);
+        if (wheel_pressed(ACT_MENU_RIGHT)) enh_name_step(1);
+    } else if (enh_wheel_select_active()) {      /* the course select: a step per turn of the wheel */
+        double pos;
+        int z = wheel_steer(&pos) && g_input_focus ? (pos < -0.35 ? -1 : pos > 0.35 ? 1 : 0) : 0;
+        if (z && z != zone) enh_wheel_select_step(z);
+        zone = z;
+        if (left) enh_wheel_select_step(-1);
+        if (right) enh_wheel_select_step(1);
     }
 }
 
@@ -795,6 +830,7 @@ int frontend_run(int scale, int scale_explicit) {
     g_stick_curve = controller_option("RT_STICK_CURVE", g_stick_curve, 1.0, 3.0);
     g_trigger_deadzone = controller_option("RT_TRIGGER_DEADZONE", 0.03, 0.0, 0.5);
     g_steer_speed = controller_option("RT_STEER_SPEED", 4.0, 1.0, 100.0);
+    wheel_start(win);                   /* before the pad: a bound wheel is not opened as one */
     open_pad();
 
     g_pace_freq = (double)SDL_GetPerformanceFrequency();
@@ -853,6 +889,10 @@ int frontend_run(int scale, int scale_explicit) {
 #endif
                 break;
             case SDL_KEYDOWN:
+                if (wheel_capture_active() >= 0) {       /* CONTROLS: the key pressed is bound (Esc: cancel) */
+                    if (!ev.key.repeat) wheel_capture_key(ev.key.keysym.scancode);
+                    break;
+                }
                 if (ev.key.keysym.sym == SDLK_F8) { if (!ev.key.repeat) test_rumble(); break; }
                 if (ev.key.keysym.sym == SDLK_F9) {
                     if (!ev.key.repeat) {
@@ -887,16 +927,9 @@ int frontend_run(int scale, int scale_explicit) {
                     SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     enh_set_fullscreen(!fs);    /* enhanced mode: remembered in the settings */
                     fs_applied = !fs;
-                } else if (!(enh_name_entry_active() && !enh_paused() && name_key(ev.key.keysym.sym))) {
-                    if (!ev.key.repeat && !enh_paused() && enh_wheel_select_active()) {
-                        SDL_Keycode k = ev.key.keysym.sym;
-                        if (k == SDLK_LEFT || k == SDLK_a) enh_wheel_select_step(-1);
-                        else if (k == SDLK_RIGHT || k == SDLK_d) enh_wheel_select_step(1);
-                    }
-                    key(ev.key.keysym.sym, 1);
-                }
+                } else if (enh_name_entry_active() && !enh_paused()) name_key(ev.key.keysym.sym);
+                /* the other keys are the bindings', read each frame (wheel.c) */
                 break;
-            case SDL_KEYUP: key(ev.key.keysym.sym, 0); break;
             case SDL_TEXTINPUT:
                 if (enh_code_entry_active() && !(SDL_GetModState() & (KMOD_CTRL | KMOD_GUI)))
                     for (const char *p = ev.text.text; *p; p++) enh_code_key((unsigned char)*p);
@@ -915,6 +948,7 @@ int frontend_run(int scale, int scale_explicit) {
                 }
                 break;
             case SDL_CONTROLLERDEVICEADDED: open_pad(); break;
+            case SDL_JOYDEVICEADDED: case SDL_JOYDEVICEREMOVED: wheel_devices_changed(); break;
             case SDL_CONTROLLERDEVICEREMOVED:
                 if (pad_matches(ev.cdevice.which)) { g_rumble_testing = 0; update_rumble(0); close_pad(); open_pad(); }
                 break;
@@ -994,6 +1028,20 @@ int frontend_run(int scale, int scale_explicit) {
         }
 #endif
         menu_pad_repeat(SDL_GetTicks());
+        wheel_poll(g_input_focus, enh_menu_active() || enh_paused() || enh_code_entry_active() ? 2 :
+                                  enh_name_entry_active() ? 1 : 0);
+        wheel_actions(SDL_GetTicks());
+        {   /* a device bound since is no longer the gamepad; one freed can be it again */
+            static unsigned generation;
+            if (generation != wheel_generation()) {
+                generation = wheel_generation();
+                if (g_pad) {
+                    SDL_Joystick *j = SDL_GameControllerGetJoystick(g_pad);
+                    if (wheel_claims(SDL_JoystickGetVendor(j), SDL_JoystickGetProduct(j))) { g_rumble_testing = 0; update_rumble(0); close_pad(); }
+                }
+                open_pad();
+            }
+        }
         update_rumble((SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) &&
                       !enh_paused() && !enh_menu_active() && !enh_turbo() && !enh_inputs_owned());
         uint64_t now = SDL_GetPerformanceCounter();
@@ -1101,6 +1149,7 @@ int frontend_run(int scale, int scale_explicit) {
     }
     g_rumble_testing = 0;
     update_rumble(0);
+    wheel_shutdown();
     if (window_dirty) save_window(win);
     nvram_save();
 #ifdef VIPER_MOBILE

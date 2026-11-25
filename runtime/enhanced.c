@@ -21,6 +21,7 @@
 #include "runtime.h"
 #include "game_config.h"
 #include "modes.h"
+#include "wheel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -932,7 +933,10 @@ enum { T_START, T_OPTIONS, T_CREDITS, T_QUIT, T_GAME, T_SOUND, T_DISPLAY, T_BACK
        T_OTHER_VERSION, T_EXTRA, T_OTHER_GAME, T_STICK_RESPONSE, T_CONTROLS, T_RUMBLE, T_FRAME_RATE, T_SUPPORT,
        T_STEERING, T_TOUCH, T_TILT, T_NEARBY_HOST, T_NEARBY_LOOKING, T_GAMES_NEARBY,
        T_LOCAL_DENIED, T_LOCAL_DENIED_HOW, T_GAME_GONE, T_LEAVE, T_CLOSE, T_STAY,
-       T_DISCONNECTED, T_PASTE, T_JOIN_CODE, T_COUNT };
+       T_DISCONNECTED, T_PASTE, T_JOIN_CODE,
+       T_FFB, T_FFB_DEVICE, T_FFB_DIRECTION, T_FFB_TEST, T_FFB_DETECT, T_WHEEL_RANGE, T_WHEEL_DEADZONE, T_MAPPING,
+       T_AUTO, T_NORMAL, T_INVERTED, T_RESET, T_BIND_PRESS, T_BIND_TURN, T_BIND_HINT, T_NO_DEVICES, T_NOT_MOVED,
+       T_DONE, T_COUNT };
 static const char *const k_text[T_COUNT][2] = {
     { "START GAME", "INIZIA PARTITA" }, { "OPTIONS", "OPZIONI" }, { "CREDITS", "RICONOSCIMENTI" },
     { "QUIT", "ESCI" }, { "GAME", "GIOCO" }, { "SOUND", "AUDIO" }, { "DISPLAY", "SCHERMO" },
@@ -975,6 +979,17 @@ static const char *const k_text[T_COUNT][2] = {
     { "THE GAME IS NO LONGER NEARBY", "LA PARTITA NON E PIU VICINA" },
     { "LEAVE", "ESCI" }, { "CLOSE", "CHIUDI" }, { "STAY", "RESTA" },
     { "DISCONNECTED", "DISCONNESSO" }, { "PASTE", "INCOLLA" }, { "JOIN", "UNISCITI" },
+    { "WHEEL FORCE FEEDBACK", "FORCE FEEDBACK VOLANTE" }, { "FFB DEVICE", "DISPOSITIVO FFB" },
+    { "FFB DIRECTION", "DIREZIONE FFB" }, { "TEST FFB", "PROVA FFB" },
+    { "DETECT FFB DIRECTION", "RILEVA DIREZIONE FFB" }, { "WHEEL RANGE", "CORSA VOLANTE" },
+    { "WHEEL DEAD ZONE", "ZONA MORTA VOLANTE" }, { "INPUT MAPPING", "MAPPATURA COMANDI" },
+    { "AUTO", "AUTO" }, { "NORMAL", "NORMALE" }, { "INVERTED", "INVERTITA" },
+    { "RESET TO DEFAULTS", "RIPRISTINA PREDEFINITI" },
+    { "PRESS A KEY OR BUTTON, OR MOVE AN AXIS", "PREMI UN TASTO O MUOVI UN ASSE" },
+    { "TURN THE WHEEL TO THE RIGHT", "GIRA IL VOLANTE A DESTRA" },
+    { "ENTER ADDS A BINDING, LEFT REMOVES THE LAST", "INVIO AGGIUNGE, SINISTRA TOGLIE L ULTIMO" },
+    { "NO GAME DEVICE CONNECTED", "NESSUN DISPOSITIVO COLLEGATO" },
+    { "THE WHEEL DID NOT MOVE", "IL VOLANTE NON SI E MOSSO" }, { "DONE", "FATTO" },
 };
 static const char *const k_stick_response_name[] = { "LINEAR", "SOFT", "EXTRA SOFT" };
 static const char *const k_filtering_name[] = { "ORIGINAL", "DISABLED" };
@@ -1039,6 +1054,12 @@ static volatile int g_link_menu, g_link_cursor, g_link_left;   /* left: of the t
 static volatile int g_drop_id, g_drop_frames;
 #endif
 static int g_pause_controls, g_controls_cursor;
+/* CONTROLS, INPUT MAPPING (wheel.c): the actions with their bindings, over the options page or the
+ * pause menu's CONTROLS; rows: the actions, RESET TO DEFAULTS, BACK */
+static int g_bind_open;
+static volatile int g_bind_cursor;
+static int g_detect_result;                 /* DETECT FFB DIRECTION: 0 not run, 1 done, 2 the wheel did not move */
+#define BIND_ROWS (ACT_COUNT + 2)
 static volatile int g_returning;           /* MAIN MENU from the pause: back to the attract */
 /* link play: why the session ended, when the player did not leave it (host closed or gone),
  * shown over the menu for a few seconds once the game is back in the attract mode */
@@ -1072,6 +1093,8 @@ int enh_inputs_owned(void) { return g_returning; }   /* the return script drives
 /* Esc from the frontend: 1 if the enhanced mode handled it (pause, or back in a submenu) */
 int enh_escape(void) {
     if (!g_enhanced || !g_font || g_apply || g_returning || !g_booted) return 0;
+    if (g_bind_open && (g_paused || enh_menu_active())) { g_bind_open = 0; return 1; }
+    g_bind_open = 0;
     if (g_paused) { if (g_pause_controls) g_pause_controls=0; else g_paused=0; return 1; }
     if (enh_menu_active()) {
         if (g_screen == SCREEN_MAIN) return 0;      /* the main menu: Esc quits, as before */
@@ -1108,13 +1131,34 @@ static void change_steering(void) {
 #endif
 }
 
-/* the pause menu's CONTROLS: STICK RESPONSE, RUMBLE STRENGTH, STEERING (touch controls with tilt),
- * then BACK */
-enum { PC_STICK, PC_RUMBLE, PC_STEERING };
+static void bind_action(int action) {
+    switch (action) {
+    case ENH_UP: g_bind_cursor = (g_bind_cursor + BIND_ROWS - 1) % BIND_ROWS; break;
+    case ENH_DOWN: g_bind_cursor = (g_bind_cursor + 1) % BIND_ROWS; break;
+    case ENH_BACK: g_bind_open = 0; break;
+    case ENH_LEFT: if (g_bind_cursor < ACT_COUNT) wheel_bind_remove_last(g_bind_cursor); break;
+    case ENH_OK:
+        if (g_bind_cursor < ACT_COUNT) wheel_capture_begin(g_bind_cursor);
+        else if (g_bind_cursor == ACT_COUNT) wheel_bind_defaults();
+        else g_bind_open = 0;
+        break;
+    default: break;
+    }
+}
+
+static void change_ffb(int dir) { wheel_set_ffb_strength(wheel_ffb_strength() + dir * 10); }
+
+/* the pause menu's CONTROLS: STICK RESPONSE, RUMBLE STRENGTH, the wheel's force feedback, INPUT
+ * MAPPING, STEERING (touch controls with tilt), then BACK */
+enum { PC_STICK, PC_RUMBLE, PC_STEERING, PC_FFB, PC_MAPPING };
 static int pause_controls_items(int *items) {
     int n = 0;
     items[n++] = PC_STICK;
     items[n++] = PC_RUMBLE;
+#ifndef VIPER_MOBILE
+    items[n++] = PC_FFB;
+    items[n++] = PC_MAPPING;
+#endif
 #ifdef VIPER_MOBILE
     if (frontend_tilt_available()) items[n++] = PC_STEERING;
 #endif
@@ -1123,7 +1167,7 @@ static int pause_controls_items(int *items) {
 
 static void pause_action(int action) {
     if (g_pause_controls) {
-        int items[4], n = pause_controls_items(items), k = n + 1;
+        int items[8], n = pause_controls_items(items), k = n + 1;
         switch (action) {
         case ENH_UP: g_controls_cursor = (g_controls_cursor + k - 1) % k; break;
         case ENH_DOWN: g_controls_cursor = (g_controls_cursor + 1) % k; break;
@@ -1132,6 +1176,8 @@ static void pause_action(int action) {
             if (g_controls_cursor >= n) { if (action == ENH_OK) g_pause_controls = 0; }
             else if (items[g_controls_cursor] == PC_STICK) change_stick_response(action == ENH_LEFT ? -1 : 1);
             else if (items[g_controls_cursor] == PC_RUMBLE) change_rumble(action == ENH_LEFT ? -1 : 1);
+            else if (items[g_controls_cursor] == PC_FFB) change_ffb(action == ENH_LEFT ? -1 : 1);
+            else if (items[g_controls_cursor] == PC_MAPPING) { if (action == ENH_OK) { g_bind_open = 1; g_bind_cursor = 0; } }
             else change_steering();
             break;
         default: break;
@@ -1172,6 +1218,16 @@ static int page_rows(int page, int *rows) {
     if (page == PAGE_CONTROLS) {
         rows[n++] = -9;
         rows[n++] = -5;
+#ifndef VIPER_MOBILE                           /* wheels and the bindings (wheel.c) */
+        rows[n++] = -20;
+        rows[n++] = -21;
+        rows[n++] = -22;
+        rows[n++] = -27;
+        rows[n++] = -23;
+        rows[n++] = -24;
+        rows[n++] = -25;
+        rows[n++] = -26;
+#endif
 #ifdef VIPER_MOBILE
         if (frontend_tilt_available()) rows[n++] = -13;
 #endif
@@ -1197,6 +1253,14 @@ static int page_rows(int page, int *rows) {
 static void page_change(int row, int dir) {
     if (row == -9) { change_stick_response(dir); return; }
     if (row == -5) { change_rumble(dir); return; }
+    if (row == -20) { change_ffb(dir); return; }
+    if (row == -21) { wheel_ffb_device_step(dir); return; }
+    if (row == -22) { wheel_set_ffb_invert(!wheel_ffb_invert()); return; }
+    if (row == -23) { wheel_ffb_test(); return; }
+    if (row == -24) { wheel_set_range(wheel_range() + dir * 5); return; }
+    if (row == -25) { wheel_set_deadzone(wheel_deadzone() + dir); return; }
+    if (row == -26) { g_bind_open = 1; g_bind_cursor = 0; return; }
+    if (row == -27) { g_detect_result = wheel_ffb_detect() ? 1 : 2; return; }
     if (row == -13) { change_steering(); return; }
     if (row == -10) { g_set.filtering = !g_set.filtering; voodoo_set_filtering(g_set.filtering); settings_save(); return; }
     /* the renderer changes with the window's kind: applied by the restart on leaving OPTIONS */
@@ -1418,6 +1482,7 @@ static void link_action(int action) {          /* a tap on STAY or LEAVE (ENH_OK
 #endif
 
 void enh_menu_action(int action) {
+    if (g_bind_open && (g_paused || enh_menu_active())) { bind_action(action); return; }
     if (g_paused) { pause_action(action); return; }
 #ifdef VIPER_P2P
     if (enh_link_menu_active()) { link_action(action); return; }
@@ -1672,19 +1737,81 @@ static const char *rumble_text(char *buf, size_t n) {
     return buf;
 }
 
+static const char *ffb_text(char *buf, size_t n) {
+    if (!wheel_ffb_strength()) return T(T_OFF);
+    snprintf(buf, n, "%d", wheel_ffb_strength());
+    return buf;
+}
+
+/* INPUT MAPPING: each action with its bindings, the row being bound asking for the input; below,
+ * the devices found (J1, J2, ... as the bindings name them) */
+static void draw_bind(uint32_t *fb, int w, int h) {
+    const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0;
+    const int z = FONT_SMALL, fh = font_height(z), step = fh + 3, left = 40, right = w - 40, y0 = 62;
+    int lang = menu_language(), ndev = wheel_device_count(), cap = wheel_capture_active();
+    int dev_lines = ndev > 4 ? 4 : ndev < 1 ? 1 : ndev;
+    int bottom = h - 6 - (dev_lines + 1) * (fh + 2);
+    static int top;
+    int fit = (bottom - 4 - y0) / step, vis = BIND_ROWS, cur = g_bind_cursor;
+    dim_rect(fb, w, h, 0, 0, w, h, 235);
+    draw_centered(fb, w, h, FONT_LARGE, 14, T(T_MAPPING), yellow);
+    if (fit < 1) fit = 1;
+    if (vis > fit) {
+        vis = fit;
+        if (cur < top) top = cur;
+        if (cur >= top + vis) top = cur - vis + 1;
+        if (top > BIND_ROWS - vis) top = BIND_ROWS - vis;
+        if (top < 0) top = 0;
+    } else top = 0;
+    if (top > 0) draw_arrow(fb, w, h, w / 2, y0 - 2 - ARROW_H, 1, grey);
+    if (top + vis < BIND_ROWS) draw_arrow(fb, w, h, w / 2, y0 + vis * step - 2, 0, grey);
+    int y = y0;
+    for (int i = top; i < top + vis; i++, y += step) {
+        uint32_t col = i == cur ? yellow : white;
+        char value[160] = "";
+        const char *label = i == ACT_COUNT ? T(T_RESET) : i > ACT_COUNT ? T(T_BACK) : wheel_action_name(i, lang);
+        if (i < ACT_COUNT && cap == i) snprintf(value, sizeof value, "%s", T(i == ACT_STEER ? T_BIND_TURN : T_BIND_PRESS));
+        else if (i < ACT_COUNT)
+            for (int k = 0; k < wheel_bind_count(i); k++) {
+                char one[48];
+                size_t len = strlen(value);
+                wheel_bind_text(i, k, one, sizeof one);
+                snprintf(value + len, sizeof value - len, "%s%s", len ? ",  " : "", one);
+            }
+        if (i < ACT_COUNT && cap == i) draw_centered(fb, w, h, z, y, value, yellow);   /* the row asks, alone */
+        else {
+            draw_text(fb, w, h, z, left, y, label, col);
+            draw_text(fb, w, h, z, right - text_width(z, value), y, value, col);
+        }
+        hit_row(&g_bind_cursor, i, w, y, z);
+    }
+    y = bottom;
+    draw_centered(fb, w, h, z, y, T(T_BIND_HINT), grey);
+    y += fh + 2;
+    if (!ndev) draw_centered(fb, w, h, z, y, T(T_NO_DEVICES), grey);
+    for (int i = 0; i < ndev && i < 4; i++, y += fh + 2) {
+        char line[160];
+        wheel_device_text(i, line, sizeof line);
+        draw_centered(fb, w, h, z, y, line, grey);
+    }
+}
+
 /* the pause menu's CONTROLS, drawn as an options page */
 static void draw_pause_controls(uint32_t *fb, int w, int h, int cursor) {
     const int z = FONT_MEDIUM, step = font_height(z) + 4, left = 40, right = w - 40;
     char buf[16];
-    int items[4], n = pause_controls_items(items);
+    int items[8], n = pause_controls_items(items);
     dim_rect(fb, w, h, 0, 0, w, h, 190);
     draw_centered(fb, w, h, FONT_LARGE, 24, T(T_CONTROLS), 0xffd800);
     int y = 90;
     for (int i = 0; i < n; i++, y += step) {
         uint32_t col = i == cursor ? 0xffd800 : 0xffffff;
-        const char *label = items[i] == PC_STICK ? T(T_STICK_RESPONSE) : items[i] == PC_RUMBLE ? T(T_RUMBLE) : T(T_STEERING);
+        const char *label = items[i] == PC_STICK ? T(T_STICK_RESPONSE) : items[i] == PC_RUMBLE ? T(T_RUMBLE)
+                          : items[i] == PC_FFB ? T(T_FFB) : items[i] == PC_MAPPING ? T(T_MAPPING) : T(T_STEERING);
         const char *value = items[i] == PC_STICK ? k_stick_response_name[frontend_stick_response()]
-                          : items[i] == PC_RUMBLE ? rumble_text(buf, sizeof buf) : T(frontend_steering_mode() ? T_TILT : T_TOUCH);
+                          : items[i] == PC_RUMBLE ? rumble_text(buf, sizeof buf)
+                          : items[i] == PC_FFB ? ffb_text(buf, sizeof buf) : items[i] == PC_MAPPING ? ""
+                          : T(frontend_steering_mode() ? T_TILT : T_TOUCH);
         draw_text(fb, w, h, z, left, y, label, col);
         draw_text(fb, w, h, z, right - text_width(z, value), y, value, col);
         hit_row(&g_controls_cursor, i, w, y, z);
@@ -1722,6 +1849,7 @@ void enh_draw_overlay(uint32_t *fb, int w, int h) {
         }
     }
     if (g_paused && g_pause_controls) draw_pause_controls(fb, w, h, g_controls_cursor);
+    if (g_paused && g_bind_open) draw_bind(fb, w, h);
 #ifdef VIPER_P2P
     if (enh_link_menu_active()) {                    /* the question, small, the race going on */
         NetStatus st;
@@ -1935,6 +2063,7 @@ static void draw_net(uint32_t *fb, int w, int h) {
 
 static void draw_menu(uint32_t *fb, int w, int h) {
     const uint32_t white = 0xffffff, yellow = 0xffd800, grey = 0xc0c0c0;
+    if (g_bind_open) { draw_bind(fb, w, h); return; }
     if (g_screen == SCREEN_NET || g_screen == SCREEN_NET_JOIN) { draw_net(fb, w, h); return; }
     int lang = menu_language();
     if (g_screen == SCREEN_MAIN) {
@@ -2015,6 +2144,14 @@ static void draw_menu(uint32_t *fb, int w, int h) {
             }
             else if (rows[i] == -9) { label = T(T_STICK_RESPONSE); value = k_stick_response_name[frontend_stick_response()]; }
             else if (rows[i] == -5) { label = T(T_RUMBLE); value = rumble_text(buf, sizeof buf); }
+            else if (rows[i] == -20) { label = T(T_FFB); value = ffb_text(buf, sizeof buf); }
+            else if (rows[i] == -21) { label = T(T_FFB_DEVICE); value = wheel_ffb_device_name() ? wheel_ffb_device_name() : T(T_AUTO); }
+            else if (rows[i] == -22) { label = T(T_FFB_DIRECTION); value = T(wheel_ffb_invert() ? T_INVERTED : T_NORMAL); }
+            else if (rows[i] == -23) { label = T(T_FFB_TEST); value = wheel_ffb_status(); }
+            else if (rows[i] == -27) { label = T(T_FFB_DETECT); value = g_detect_result == 1 ? T(T_DONE) : g_detect_result == 2 ? T(T_NOT_MOVED) : ""; }
+            else if (rows[i] == -24) { label = T(T_WHEEL_RANGE); snprintf(buf, sizeof buf, "%d", wheel_range()); value = buf; }
+            else if (rows[i] == -25) { label = T(T_WHEEL_DEADZONE); snprintf(buf, sizeof buf, "%d", wheel_deadzone()); value = buf; }
+            else if (rows[i] == -26) { label = T(T_MAPPING); value = ""; }
             else if (rows[i] == -13) { label = T(T_STEERING); value = T(frontend_steering_mode() ? T_TILT : T_TOUCH); }
             else if (rows[i] == -10) { label = T(T_FILTERING); value = k_filtering_name[g_set.filtering]; }
             else if (rows[i] == -11) { label = T(T_RENDERER); value = k_renderer_name[g_set.renderer]; }

@@ -307,6 +307,16 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
       the pad's motor of that side (left: low frequency, right: high frequency), the other at
       35%. Changes are sent at most every 50 ms (a Switch Pro controller over Bluetooth
       disconnects otherwise), stops at once. Off in the menus, the pause, out of focus;
+    - On a steering wheel (Windows, `wheel.c`) the same byte is a DirectInput constant force
+      on the wheel's motor, linear this time: torque / 15 × the strength option, the sign from
+      bit 4 (DirectInput's sign is where the force comes from, so a pull to the right is
+      negative; an option inverts it, and a detection pushes the wheel and watches the steering
+      axis). The effect is on one axis, the one the device flags as its actuator, else the
+      steering binding's axis; the device is taken exclusively in the background for it, and
+      every 500 ms the effect's status is checked and the device taken back if it was lost. A
+      base that is several DirectInput devices of one product name (Fanatec) keeps them all;
+      the motor is tried on the steering device and then on its namesakes, those that report a
+      motor first, and the one on which the effect starts is used;
   - **K056230 LANC** (registers and 8 KB of RAM, needed by the boot self-test);
   - 16552 UART (output goes to the log);
   - serial port at `0xFF300000`;
@@ -373,6 +383,15 @@ The modules use the PowerOpen/AIX ABI: function pointers are descriptors `{code,
   - All graphics go through the **Command FIFO** in VRAM, which the game writes through the
     linear framebuffer (BAR1).
 
+- **Bindings** (`wheel.c`): each action (steering axis, steer left/right, accelerator, brake,
+  handbrake, shifter, START, COIN, TEST, SERVICE, pause, the menus' moves) has up to four
+  bindings: keys (SDL scancodes) and, on Windows, buttons, hats and axes of every DirectInput
+  game device attached except Xbox pads and vJoy. A device is remembered as "VID:PID product
+  name" (with its shape, `[A8 B108]`, when several share the name) and found again by that id,
+  else by its name, else by its product with what is bound present. The frontend reads the
+  actions once per loop as held state; the keys of a menu or of the name entry stay released
+  for the game until let go. A bound steering axis positions the wheel directly, without the
+  ramp of the keys and the stick. `<binary>_controls.ini` holds them for both modes.
 - **SDL2 frontend** (`frontend_sdl.c`):
   - The main thread handles the window, events and vsync presentation. The window is 512×384,
     scaled 2× by default and resizable; F11 toggles fullscreen.

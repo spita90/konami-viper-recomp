@@ -6,6 +6,7 @@
  * at 0x10 with MSR = 0x2070 (FP, IP, IR, DR).
  */
 #include "runtime.h"
+#include "wheel.h"
 #include "modules.h"
 #include "game_config.h"
 #include <stdarg.h>
@@ -497,6 +498,7 @@ int main(int argc, char **argv) {
     atexit(net_shutdown);
     enh_set_headless(headless);
     enh_init(work, settings);
+    wheel_init(settings);                /* the bindings, next to the port settings */
     if (!headless && enh_want_gpu()) voodoo_set_gpu(1);  /* the frontend falls back if it cannot */
     if (headless && getenv("RT_GPU_BENCH")) voodoo_set_gpu(1);   /* benchmark: GPU without a window */
 #ifdef VIPER_MOBILE

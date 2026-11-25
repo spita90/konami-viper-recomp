@@ -2,6 +2,7 @@
  * (enhanced.c, one file per mode). No ROMs: game_config.h comes from a profile. */
 #include "window_state.h"
 #include "../runtime/enhanced.c"
+#include "fixtures/wheel_stubs.h"
 #include <assert.h>
 
 /* what enhanced.c calls outside these tests */

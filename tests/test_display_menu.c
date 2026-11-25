@@ -1,4 +1,5 @@
 #include "../runtime/enhanced.c"
+#include "fixtures/wheel_stubs.h"
 #include <assert.h>
 uint8_t *g_ram;
 static int applied_filter;

@@ -7,6 +7,23 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Added
+
+- Steering wheels on Windows (`runtime/wheel.c`, DirectInput): every USB game device attached
+  is found by itself (wheel bases, pedals, shifters, handbrakes, button boxes) and remembered
+  by its USB ids and name. The games' own force feedback (the cabinet's K-type motor command)
+  plays as a constant force on the wheel's motor; a base that is two devices of one name
+  (Fanatec) is handled, the motor being looked for among them.
+- INPUT MAPPING (OPTIONS → CONTROLS and the pause menu): every action can be bound, with up to
+  four bindings each from any keys and devices, kept in `<executable>_controls.ini` for both
+  modes. CONTROLS also has the wheel's force feedback strength, device and direction (with a
+  detection), a test, the wheel's range and dead zone.
+
+### Changed
+
+- The keyboard is read through the bindings each frame instead of key events; the default keys
+  are the same.
+
 ## [0.22.0] - 2026-11-24
 
 ### Added

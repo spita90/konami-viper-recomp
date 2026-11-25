@@ -1,5 +1,6 @@
 /* Exercise the actual frontend input path with SDL virtual controllers, no ROMs/window. */
 #include "../runtime/frontend_sdl.c"
+#include "fixtures/wheel_stubs.h"
 #include <assert.h>
 #include <stdio.h>
 uint8_t g_in[8];
@@ -101,11 +102,11 @@ int main(void) {
     axis(SDL_CONTROLLER_AXIS_RIGHTY, 32767); apply_inputs(.016); assert(g_analog[2] == 200 && g_analog[1] == -200);
     axis(SDL_CONTROLLER_AXIS_RIGHTY, 0);
     axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 0);
-    key(SDLK_w, 1); apply_inputs(.016); assert(g_analog[1] == 200);
+    g_test_value[ACT_GAS] = 1; apply_inputs(.016); assert(g_analog[1] == 200);
     button(SDL_CONTROLLER_BUTTON_A, 1); pad_button(SDL_CONTROLLER_BUTTON_A, 1);
-    key(SDLK_w, 0); apply_inputs(.016); assert(g_analog[1] == 200);
-    key(SDLK_w, 1); close_pad(); apply_inputs(.016); assert(g_analog[1] == 200);
-    key(SDLK_w, 0); apply_inputs(.016); assert(g_analog[1] == -200);
+    g_test_value[ACT_GAS] = 0; apply_inputs(.016); assert(g_analog[1] == 200);
+    g_test_value[ACT_GAS] = 1; close_pad(); apply_inputs(.016); assert(g_analog[1] == 200);
+    g_test_value[ACT_GAS] = 0; apply_inputs(.016); assert(g_analog[1] == -200);
     open_pad(); button(SDL_CONTROLLER_BUTTON_A, 0);axis(SDL_CONTROLLER_AXIS_RIGHTY, -32768);
     g_input_focus = 0; apply_inputs(.016); assert(g_analog[1] == -200);
     g_input_focus = 1; menu_active = 1; apply_inputs(.016); assert(g_analog[1] == -200);

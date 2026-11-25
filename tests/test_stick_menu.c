@@ -1,4 +1,5 @@
 #include "../runtime/enhanced.c"
+#include "fixtures/wheel_stubs.h"
 #include <assert.h>
 static int stick_response=2;
 int frontend_stick_response(void) { return stick_response; }
