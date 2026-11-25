@@ -76,7 +76,8 @@ technical design is in [ARCHITECTURE.md](ARCHITECTURE.md).
     default). With EXTRA SOFT, half of the stick's travel turns the wheel an eighth, for finer
     steering near the centre; full travel is still full lock. And the rumble strength, from
     OFF to 4.0X (1.0X by default; see [Rumble](#rumble)). Also in the pause menu, and they
-    apply at once.
+    apply at once. On Windows also the wheel's force feedback and INPUT MAPPING, the bindings
+    of every action (see [Steering wheels](#steering-wheels-and-force-feedback)).
 - **Saving the options:** game and sound options are the game's own TEST MODE settings, stored
   in its NVRAM. The game reads them only at boot, so on leaving OPTIONS it restarts, which takes
   a few seconds. Display options are saved in `<executable>_enhanced_settings.ini`
@@ -181,6 +182,52 @@ everything held. These variables tune it (classic mode too), for example
 | `RT_STEER_SPEED`      | `4`     | 1–100 | steering travel per second, centre to full lock          |
 
 F9 logs the raw stick and the steering sent to the game, ten times a second.
+
+### Steering wheels and force feedback
+
+On Windows the ports use every USB game device that is attached, through DirectInput: a wheel
+base, pedals, a shifter, a handbrake, a button box, an arcade encoder. Nothing is chosen from a
+list of known models, and nothing is bound until you bind it (Xbox pads keep the layout above).
+
+- **INPUT MAPPING** (OPTIONS → CONTROLS, or the pause menu's CONTROLS) lists every action: the
+  steering axis, steer left and right, accelerator, brake, handbrake, shift up and down, START
+  (also the view), COIN, TEST, SERVICE, pause and the menus' six moves. Enter on an action waits
+  ten seconds for a key, a button, a hat direction or an axis and adds it; Left removes the last
+  one; Esc cancels. Each action takes up to four bindings, from any devices: the keyboard and a
+  wheel together, two shifters, and so on. RESET TO DEFAULTS brings back the keys of the table
+  above.
+  - An axis is learned as it is bound: which way it moves, and whether it rests at one end (a
+    pedal) or in the middle. For the steering axis, turn the wheel to the right.
+  - The menus keep their own keys (arrows, WASD, Enter, 1, Backspace, Esc), which cannot be
+    taken away; the menu actions are for a wheel's buttons and hat.
+  - The devices found are listed below the actions as J1, J2, ..., as the bindings name them.
+- **The devices are remembered** by their USB ids and product name, not by the order Windows
+  lists them in, in `<executable>_controls.ini` next to the executable (`td2_controls.ini`),
+  shared by the enhanced and the classic mode. The file can be edited by hand; its comments
+  give the format.
+- **A base that is two devices.** A Fanatec base shows up in Windows as two devices with the
+  same name, and only one of them has the motor (not always the one that steers). Both are
+  kept and told apart by their shape (`FANATEC Wheel [A8 B108]`), and the force feedback looks
+  for the motor among the devices of the same name: the one on which the effect really starts
+  is used.
+- **Force feedback** is the game's own. The games drive the cabinet's steering motor (on or
+  off, left or right, a torque of 0 to 15), and that command becomes a constant force on the
+  wheel's motor: the centring, the kerbs and the crashes come from the game. It plays in a
+  race and stops in the menus, in the pause and when the window loses the focus.
+  - WHEEL FORCE FEEDBACK is its strength in percent: 100 is the cabinet motor's torque as it
+    is, 0 turns it off, up to 200.
+  - FFB DEVICE is AUTO (the steering device and those of the same name, else the first device
+    with a motor) or one device.
+  - FFB DIRECTION: if the wheel pulls away from the centre instead of towards it, switch it to
+    INVERTED, or let DETECT FFB DIRECTION find it: it pushes the wheel briefly and watches which
+    way it turns (let go of the wheel; nothing has to be bound for it).
+  - TEST FFB shakes the wheel for a moment; its value says OK, or why no motor was found
+    (another program holding the wheel is the usual reason).
+- WHEEL RANGE is the part of the axis that is full lock, in percent (lower it on a 900 degree
+  wheel, or set the rotation in the wheel's own software: the cabinets turn about 270
+  degrees); WHEEL DEAD ZONE a dead zone around the centre.
+- A device with bindings is no longer used as a gamepad too. Linux and macOS have no device
+  backend yet: there the keyboard bindings of the file work, wheels do not.
 
 ### Rumble
 

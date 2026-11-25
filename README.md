@@ -126,6 +126,10 @@ The files are checked by their SHA1 before the build; the list is in the
 | Fullscreen                                             | F11                                           | —                    |
 | Quit                                                   | Esc (enhanced: Esc in the main menu, or QUIT) | Guide, as Esc        |
 
+On Windows, steering wheels, pedals, shifters and any other USB game device work too, with the
+games' own force feedback on the wheel and every action free to bind (OPTIONS → CONTROLS → INPUT
+MAPPING): see the [guide](docs/GUIDE.md#steering-wheels-and-force-feedback).
+
 ## Extra modes
 
 EXTRA in the main menu (enhanced mode) starts a race with different rules, in every version:
