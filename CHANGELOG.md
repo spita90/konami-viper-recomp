@@ -7,6 +7,13 @@ version can change the build, the profiles or the command-line options.
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows, FRAME RATE 60 or 120: the frames in between stuttered where the graphics driver
+  queues frames (measured on NVIDIA: the buffer swap returned at once, in bursts 8 to 25 ms
+  apart, and about one frame in 27 missed its vsync). The frontend now waits for the GPU after
+  each swap (`RT_GL_FINISH=0` turns that off).
+
 ## [0.22.0] - 2026-11-24
 
 ### Added
