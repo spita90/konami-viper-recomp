@@ -1669,11 +1669,21 @@ void gpu_gl_frame(SDL_Window *win, const uint32_t *overlay, int ow, int oh, uint
 	}
 	uint64_t const s0 = SDL_GetPerformanceCounter();
 	SDL_GL_SwapWindow(win);
-	// RT_GL_FINISH=1 (a test): wait for the GPU after the swap, so that the swap returns at the
-	// vsync even where the driver queues frames (as RetroArch's "hard GPU sync")
+	// wait for the GPU after the swap, so that the swap returns at the vsync even where the
+	// driver queues frames (as RetroArch's "hard GPU sync"). On Windows by default: measured on
+	// an NVIDIA driver at 60 Hz, the swap otherwise returns at once and the loop's turns come
+	// 8-25 ms apart, which puts the frames in between on the wrong vsyncs (90 of 2400 missed in a
+	// race, 7 with it, the turns 16.4-16.9 ms apart). RT_GL_FINISH=1 turns it on elsewhere, =0 off.
 	static int finish = -1;
 	if (finish < 0)
-		finish = getenv("RT_GL_FINISH") != nullptr;
+	{
+		char const *e = getenv("RT_GL_FINISH");
+#ifdef _WIN32
+		finish = !e || atoi(e) != 0;
+#else
+		finish = e && atoi(e) != 0;
+#endif
+	}
 	if (finish)
 		G.Finish();
 	uint64_t const s1 = SDL_GetPerformanceCounter();

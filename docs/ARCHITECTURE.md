@@ -1900,7 +1900,10 @@ Recompiled-side tools:
   the vsyncs and frames in between shown, and a second line: the swaps (average and longest, how
   far apart they return), the game's thread (time it waited for the lists, how far behind real
   time, resyncs, the frames in between's CPU time) and the audio frames missing;
-- `RT_GL_FINISH=1`: `glFinish` after each swap (a hard GPU sync), to compare;
+- `RT_GL_FINISH=1`: `glFinish` after each swap (a hard GPU sync). On Windows it is the default
+  (`RT_GL_FINISH=0` turns it off): on an NVIDIA driver at 60 Hz the swap returned at once and
+  the loop's turns came 8–25 ms apart, so 90 of 2400 frames in between missed their vsync in a
+  race; with it the turns are 16.4–17.0 ms apart and 7–10 miss;
 - `RT_PROFILE=seconds`: a virtual-time profiler;
 - `RT_I2C_LOG=1`, `RT_SC_LOG=1`, `RT_BP=…`;
 - `RT_MMIO_FROM=seconds` starts the `RT_MMIO_LOG` log at that emulated time;
